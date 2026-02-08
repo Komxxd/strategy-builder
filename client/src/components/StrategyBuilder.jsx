@@ -19,10 +19,8 @@ export const StrategyBuilder = ({ userId }) => {
 
     const [config, setConfig] = useState({
         index: 'NIFTY',
-        stop_loss: 10,
-        sl_limit_margin: 0,
-        entry_time: '09:20',
-        exit_time: '15:15',
+        entry_time: '09:20:00',
+        exit_time: '15:15:00',
         variety: 'NORMAL',
         ordertype: 'MARKET',
         producttype: 'INTRADAY',
@@ -32,7 +30,7 @@ export const StrategyBuilder = ({ userId }) => {
         squareoff: '0',
         stoploss: '0',
         legs: [
-            { option_type: 'CE', strike: 'OTM1', side: 'BUY', lots: 1 }
+            { option_type: 'CE', strike: 'OTM1', side: 'BUY', lots: 1, stop_loss: 10, sl_limit_margin: 0 }
         ]
     });
 
@@ -169,27 +167,9 @@ export const StrategyBuilder = ({ userId }) => {
                             </Select>
                         </div>
 
-                        <div className="space-y-2">
-                            <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Stop Loss (%)</Label>
-                            <Input
-                                className="h-11 rounded-xl"
-                                type="number"
-                                value={config.stop_loss}
-                                onChange={(e) => setConfig({ ...config, stop_loss: parseFloat(e.target.value) })}
-                            />
-                            <p className="text-[10px] text-muted-foreground italic">Calculated from entry price</p>
-                        </div>
 
-                        <div className="space-y-2">
-                            <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">SL Limit Margin (Points)</Label>
-                            <Input
-                                className="h-11 rounded-xl"
-                                type="number"
-                                value={config.sl_limit_margin}
-                                onChange={(e) => setConfig({ ...config, sl_limit_margin: parseFloat(e.target.value) })}
-                            />
-                            <p className="text-[10px] text-muted-foreground italic">Added to trigger price for SL-L</p>
-                        </div>
+
+
 
                     </div>
 
@@ -202,7 +182,7 @@ export const StrategyBuilder = ({ userId }) => {
                             variant="outline"
                             className="h-9 gap-2 rounded-xl"
                             onClick={() => {
-                                const next = [...config.legs, { option_type: 'CE', strike: 'ATM', side: 'BUY', lots: 1 }];
+                                const next = [...config.legs, { option_type: 'CE', strike: 'ATM', side: 'BUY', lots: 1, stop_loss: 10, sl_limit_margin: 0 }];
                                 setConfig({ ...config, legs: next });
                             }}
                         >
@@ -316,6 +296,34 @@ export const StrategyBuilder = ({ userId }) => {
                                                 }}
                                             />
                                         </div>
+
+                                        <div className="space-y-2">
+                                            <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Stop Loss (%)</Label>
+                                            <Input
+                                                className="h-11 rounded-xl"
+                                                type="number"
+                                                value={leg.stop_loss}
+                                                onChange={(e) => {
+                                                    const next = [...config.legs];
+                                                    next[legIndex] = { ...next[legIndex], stop_loss: parseFloat(e.target.value) };
+                                                    setConfig({ ...config, legs: next });
+                                                }}
+                                            />
+                                        </div>
+
+                                        <div className="space-y-2">
+                                            <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">SL Margin (Pts)</Label>
+                                            <Input
+                                                className="h-11 rounded-xl"
+                                                type="number"
+                                                value={leg.sl_limit_margin}
+                                                onChange={(e) => {
+                                                    const next = [...config.legs];
+                                                    next[legIndex] = { ...next[legIndex], sl_limit_margin: parseFloat(e.target.value) };
+                                                    setConfig({ ...config, legs: next });
+                                                }}
+                                            />
+                                        </div>
                                     </div>
                                 </div>
                             );
@@ -389,6 +397,7 @@ export const StrategyBuilder = ({ userId }) => {
                             <Input
                                 className="h-11 rounded-xl"
                                 type="time"
+                                step="1"
                                 value={config.entry_time}
                                 onChange={(e) => setConfig({ ...config, entry_time: e.target.value })}
                             />
@@ -401,6 +410,7 @@ export const StrategyBuilder = ({ userId }) => {
                             <Input
                                 className="h-11 rounded-xl"
                                 type="time"
+                                step="1"
                                 value={config.exit_time}
                                 onChange={(e) => setConfig({ ...config, exit_time: e.target.value })}
                             />
@@ -549,37 +559,37 @@ export const StrategyBuilder = ({ userId }) => {
                                                     {s.status}
                                                 </span>
                                             </td>
-                                    <td className="px-4 py-3 font-mono font-bold">
-                                        {s.status === 'SAVED' ? (
-                                            <div className="flex items-center gap-2">
-                                                <Button
-                                                    size="sm"
-                                                    className="h-7 px-3 gap-1 rounded-lg text-[10px]"
-                                                    onClick={() => handleExecute(s.id)}
-                                                >
-                                                    <Play className="h-3 w-3" /> Execute
-                                                </Button>
-                                                <Button
-                                                    size="sm"
-                                                    variant="outline"
-                                                    className="h-7 px-3 gap-1 rounded-lg text-[10px]"
-                                                    onClick={() => handleEdit(s)}
-                                                >
-                                                    Edit
-                                                </Button>
-                                                <Button
-                                                    size="sm"
-                                                    variant="destructive"
-                                                    className="h-7 px-3 gap-1 rounded-lg text-[10px]"
-                                                    onClick={() => handleDelete(s.id)}
-                                                >
-                                                    Delete
-                                                </Button>
-                                            </div>
-                                        ) : (
-                                            (s.final_pnl_percent !== null && s.final_pnl_percent !== undefined) ? (
-                                                <span className={s.final_pnl_percent >= 0 ? 'text-emerald-600' : 'text-red-600'}>
-                                                    {s.final_pnl_percent > 0 ? '+' : ''}{Number(s.final_pnl_percent).toFixed(2)}%
+                                            <td className="px-4 py-3 font-mono font-bold">
+                                                {s.status === 'SAVED' ? (
+                                                    <div className="flex items-center gap-2">
+                                                        <Button
+                                                            size="sm"
+                                                            className="h-7 px-3 gap-1 rounded-lg text-[10px]"
+                                                            onClick={() => handleExecute(s.id)}
+                                                        >
+                                                            <Play className="h-3 w-3" /> Execute
+                                                        </Button>
+                                                        <Button
+                                                            size="sm"
+                                                            variant="outline"
+                                                            className="h-7 px-3 gap-1 rounded-lg text-[10px]"
+                                                            onClick={() => handleEdit(s)}
+                                                        >
+                                                            Edit
+                                                        </Button>
+                                                        <Button
+                                                            size="sm"
+                                                            variant="destructive"
+                                                            className="h-7 px-3 gap-1 rounded-lg text-[10px]"
+                                                            onClick={() => handleDelete(s.id)}
+                                                        >
+                                                            Delete
+                                                        </Button>
+                                                    </div>
+                                                ) : (
+                                                    (s.final_pnl_percent !== null && s.final_pnl_percent !== undefined) ? (
+                                                        <span className={s.final_pnl_percent >= 0 ? 'text-emerald-600' : 'text-red-600'}>
+                                                            {s.final_pnl_percent > 0 ? '+' : ''}{Number(s.final_pnl_percent).toFixed(2)}%
                                                         </span>
                                                     ) : '---'
                                                 )}

@@ -74,15 +74,16 @@ async function placeOrder(config, instrument, connectionId) {
     };
 
     try {
-        console.log("Placing order:", orderParams);
+        console.log(`[${new Date().toISOString()}] Placing order:`, orderParams);
         const api = await getAuthorizedInstance(connectionId);
         const response = await api.placeOrder(orderParams);
         if (response.status && response.data) {
+            console.log(`[${new Date().toISOString()}] Order placed successfully:`, response.data.orderid);
             return response.data; // contains orderid and uniqueorderid
         }
         throw new Error(response.message || "Order placement failed");
     } catch (error) {
-        console.error("Order placement failed:", error);
+        console.error(`[${new Date().toISOString()}] Order placement failed:`, error);
         throw error;
     }
 }
@@ -122,12 +123,12 @@ async function waitForOrderFillPrice(uniqueOrderId, connectionId, timeoutMs = 60
     return null;
 }
 
-async function placeStopLossExitOrder({ baseConfig, legSide, entryPrice, instrument, lots }) {
+async function placeStopLossExitOrder({ baseConfig, legSide, entryPrice, instrument, lots, stopLossPercent, slLimitMargin }) {
     const prices = computeStopLossExitPrices(
         entryPrice,
         legSide,
-        baseConfig.stop_loss,
-        baseConfig.sl_limit_margin
+        stopLossPercent,
+        slLimitMargin
     );
     if (!prices) return null;
 
@@ -174,7 +175,7 @@ async function executeStrategy(strategyId) {
     // Check loop
     const interval = setInterval(async () => {
         const now = new Date();
-        const currentTime = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+        const currentTime = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}`;
 
         if (strategy.status === "WAITING" && currentTime >= config.entry_time) {
             if (strategy.entryAttempted) {
@@ -274,14 +275,16 @@ async function executeStrategy(strategyId) {
                                 legSide: leg.leg.side,
                                 entryPrice: leg.entryPrice,
                                 instrument: leg.instrument,
-                                lots: leg.leg.lots
+                                lots: leg.leg.lots,
+                                stopLossPercent: leg.leg.stop_loss,
+                                slLimitMargin: leg.leg.sl_limit_margin
                             });
                             if (slOrder?.orderid) {
                                 const prices = computeStopLossExitPrices(
                                     leg.entryPrice,
                                     leg.leg.side,
-                                    config.stop_loss,
-                                    config.sl_limit_margin
+                                    leg.leg.stop_loss,
+                                    leg.leg.sl_limit_margin
                                 );
                                 leg.slOrderId = slOrder.orderid;
                                 leg.slUniqueOrderId = slOrder.uniqueorderid;
@@ -339,30 +342,33 @@ async function executeStrategy(strategyId) {
 
                 console.log(`Strategy ${strategyId}: Avg PnL%=${avgPnl.toFixed(2)}%`);
 
-                // Check Stop Loss (%) only if we didn't place SmartAPI SL orders
-                if (config.variety !== "STOPLOSS" && avgPnl <= -config.stop_loss) {
-                    console.log(`Stop Loss hit for ${strategyId}: PnL%=${avgPnl.toFixed(2)}%`);
-                    const exitOrders = await Promise.all(strategy.legs.map(async (leg) => {
-                        const closeConfig = {
-                            ...config,
-                            side: leg.leg.side === "BUY" ? "SELL" : "BUY",
-                            variety: "NORMAL",
-                            ordertype: "MARKET",
-                            lots: leg.leg.lots
-                        };
-                        const orderData = await placeOrder(closeConfig, leg.instrument);
-                        return orderData.orderid;
-                    }));
-                    strategy.status = "COMPLETED";
-                    strategy.exitOrderId = exitOrders;
-                    strategy.exitType = "STOP_LOSS";
-                    updateStrategyInMemory(strategyId, {
-                        status: "COMPLETED",
-                        exit_order_id: strategy.exitOrderId,
-                        exit_type: "STOP_LOSS",
-                        final_pnl_percent: avgPnl
-                    });
-                    clearInterval(interval);
+                // Check Leg-wise Stop Loss (%) only if we didn't place SmartAPI SL orders
+                if (config.variety !== "STOPLOSS") {
+                    let hitLeg = strategy.legs.find(l => l.pnlPercent <= -(l.leg.stop_loss || 0));
+                    if (hitLeg) {
+                        console.log(`Stop Loss hit for leg ${hitLeg.instrument.symbol}: PnL%=${hitLeg.pnlPercent.toFixed(2)}%`);
+                        const exitOrders = await Promise.all(strategy.legs.map(async (leg) => {
+                            const closeConfig = {
+                                ...config,
+                                side: leg.leg.side === "BUY" ? "SELL" : "BUY",
+                                variety: "NORMAL",
+                                ordertype: "MARKET",
+                                lots: leg.leg.lots
+                            };
+                            const orderData = await placeOrder(closeConfig, leg.instrument);
+                            return orderData.orderid;
+                        }));
+                        strategy.status = "COMPLETED";
+                        strategy.exitOrderId = exitOrders;
+                        strategy.exitType = "STOP_LOSS";
+                        updateStrategyInMemory(strategyId, {
+                            status: "COMPLETED",
+                            exit_order_id: strategy.exitOrderId,
+                            exit_type: "STOP_LOSS",
+                            final_pnl_percent: avgPnl
+                        });
+                        clearInterval(interval);
+                    }
                 }
 
                 // Check Exit Time
@@ -392,7 +398,7 @@ async function executeStrategy(strategyId) {
                 console.error("Monitoring/Exit failed", err);
             }
         }
-    }, 5000); // Check every 5 seconds
+    }, 1000); // Check every 1 second for precise timing
 
     strategy.interval = interval;
 }
