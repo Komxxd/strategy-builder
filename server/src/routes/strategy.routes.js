@@ -60,10 +60,10 @@ router.get("/user/:userId", async (req, res) => {
 
 router.get("/active/:userId", async (req, res) => {
     try {
-        const active = strategyService.getActiveStrategy(req.params.userId);
+        const active = strategyService.getActiveStrategies(req.params.userId);
         res.json({ success: true, data: active });
     } catch (error) {
-        res.status(500).json({ success: false, message: "Failed to fetch active strategy" });
+        res.status(500).json({ success: false, message: "Failed to fetch active strategies" });
     }
 });
 

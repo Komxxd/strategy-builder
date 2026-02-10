@@ -228,12 +228,32 @@ async function executeStrategy(strategyId) {
                     console.log(`Resolved ${resolvedLegs.length} legs. Placing orders...`);
 
                     const placedLegs = await Promise.all(resolvedLegs.map(async (item) => {
+                        let finalPrice = (config.price || "0").toString();
+
+                        if (config.ordertype === 'LIMIT') {
+                            try {
+                                const instLtpRes = await marketService.getLTP({
+                                    exchange: item.instrument.exch_seg,
+                                    symboltoken: item.instrument.token
+                                });
+                                if (instLtpRes.status && instLtpRes.data?.fetched?.[0]) {
+                                    const instLtp = instLtpRes.data.fetched[0].ltp;
+                                    const offset = parseFloat(config.entry_limit_offset || 0);
+                                    finalPrice = (instLtp + offset).toFixed(2);
+                                    console.log(`[${new Date().toISOString()}] Limit Order Calc for ${item.instrument.symbol}: LTP=${instLtp}, Offset=${offset}, FinalPrice=${finalPrice}`);
+                                }
+                            } catch (err) {
+                                console.error(`Error calculating limit price for ${item.instrument.symbol}:`, err);
+                            }
+                        }
+
                         const orderData = await placeOrder(
                             {
                                 ...config,
                                 variety: config.variety === "STOPLOSS" ? "NORMAL" : config.variety,
                                 side: item.leg.side,
-                                lots: item.leg.lots
+                                lots: item.leg.lots,
+                                price: finalPrice
                             },
                             item.instrument
                         );
@@ -330,6 +350,8 @@ async function executeStrategy(strategyId) {
                                 ? (leg.currentLtp - leg.entryPrice)
                                 : (leg.entryPrice - leg.currentLtp);
                             leg.pnlPercent = (pnlPoints / leg.entryPrice) * 100;
+                            const quantity = leg.leg.lots * parseInt(leg.instrument.lotsize || 1);
+                            leg.pnlRupees = pnlPoints * quantity;
                         }
                     }
                 }));
@@ -340,7 +362,52 @@ async function executeStrategy(strategyId) {
                 const avgPnl = validPnls.length ? validPnls.reduce((a, b) => a + b, 0) / validPnls.length : 0;
                 strategy.pnlPercent = avgPnl;
 
-                console.log(`Strategy ${strategyId}: Avg PnL%=${avgPnl.toFixed(2)}%`);
+                const totalPnlRupees = strategy.legs.reduce((sum, l) => sum + (l.pnlRupees || 0), 0);
+                strategy.totalPnlRupees = totalPnlRupees;
+
+                console.log(`Strategy ${strategyId}: Avg PnL%=${avgPnl.toFixed(2)}%, Total PnL ₹=${totalPnlRupees.toFixed(2)}`);
+
+                // Check Overall Stop Loss
+                const overallSlPct = parseFloat(config.overall_sl_percentage || 0);
+                const overallSlAmt = parseFloat(config.overall_sl_amount || 0);
+
+                let isOverallSlHit = false;
+                let slReason = "";
+
+                if (overallSlPct > 0 && avgPnl <= -overallSlPct) {
+                    isOverallSlHit = true;
+                    slReason = `Overall SL% (${overallSlPct}%) hit`;
+                } else if (overallSlAmt > 0 && totalPnlRupees <= -overallSlAmt) {
+                    isOverallSlHit = true;
+                    slReason = `Overall SL₹ (₹${overallSlAmt}) hit`;
+                }
+
+                if (isOverallSlHit) {
+                    console.log(`[${new Date().toISOString()}] ${slReason} for strategy ${strategyId}. Exiting all legs.`);
+                    const exitOrders = await Promise.all(strategy.legs.map(async (leg) => {
+                        const closeConfig = {
+                            ...config,
+                            side: leg.leg.side === "BUY" ? "SELL" : "BUY",
+                            variety: "NORMAL",
+                            ordertype: "MARKET",
+                            lots: leg.leg.lots
+                        };
+                        const orderData = await placeOrder(closeConfig, leg.instrument);
+                        return orderData.orderid;
+                    }));
+                    strategy.status = "COMPLETED";
+                    strategy.exitOrderId = exitOrders;
+                    strategy.exitType = "OVERALL_STOP_LOSS";
+                    updateStrategyInMemory(strategyId, {
+                        status: "COMPLETED",
+                        exit_order_id: strategy.exitOrderId,
+                        exit_type: "OVERALL_STOP_LOSS",
+                        final_pnl_percent: avgPnl,
+                        totalPnlRupees: totalPnlRupees
+                    });
+                    clearInterval(interval);
+                    return;
+                }
 
                 // Check Leg-wise Stop Loss (%) only if we didn't place SmartAPI SL orders
                 if (config.variety !== "STOPLOSS") {
@@ -365,7 +432,8 @@ async function executeStrategy(strategyId) {
                             status: "COMPLETED",
                             exit_order_id: strategy.exitOrderId,
                             exit_type: "STOP_LOSS",
-                            final_pnl_percent: avgPnl
+                            final_pnl_percent: avgPnl,
+                            totalPnlRupees: totalPnlRupees
                         });
                         clearInterval(interval);
                     }
@@ -390,7 +458,8 @@ async function executeStrategy(strategyId) {
                         status: "COMPLETED",
                         exit_order_id: strategy.exitOrderId,
                         exit_type: "EXIT_TIME",
-                        final_pnl_percent: strategy.pnlPercent
+                        final_pnl_percent: strategy.pnlPercent,
+                        totalPnlRupees: strategy.totalPnlRupees
                     });
                     clearInterval(interval);
                 }
@@ -494,6 +563,7 @@ function getStatus(strategyId) {
         error: s.error,
         legs: s.legs || [],
         pnlPercent: s.pnlPercent || 0,
+        totalPnlRupees: s.totalPnlRupees || 0,
         orderId: s.orderId,
         exitOrderId: s.exitOrderId,
         exitType: s.exitType,
@@ -508,13 +578,14 @@ async function getUserStrategies(userId) {
     return all;
 }
 
-function getActiveStrategy(userId) {
+function getActiveStrategies(userId) {
+    const active = [];
     for (const [id, s] of activeStrategies.entries()) {
         if (s.user_id === userId && (s.status === "WAITING" || s.status === "IN_POSITION")) {
-            return getStatus(id);
+            active.push(getStatus(id));
         }
     }
-    return null;
+    return active;
 }
 
 module.exports = {
@@ -525,5 +596,5 @@ module.exports = {
     stopStrategy,
     getStatus,
     getUserStrategies,
-    getActiveStrategy
+    getActiveStrategies
 };

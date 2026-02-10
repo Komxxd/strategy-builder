@@ -11,9 +11,7 @@ const API_BASE_URL = "http://localhost:5001/api";
 
 export const StrategyBuilder = ({ userId }) => {
     const [loading, setLoading] = useState(false);
-    const [strategyId, setStrategyId] = useState(null);
-    const [status, setStatus] = useState(null);
-    const [strategyData, setStrategyData] = useState(null);
+    const [runningStrategies, setRunningStrategies] = useState({}); // { id: data }
     const [history, setHistory] = useState([]);
     const [editingId, setEditingId] = useState(null);
 
@@ -29,6 +27,9 @@ export const StrategyBuilder = ({ userId }) => {
         triggerprice: '0',
         squareoff: '0',
         stoploss: '0',
+        overall_sl_percentage: 0,
+        overall_sl_amount: 0,
+        entry_limit_offset: 0,
         legs: [
             { option_type: 'CE', strike: 'OTM1', side: 'BUY', lots: 1, stop_loss: 10, sl_limit_margin: 0 }
         ]
@@ -48,13 +49,15 @@ export const StrategyBuilder = ({ userId }) => {
         if (!userId) return;
         try {
             const res = await axios.get(`${API_BASE_URL}/strategy/active/${userId}`);
-            if (res.data?.data) {
-                setStrategyId(res.data.data.id);
-                setStatus(res.data.data.status);
-                setStrategyData(res.data.data);
+            if (res.data?.data && Array.isArray(res.data.data)) {
+                const activeMap = {};
+                res.data.data.forEach(s => {
+                    activeMap[s.id] = s;
+                });
+                setRunningStrategies(activeMap);
             }
         } catch (err) {
-            console.error("Error fetching active strategy:", err);
+            console.error("Error fetching active strategies:", err);
         }
     };
 
@@ -83,21 +86,28 @@ export const StrategyBuilder = ({ userId }) => {
     const handleExecute = async (id) => {
         try {
             const res = await axios.post(`${API_BASE_URL}/strategy/execute/${id}`);
-            setStrategyId(res.data.strategy_id);
-            setStatus("Running (Waiting for Entry)");
+            const newId = res.data.strategy_id;
+            // Fetch initial status
+            const statusRes = await axios.get(`${API_BASE_URL}/strategy/status/${newId}`);
+            setRunningStrategies(prev => ({
+                ...prev,
+                [newId]: statusRes.data.data
+            }));
             fetchHistory();
         } catch (err) {
             alert("Error executing strategy: " + err.message);
         }
     };
 
-    const handleStop = async () => {
-        if (!strategyId) return;
+    const handleStop = async (id) => {
+        if (!id) return;
         try {
-            await axios.post(`${API_BASE_URL}/strategy/stop/${strategyId}`);
-            setStrategyId(null);
-            setStatus(null);
-            setStrategyData(null);
+            await axios.post(`${API_BASE_URL}/strategy/stop/${id}`);
+            setRunningStrategies(prev => {
+                const next = { ...prev };
+                delete next[id];
+                return next;
+            });
             fetchHistory();
         } catch (err) {
             alert("Error stopping strategy: " + err.message);
@@ -122,22 +132,51 @@ export const StrategyBuilder = ({ userId }) => {
 
     React.useEffect(() => {
         let interval;
-        if (strategyId && status !== "COMPLETED" && status !== "FAILED") {
+        const activeIds = Object.keys(runningStrategies);
+
+        if (activeIds.length > 0) {
             interval = setInterval(async () => {
                 try {
-                    const res = await axios.get(`${API_BASE_URL}/strategy/status/${strategyId}`);
-                    setStatus(res.data.data.status);
-                    setStrategyData(res.data.data);
-                    if (res.data.data.status === "COMPLETED" || res.data.data.status === "FAILED") {
-                        clearInterval(interval);
+                    const latestActiveIds = Object.keys(runningStrategies);
+                    const updates = await Promise.all(
+                        latestActiveIds.map(async (id) => {
+                            try {
+                                const res = await axios.get(`${API_BASE_URL}/strategy/status/${id}`);
+                                return { id, data: res.data.data };
+                            } catch (e) {
+                                return { id, error: true };
+                            }
+                        })
+                    );
+
+                    setRunningStrategies(prev => {
+                        const next = { ...prev };
+                        let hasChanges = false;
+                        updates.forEach(u => {
+                            if (u.error || u.data.status === "COMPLETED" || u.data.status === "FAILED") {
+                                if (next[u.id]) {
+                                    delete next[u.id];
+                                    hasChanges = true;
+                                }
+                            } else {
+                                next[u.id] = u.data;
+                                hasChanges = true;
+                            }
+                        });
+                        return hasChanges ? next : prev;
+                    });
+
+                    // If any completed, refresh history
+                    if (updates.some(u => !u.error && (u.data.status === "COMPLETED" || u.data.status === "FAILED"))) {
+                        fetchHistory();
                     }
                 } catch (err) {
-                    console.error("Error polling status:", err);
+                    console.error("Error polling statuses:", err);
                 }
             }, 3000);
         }
         return () => clearInterval(interval);
-    }, [strategyId, status]);
+    }, [Object.keys(runningStrategies).length]);
 
     return (
         <div className="space-y-6">
@@ -416,7 +455,41 @@ export const StrategyBuilder = ({ userId }) => {
                             />
                         </div>
 
-                        {config.ordertype !== 'MARKET' && (
+                        <div className="space-y-2">
+                            <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+                                Overall SL (%)
+                            </Label>
+                            <Input
+                                className="h-11 rounded-xl"
+                                type="number"
+                                value={config.overall_sl_percentage}
+                                onChange={(e) => setConfig({ ...config, overall_sl_percentage: parseFloat(e.target.value) || 0 })}
+                            />
+                        </div>
+
+                        <div className="space-y-2">
+                            <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+                                Overall SL (₹)
+                            </Label>
+                            <Input
+                                className="h-11 rounded-xl"
+                                type="number"
+                                value={config.overall_sl_amount}
+                                onChange={(e) => setConfig({ ...config, overall_sl_amount: parseFloat(e.target.value) || 0 })}
+                            />
+                        </div>
+
+                        {config.ordertype === 'LIMIT' ? (
+                            <div className="space-y-2">
+                                <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Limit Offset (LTP + )</Label>
+                                <Input
+                                    className="h-11 rounded-xl"
+                                    type="number"
+                                    value={config.entry_limit_offset}
+                                    onChange={(e) => setConfig({ ...config, entry_limit_offset: parseFloat(e.target.value) || 0 })}
+                                />
+                            </div>
+                        ) : (config.ordertype !== 'MARKET' && config.ordertype !== 'STOPLOSS_MARKET' && (
                             <div className="space-y-2">
                                 <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Price</Label>
                                 <Input
@@ -426,7 +499,7 @@ export const StrategyBuilder = ({ userId }) => {
                                     onChange={(e) => setConfig({ ...config, price: e.target.value })}
                                 />
                             </div>
-                        )}
+                        ))}
 
                         {(config.ordertype === 'STOPLOSS_LIMIT' || config.ordertype === 'STOPLOSS_MARKET') && (
                             <div className="space-y-2">
@@ -465,8 +538,8 @@ export const StrategyBuilder = ({ userId }) => {
                 </CardContent>
             </Card>
 
-            {strategyId && (
-                <Card className="w-full border-border bg-muted animate-in fade-in slide-in-from-bottom-4 duration-500">
+            {Object.entries(runningStrategies).map(([id, strategyData]) => (
+                <Card key={id} className="w-full border-border bg-muted animate-in fade-in slide-in-from-bottom-4 duration-500">
                     <CardContent className="p-6 space-y-4">
                         <div className="flex items-center justify-between">
                             <div className="space-y-1">
@@ -474,17 +547,18 @@ export const StrategyBuilder = ({ userId }) => {
                                     <div className="p-2 bg-muted rounded-lg">
                                         <Timer className="h-4 w-4 text-primary" />
                                     </div>
-                                    <p className="text-sm font-bold">Strategy Monitor <span className="text-xs font-mono text-muted-foreground ml-2">#{strategyId}</span></p>
+                                    <p className="text-sm font-bold">Strategy Monitor <span className="text-xs font-mono text-muted-foreground ml-2">#{id}</span></p>
                                 </div>
                                 <div className="flex items-center gap-2 mt-2">
                                     <span className="relative flex h-2 w-2">
-                                        <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${status === 'FAILED' ? 'bg-red-400' : 'bg-green-400'} opacity-75`}></span>
-                                        <span className={`relative inline-flex rounded-full h-2 w-2 ${status === 'FAILED' ? 'bg-red-500' : 'bg-green-500'}`}></span>
+                                        <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${strategyData.status === 'FAILED' ? 'bg-red-400' : 'bg-green-400'} opacity-75`}></span>
+                                        <span className={`relative inline-flex rounded-full h-2 w-2 ${strategyData.status === 'FAILED' ? 'bg-red-500' : 'bg-green-500'}`}></span>
                                     </span>
-                                    <span className="text-sm font-bold uppercase tracking-tight">{status}</span>
+                                    <span className="text-sm font-bold uppercase tracking-tight">{strategyData.status}</span>
+                                    <span className="text-xs font-bold text-muted-foreground ml-2">Index: {strategyData.config?.index}</span>
                                 </div>
                             </div>
-                            <Button variant="outline" className="rounded-xl border-destructive hover:bg-red-50 text-destructive" onClick={handleStop}>
+                            <Button variant="outline" className="rounded-xl border-destructive hover:bg-red-50 text-destructive" onClick={() => handleStop(id)}>
                                 <StopCircle className="h-4 w-4 mr-2" /> Terminate
                             </Button>
                         </div>
@@ -509,17 +583,17 @@ export const StrategyBuilder = ({ userId }) => {
                                         {(strategyData.pnlPercent || 0) > 0 ? '+' : ''}{(strategyData.pnlPercent || 0).toFixed(2)}%
                                     </span>
                                 </div>
-                                <div className="p-3 bg-muted rounded-xl">
-                                    <span className="text-[10px] font-bold uppercase text-muted-foreground block mb-1">Instrument</span>
-                                    <span className="text-sm font-bold">
-                                        {strategyData.legs?.map((l) => l.instrument?.symbol || '---').join(' / ') || '---'}
+                                <div className={`p-3 rounded-xl ${(strategyData.totalPnlRupees || 0) >= 0 ? 'bg-emerald-50' : 'bg-red-50'}`}>
+                                    <span className="text-[10px] font-bold uppercase text-muted-foreground block mb-1">Total PnL (₹)</span>
+                                    <span className={`text-lg font-mono font-bold ${(strategyData.totalPnlRupees || 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                                        {(strategyData.totalPnlRupees || 0) > 0 ? '+' : ''}{(strategyData.totalPnlRupees || 0).toFixed(2)}
                                     </span>
                                 </div>
                             </div>
                         ) : null}
                     </CardContent>
                 </Card>
-            )}
+            ))}
             {history.length > 0 && (
                 <Card className="w-full border-border bg-card">
                     <CardHeader className="border-b py-4">
@@ -588,9 +662,14 @@ export const StrategyBuilder = ({ userId }) => {
                                                     </div>
                                                 ) : (
                                                     (s.final_pnl_percent !== null && s.final_pnl_percent !== undefined) ? (
-                                                        <span className={s.final_pnl_percent >= 0 ? 'text-emerald-600' : 'text-red-600'}>
-                                                            {s.final_pnl_percent > 0 ? '+' : ''}{Number(s.final_pnl_percent).toFixed(2)}%
-                                                        </span>
+                                                        <div className="flex flex-col">
+                                                            <span className={s.final_pnl_percent >= 0 ? 'text-emerald-600' : 'text-red-600'}>
+                                                                {s.final_pnl_percent > 0 ? '+' : ''}{Number(s.final_pnl_percent).toFixed(2)}%
+                                                            </span>
+                                                            <span className={`text-[10px] font-bold ${s.totalPnlRupees >= 0 ? 'text-emerald-500' : 'text-red-400'}`}>
+                                                                {s.totalPnlRupees > 0 ? '+' : ''}₹{Number(s.totalPnlRupees || 0).toFixed(2)}
+                                                            </span>
+                                                        </div>
                                                     ) : '---'
                                                 )}
                                             </td>
