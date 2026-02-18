@@ -1,5 +1,6 @@
 const { getAuthorizedInstance } = require("../config/smartapi");
 const marketService = require("./market.service");
+const optionChainService = require("./optionChain.service");
 const fs = require("fs");
 const path = require("path");
 
@@ -55,7 +56,49 @@ function findOptionInstrument(indexName, optionType, strike) {
     return matches[0];
 }
 
+async function findClosestPremiumInstrument(indexName, optionType, targetPremium) {
+    const exchange = indexName === "SENSEX" ? "BSE" : "NSE";
+    const chainData = optionChainService.getOptionChain({ symbol: indexName, exchange: exchange });
+    if (!chainData || !chainData.chain) return null;
+
+    const tokens = chainData.chain.map(c => c[optionType]?.token).filter(Boolean);
+    if (tokens.length === 0) return null;
+
+    // Batch get LTP for all tokens in the chain
+    // Angel supports many tokens in batch, but let's be safe if chain is huge
+    const ltpRes = await marketService.getLTP({
+        exchange,
+        symboltoken: tokens
+    });
+
+    if (!ltpRes.status || !ltpRes.data?.fetched) return null;
+
+    let closest = null;
+    let minDiff = Infinity;
+
+    for (const fetched of ltpRes.data.fetched) {
+        const diff = Math.abs(fetched.ltp - targetPremium);
+        if (diff < minDiff) {
+            minDiff = diff;
+            closest = fetched;
+        }
+    }
+
+    if (!closest) return null;
+
+    // Find the instrument details from our chainData
+    for (const item of chainData.chain) {
+        if (item[optionType]?.token === closest.symboltoken) {
+            return item[optionType];
+        }
+    }
+
+    return null;
+}
+
 async function placeOrder(config, instrument, connectionId) {
+    const isPaperTrading = config.is_paper_trading === true;
+
     const orderParams = {
         variety: config.variety || "NORMAL",
         tradingsymbol: instrument.symbol,
@@ -73,6 +116,14 @@ async function placeOrder(config, instrument, connectionId) {
         scripconsent: "yes"
     };
 
+    if (isPaperTrading) {
+        console.log(`[${new Date().toISOString()}] PAPER ORDER:`, orderParams);
+        return {
+            orderid: `PAPER_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+            uniqueorderid: `UPAPER_${Date.now()}`
+        };
+    }
+
     try {
         console.log(`[${new Date().toISOString()}] Placing order:`, orderParams);
         const api = await getAuthorizedInstance(connectionId);
@@ -88,13 +139,23 @@ async function placeOrder(config, instrument, connectionId) {
     }
 }
 
-function computeStopLossExitPrices(entryPrice, side, stopLossPercent, limitMargin) {
-    const pct = Number(stopLossPercent || 0);
+function computeStopLossExitPrices(entryPrice, side, slType, slValue, limitMargin) {
+    const val = Number(slValue || 0);
     const margin = Number(limitMargin || 0);
-    if (!entryPrice || pct <= 0) return null;
-    const trigger = side === "BUY"
-        ? entryPrice * (1 - pct / 100)
-        : entryPrice * (1 + pct / 100);
+    if (!entryPrice || val <= 0) return null;
+
+    let trigger;
+    if (slType === "POINTS") {
+        trigger = side === "BUY"
+            ? entryPrice - val
+            : entryPrice + val;
+    } else {
+        // Default to PERCENTAGE
+        trigger = side === "BUY"
+            ? entryPrice * (1 - val / 100)
+            : entryPrice * (1 + val / 100);
+    }
+
     const limit = side === "BUY"
         ? trigger - margin
         : trigger + margin;
@@ -105,29 +166,52 @@ function computeStopLossExitPrices(entryPrice, side, stopLossPercent, limitMargi
     };
 }
 
-async function waitForOrderFillPrice(uniqueOrderId, connectionId, timeoutMs = 60000, pollMs = 2000) {
+async function waitForOrderFillPrice(uniqueOrderId, connectionId, isPaperTrading = false, instrument = null, timeoutMs = 60000, pollMs = 2000) {
+    if (isPaperTrading) {
+        // For paper trading, try to get the current LTP as the fill price
+        try {
+            if (instrument) {
+                const ltpRes = await marketService.getLTP({
+                    exchange: instrument.exch_seg,
+                    symboltoken: instrument.token
+                });
+                if (ltpRes.status && ltpRes.data?.fetched?.[0]) {
+                    return ltpRes.data.fetched[0].ltp;
+                }
+            }
+        } catch (err) {
+            console.error("Error getting paper fill price:", err);
+        }
+        return null;
+    }
+
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
-        const api = await getAuthorizedInstance(connectionId);
-        const details = await api.indOrderDetails(uniqueOrderId);
-        if (details?.status && details?.data) {
-            const avgPrice = Number(details.data.averageprice || details.data.averagePrice || 0);
-            const filledShares = Number(details.data.filledshares || details.data.filledShares || 0);
-            const orderStatus = (details.data.orderstatus || details.data.status || "").toString().toLowerCase();
-            if ((avgPrice > 0 && filledShares > 0) || orderStatus === "complete" || orderStatus === "filled") {
-                return avgPrice > 0 ? avgPrice : null;
+        try {
+            const api = await getAuthorizedInstance(connectionId);
+            const details = await api.indOrderDetails(uniqueOrderId);
+            if (details?.status && details?.data) {
+                const avgPrice = Number(details.data.averageprice || details.data.averagePrice || 0);
+                const filledShares = Number(details.data.filledshares || details.data.filledShares || 0);
+                const orderStatus = (details.data.orderstatus || details.data.status || "").toString().toLowerCase();
+                if ((avgPrice > 0 && filledShares > 0) || orderStatus === "complete" || orderStatus === "filled") {
+                    return avgPrice > 0 ? avgPrice : null;
+                }
             }
+        } catch (err) {
+            console.error("Error polling order details:", err.message);
         }
         await new Promise((r) => setTimeout(r, pollMs));
     }
     return null;
 }
 
-async function placeStopLossExitOrder({ baseConfig, legSide, entryPrice, instrument, lots, stopLossPercent, slLimitMargin }) {
+async function placeStopLossExitOrder({ baseConfig, legSide, entryPrice, instrument, lots, slType, slValue, slLimitMargin }) {
     const prices = computeStopLossExitPrices(
         entryPrice,
         legSide,
-        stopLossPercent,
+        slType,
+        slValue,
         slLimitMargin
     );
     if (!prices) return null;
@@ -212,16 +296,25 @@ async function executeStrategy(strategyId) {
                     const legs = config.legs || [];
                     const resolvedLegs = [];
                     for (const leg of legs) {
-                        const { atmStrike, targetStrike, strikeLabel } = getLegStrikeSelection({
-                            index: config.index,
-                            option_type: leg.option_type,
-                            strike: leg.strike,
-                            spotPrice
-                        });
-                        console.log(`Execution Search: Index=${config.index}, Spot=${spotPrice}, ATM=${atmStrike}, Selected=${strikeLabel}, TargetStrike=${targetStrike}, Type=${leg.option_type}`);
-                        const targetInstrument = findOptionInstrument(config.index, leg.option_type, targetStrike);
-                        if (!targetInstrument) {
-                            throw new Error(`Could not find ${leg.option_type} instrument for ${strikeLabel}`);
+                        let targetInstrument = null;
+                        if (leg.strike_criteria === 'CLOSEST_PREMIUM') {
+                            console.log(`Searching closest premium for ${leg.option_type} @ ₹${leg.premium}`);
+                            targetInstrument = await findClosestPremiumInstrument(config.index, leg.option_type, leg.premium);
+                            if (!targetInstrument) {
+                                throw new Error(`Could not find ${leg.option_type} instrument with premium close to ₹${leg.premium}`);
+                            }
+                        } else {
+                            const { atmStrike, targetStrike, strikeLabel } = getLegStrikeSelection({
+                                index: config.index,
+                                option_type: leg.option_type,
+                                strike: leg.strike,
+                                spotPrice
+                            });
+                            console.log(`Execution Search: Index=${config.index}, Spot=${spotPrice}, ATM=${atmStrike}, Selected=${strikeLabel}, TargetStrike=${targetStrike}, Type=${leg.option_type}`);
+                            targetInstrument = findOptionInstrument(config.index, leg.option_type, targetStrike);
+                            if (!targetInstrument) {
+                                throw new Error(`Could not find ${leg.option_type} instrument for ${strikeLabel}`);
+                            }
                         }
                         resolvedLegs.push({ leg, instrument: targetInstrument });
                     }
@@ -275,7 +368,12 @@ async function executeStrategy(strategyId) {
                     // Fetch entry fill prices and place stoploss exit orders parallelly
                     await Promise.all(placedLegs.map(async (leg) => {
                         if (leg.uniqueOrderId) {
-                            const fillPrice = await waitForOrderFillPrice(leg.uniqueOrderId);
+                            const fillPrice = await waitForOrderFillPrice(
+                                leg.uniqueOrderId,
+                                null,
+                                config.is_paper_trading === true,
+                                leg.instrument
+                            );
                             if (fillPrice) {
                                 leg.entryPrice = fillPrice;
                             } else {
@@ -296,13 +394,15 @@ async function executeStrategy(strategyId) {
                                 entryPrice: leg.entryPrice,
                                 instrument: leg.instrument,
                                 lots: leg.leg.lots,
-                                stopLossPercent: leg.leg.stop_loss,
+                                slType: leg.leg.sl_type || "PERCENTAGE",
+                                slValue: leg.leg.stop_loss,
                                 slLimitMargin: leg.leg.sl_limit_margin
                             });
                             if (slOrder?.orderid) {
                                 const prices = computeStopLossExitPrices(
                                     leg.entryPrice,
                                     leg.leg.side,
+                                    leg.leg.sl_type || "PERCENTAGE",
                                     leg.leg.stop_loss,
                                     leg.leg.sl_limit_margin
                                 );
@@ -350,6 +450,7 @@ async function executeStrategy(strategyId) {
                                 ? (leg.currentLtp - leg.entryPrice)
                                 : (leg.entryPrice - leg.currentLtp);
                             leg.pnlPercent = (pnlPoints / leg.entryPrice) * 100;
+                            leg.pnlPoints = pnlPoints;
                             const quantity = leg.leg.lots * parseInt(leg.instrument.lotsize || 1);
                             leg.pnlRupees = pnlPoints * quantity;
                         }
@@ -368,18 +469,20 @@ async function executeStrategy(strategyId) {
                 console.log(`Strategy ${strategyId}: Avg PnL%=${avgPnl.toFixed(2)}%, Total PnL ₹=${totalPnlRupees.toFixed(2)}`);
 
                 // Check Overall Stop Loss
-                const overallSlPct = parseFloat(config.overall_sl_percentage || 0);
-                const overallSlAmt = parseFloat(config.overall_sl_amount || 0);
+                const slType = config.overall_sl_type || "PERCENTAGE";
+                const slValue = parseFloat(config.overall_sl_value || 0);
 
                 let isOverallSlHit = false;
                 let slReason = "";
 
-                if (overallSlPct > 0 && avgPnl <= -overallSlPct) {
-                    isOverallSlHit = true;
-                    slReason = `Overall SL% (${overallSlPct}%) hit`;
-                } else if (overallSlAmt > 0 && totalPnlRupees <= -overallSlAmt) {
-                    isOverallSlHit = true;
-                    slReason = `Overall SL₹ (₹${overallSlAmt}) hit`;
+                if (slValue > 0) {
+                    if (slType === "PERCENTAGE" && avgPnl <= -slValue) {
+                        isOverallSlHit = true;
+                        slReason = `Overall SL% (${slValue}%) hit`;
+                    } else if (slType === "AMOUNT" && totalPnlRupees <= -slValue) {
+                        isOverallSlHit = true;
+                        slReason = `Overall SL₹ (₹${slValue}) hit`;
+                    }
                 }
 
                 if (isOverallSlHit) {
@@ -409,9 +512,16 @@ async function executeStrategy(strategyId) {
                     return;
                 }
 
-                // Check Leg-wise Stop Loss (%) only if we didn't place SmartAPI SL orders
-                if (config.variety !== "STOPLOSS") {
-                    let hitLeg = strategy.legs.find(l => l.pnlPercent <= -(l.leg.stop_loss || 0));
+                // Check Leg-wise Stop Loss (%) only if we didn't place SmartAPI SL orders (or if it's paper trading)
+                if (config.variety !== "STOPLOSS" || config.is_paper_trading === true) {
+                    let hitLeg = strategy.legs.find(l => {
+                        const slVal = l.leg.stop_loss || 0;
+                        if (l.leg.sl_type === "POINTS") {
+                            return l.pnlPoints <= -slVal;
+                        } else {
+                            return l.pnlPercent <= -slVal;
+                        }
+                    });
                     if (hitLeg) {
                         console.log(`Stop Loss hit for leg ${hitLeg.instrument.symbol}: PnL%=${hitLeg.pnlPercent.toFixed(2)}%`);
                         const exitOrders = await Promise.all(strategy.legs.map(async (leg) => {

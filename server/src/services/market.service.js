@@ -2,10 +2,11 @@ const { getAuthorizedInstance } = require("../config/smartapi");
 
 async function getLTP({ exchange, symboltoken, connectionId }) {
     const api = await getAuthorizedInstance(connectionId);
+    const tokens = Array.isArray(symboltoken) ? symboltoken : [symboltoken];
     return await api.marketData({
         mode: "LTP",
         exchangeTokens: {
-            [exchange]: [symboltoken],
+            [exchange]: tokens,
         },
     });
 }

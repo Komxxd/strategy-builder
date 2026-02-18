@@ -4,7 +4,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { StopCircle, Loader2, TrendingUp, Timer, LayoutDashboard, Target, Save, Play, Plus, Trash2 } from 'lucide-react';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { StopCircle, Loader2, TrendingUp, Timer, LayoutDashboard, Target, Save, Play, Plus, Trash2, ShieldCheck, Zap } from 'lucide-react';
 import axios from 'axios';
 
 const API_BASE_URL = "http://localhost:5001/api";
@@ -14,6 +15,7 @@ export const StrategyBuilder = ({ userId }) => {
     const [runningStrategies, setRunningStrategies] = useState({}); // { id: data }
     const [history, setHistory] = useState([]);
     const [editingId, setEditingId] = useState(null);
+    const [activeTab, setActiveTab] = useState('paper');
 
     const [config, setConfig] = useState({
         index: 'NIFTY',
@@ -27,11 +29,11 @@ export const StrategyBuilder = ({ userId }) => {
         triggerprice: '0',
         squareoff: '0',
         stoploss: '0',
-        overall_sl_percentage: 0,
-        overall_sl_amount: 0,
+        overall_sl_type: 'PERCENTAGE',
+        overall_sl_value: 0,
         entry_limit_offset: 0,
         legs: [
-            { option_type: 'CE', strike: 'OTM1', side: 'BUY', lots: 1, stop_loss: 10, sl_limit_margin: 0 }
+            { strike_criteria: 'STRIKE_TYPE', option_type: 'CE', strike: 'ATM', premium: 0, side: 'BUY', lots: 1, sl_type: 'PERCENTAGE', stop_loss: 10, sl_limit_margin: 0 }
         ]
     });
 
@@ -68,12 +70,13 @@ export const StrategyBuilder = ({ userId }) => {
 
     const handleSave = async () => {
         setLoading(true);
+        const finalConfig = { ...config, is_paper_trading: activeTab === 'paper', userId };
         try {
             if (editingId) {
-                await axios.put(`${API_BASE_URL}/strategy/update/${editingId}`, { ...config, userId });
+                await axios.put(`${API_BASE_URL}/strategy/update/${editingId}`, finalConfig);
                 setEditingId(null);
             } else {
-                await axios.post(`${API_BASE_URL}/strategy/save`, { ...config, userId });
+                await axios.post(`${API_BASE_URL}/strategy/save`, finalConfig);
             }
             fetchHistory();
         } catch (err) {
@@ -117,6 +120,7 @@ export const StrategyBuilder = ({ userId }) => {
     const handleEdit = (strategy) => {
         setConfig(strategy.config);
         setEditingId(strategy.id);
+        setActiveTab(strategy.config.is_paper_trading ? 'paper' : 'live');
         window.scrollTo({ top: 0, behavior: 'smooth' });
     };
 
@@ -180,507 +184,594 @@ export const StrategyBuilder = ({ userId }) => {
 
     return (
         <div className="space-y-6">
-            <Card className="w-full border-border bg-card overflow-hidden">
-                <CardHeader className="border-b bg-muted">
-                    <CardTitle className="flex items-center gap-2 text-xl font-bold">
-                        <Target className="h-5 w-5 text-primary" />
-                        Strategy Configuration
-                    </CardTitle>
-                </CardHeader>
-                <CardContent className="pt-6">
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                        <div className="space-y-2">
-                            <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
-                                <LayoutDashboard className="h-3 w-3" /> Index
-                            </Label>
-                            <Select value={config.index} onValueChange={(v) => setConfig({ ...config, index: v })}>
-                                <SelectTrigger className="h-11 rounded-xl">
-                                    <SelectValue placeholder="Select Index" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem value="NIFTY">NIFTY</SelectItem>
-                                    <SelectItem value="BANKNIFTY">BANKNIFTY</SelectItem>
-                                    <SelectItem value="FINNIFTY">FINNIFTY</SelectItem>
-                                    <SelectItem value="SENSEX">SENSEX (BSE)</SelectItem>
-                                </SelectContent>
-                            </Select>
-                        </div>
+            <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+                <TabsList className="grid w-full grid-cols-2 mb-8 h-12 bg-muted/50 p-1 rounded-2xl">
+                    <TabsTrigger value="paper" className="rounded-xl font-bold data-[state=active]:bg-blue-600 data-[state=active]:text-white flex items-center gap-2">
+                        <ShieldCheck className="h-4 w-4" /> Paper Trading
+                    </TabsTrigger>
+                    <TabsTrigger value="live" className="rounded-xl font-bold data-[state=active]:bg-orange-600 data-[state=active]:text-white flex items-center gap-2">
+                        <Zap className="h-4 w-4" /> Live Market
+                    </TabsTrigger>
+                </TabsList>
 
-
-
-
-
-                    </div>
-
-                    <div className="flex items-center justify-between pt-6">
-                        <div className="text-sm font-bold uppercase tracking-wider text-muted-foreground">
-                            Strategy Legs
-                        </div>
-                        <Button
-                            type="button"
-                            variant="outline"
-                            className="h-9 gap-2 rounded-xl"
-                            onClick={() => {
-                                const next = [...config.legs, { option_type: 'CE', strike: 'ATM', side: 'BUY', lots: 1, stop_loss: 10, sl_limit_margin: 0 }];
-                                setConfig({ ...config, legs: next });
-                            }}
-                        >
-                            <Plus className="h-4 w-4" /> Add Leg
-                        </Button>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4">
-                        {config.legs.map((leg, legIndex) => {
-                            return (
-                                <div key={`leg-${legIndex}`} className="border rounded-2xl p-4 bg-muted/30">
-                                    <div className="flex items-center justify-between mb-4">
-                                        <div className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                                            Leg {legIndex + 1}
-                                        </div>
-                                        <Button
-                                            type="button"
-                                            variant="ghost"
-                                            className="h-8 px-2 text-destructive"
-                                            onClick={() => {
-                                                if (config.legs.length === 1) return;
-                                                const next = config.legs.filter((_, i) => i !== legIndex);
-                                                setConfig({ ...config, legs: next });
-                                            }}
-                                            disabled={config.legs.length === 1}
-                                            title={config.legs.length === 1 ? "At least one leg is required" : "Remove leg"}
-                                        >
-                                            <Trash2 className="h-4 w-4" />
-                                        </Button>
-                                    </div>
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                        <div className="space-y-2">
-                                            <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
-                                                <TrendingUp className="h-3 w-3" /> Option Type
-                                            </Label>
-                                            <Select
-                                                value={leg.option_type}
-                                                onValueChange={(v) => {
-                                                    const next = [...config.legs];
-                                                    next[legIndex] = { ...next[legIndex], option_type: v };
-                                                    setConfig({ ...config, legs: next });
-                                                }}
-                                            >
-                                                <SelectTrigger className="h-11 rounded-xl">
-                                                    <SelectValue placeholder="Type" />
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                    <SelectItem value="CE">CE (Call)</SelectItem>
-                                                    <SelectItem value="PE">PE (Put)</SelectItem>
-                                                </SelectContent>
-                                            </Select>
-                                        </div>
-
-                                        <div className="space-y-2">
-                                            <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
-                                                <Target className="h-3 w-3" /> Strike
-                                            </Label>
-                                            <Select
-                                                value={leg.strike}
-                                                onValueChange={(v) => {
-                                                    const next = [...config.legs];
-                                                    next[legIndex] = { ...next[legIndex], strike: v };
-                                                    setConfig({ ...config, legs: next });
-                                                }}
-                                            >
-                                                <SelectTrigger className="h-11 rounded-xl">
-                                                    <SelectValue placeholder="Select Strike" />
-                                                </SelectTrigger>
-                                                <SelectContent className="max-h-[300px]">
-                                                    <SelectItem value="ATM">ATM (At the Money)</SelectItem>
-                                                    {Array.from({ length: 30 }, (_, i) => i + 1).map(n => (
-                                                        <SelectItem key={`otm${legIndex}-${n}`} value={`OTM${n}`}>OTM {n} strike{n > 1 ? 's' : ''} away</SelectItem>
-                                                    ))}
-                                                    {Array.from({ length: 30 }, (_, i) => i + 1).map(n => (
-                                                        <SelectItem key={`itm${legIndex}-${n}`} value={`ITM${n}`}>ITM {n} strike{n > 1 ? 's' : ''} away</SelectItem>
-                                                    ))}
-                                                </SelectContent>
-                                            </Select>
-                                        </div>
-
-                                        <div className="space-y-2">
-                                            <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Side</Label>
-                                            <Select
-                                                value={leg.side}
-                                                onValueChange={(v) => {
-                                                    const next = [...config.legs];
-                                                    next[legIndex] = { ...next[legIndex], side: v };
-                                                    setConfig({ ...config, legs: next });
-                                                }}
-                                            >
-                                                <SelectTrigger className="h-11 rounded-xl">
-                                                    <SelectValue placeholder="Side" />
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                    <SelectItem value="BUY">BUY</SelectItem>
-                                                    <SelectItem value="SELL">SELL</SelectItem>
-                                                </SelectContent>
-                                            </Select>
-                                        </div>
-
-                                        <div className="space-y-2">
-                                            <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Lots</Label>
-                                            <Input
-                                                className="h-11 rounded-xl"
-                                                type="number"
-                                                value={leg.lots}
-                                                onChange={(e) => {
-                                                    const next = [...config.legs];
-                                                    next[legIndex] = { ...next[legIndex], lots: parseInt(e.target.value) };
-                                                    setConfig({ ...config, legs: next });
-                                                }}
-                                            />
-                                        </div>
-
-                                        <div className="space-y-2">
-                                            <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Stop Loss (%)</Label>
-                                            <Input
-                                                className="h-11 rounded-xl"
-                                                type="number"
-                                                value={leg.stop_loss}
-                                                onChange={(e) => {
-                                                    const next = [...config.legs];
-                                                    next[legIndex] = { ...next[legIndex], stop_loss: parseFloat(e.target.value) };
-                                                    setConfig({ ...config, legs: next });
-                                                }}
-                                            />
-                                        </div>
-
-                                        <div className="space-y-2">
-                                            <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">SL Margin (Pts)</Label>
-                                            <Input
-                                                className="h-11 rounded-xl"
-                                                type="number"
-                                                value={leg.sl_limit_margin}
-                                                onChange={(e) => {
-                                                    const next = [...config.legs];
-                                                    next[legIndex] = { ...next[legIndex], sl_limit_margin: parseFloat(e.target.value) };
-                                                    setConfig({ ...config, legs: next });
-                                                }}
-                                            />
-                                        </div>
-                                    </div>
-                                </div>
-                            );
-                        })}
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 pt-6">
-
-                        <div className="space-y-2">
-                            <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Variety</Label>
-                            <Select value={config.variety} onValueChange={(v) => setConfig({ ...config, variety: v })}>
-                                <SelectTrigger className="h-11 rounded-xl">
-                                    <SelectValue placeholder="Variety" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem value="NORMAL">NORMAL</SelectItem>
-                                    <SelectItem value="STOPLOSS">STOPLOSS</SelectItem>
-                                    <SelectItem value="ROBO">ROBO</SelectItem>
-                                </SelectContent>
-                            </Select>
-                        </div>
-
-                        <div className="space-y-2">
-                            <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Product Type</Label>
-                            <Select value={config.producttype} onValueChange={(v) => setConfig({ ...config, producttype: v })}>
-                                <SelectTrigger className="h-11 rounded-xl">
-                                    <SelectValue placeholder="Product" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem value="CARRYFORWARD">CARRYFORWARD (NRML)</SelectItem>
-                                    <SelectItem value="INTRADAY">INTRADAY (MIS)</SelectItem>
-                                    <SelectItem value="DELIVERY">DELIVERY (CNC)</SelectItem>
-                                    <SelectItem value="MARGIN">MARGIN</SelectItem>
-                                    <SelectItem value="BO">BO (Bracket Order)</SelectItem>
-                                </SelectContent>
-                            </Select>
-                        </div>
-
-                        <div className="space-y-2">
-                            <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Order Type</Label>
-                            <Select value={config.ordertype} onValueChange={(v) => setConfig({ ...config, ordertype: v })}>
-                                <SelectTrigger className="h-11 rounded-xl">
-                                    <SelectValue placeholder="Order Type" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem value="MARKET">MARKET</SelectItem>
-                                    <SelectItem value="LIMIT">LIMIT</SelectItem>
-                                    <SelectItem value="STOPLOSS_LIMIT">SL-L</SelectItem>
-                                    <SelectItem value="STOPLOSS_MARKET">SL-M</SelectItem>
-                                </SelectContent>
-                            </Select>
-                        </div>
-
-                        <div className="space-y-2">
-                            <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Duration</Label>
-                            <Select value={config.duration} onValueChange={(v) => setConfig({ ...config, duration: v })}>
-                                <SelectTrigger className="h-11 rounded-xl">
-                                    <SelectValue placeholder="Duration" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem value="DAY">DAY</SelectItem>
-                                    <SelectItem value="IOC">IOC</SelectItem>
-                                </SelectContent>
-                            </Select>
-                        </div>
-
-                        <div className="space-y-2">
-                            <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
-                                <Timer className="h-3 w-3" /> Entry Time
-                            </Label>
-                            <Input
-                                className="h-11 rounded-xl"
-                                type="time"
-                                step="1"
-                                value={config.entry_time}
-                                onChange={(e) => setConfig({ ...config, entry_time: e.target.value })}
-                            />
-                        </div>
-
-                        <div className="space-y-2">
-                            <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
-                                <Timer className="h-3 w-3" /> Exit Time
-                            </Label>
-                            <Input
-                                className="h-11 rounded-xl"
-                                type="time"
-                                step="1"
-                                value={config.exit_time}
-                                onChange={(e) => setConfig({ ...config, exit_time: e.target.value })}
-                            />
-                        </div>
-
-                        <div className="space-y-2">
-                            <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
-                                Overall SL (%)
-                            </Label>
-                            <Input
-                                className="h-11 rounded-xl"
-                                type="number"
-                                value={config.overall_sl_percentage}
-                                onChange={(e) => setConfig({ ...config, overall_sl_percentage: parseFloat(e.target.value) || 0 })}
-                            />
-                        </div>
-
-                        <div className="space-y-2">
-                            <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
-                                Overall SL (₹)
-                            </Label>
-                            <Input
-                                className="h-11 rounded-xl"
-                                type="number"
-                                value={config.overall_sl_amount}
-                                onChange={(e) => setConfig({ ...config, overall_sl_amount: parseFloat(e.target.value) || 0 })}
-                            />
-                        </div>
-
-                        {config.ordertype === 'LIMIT' ? (
-                            <div className="space-y-2">
-                                <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Limit Offset (LTP + )</Label>
-                                <Input
-                                    className="h-11 rounded-xl"
-                                    type="number"
-                                    value={config.entry_limit_offset}
-                                    onChange={(e) => setConfig({ ...config, entry_limit_offset: parseFloat(e.target.value) || 0 })}
-                                />
-                            </div>
-                        ) : (config.ordertype !== 'MARKET' && config.ordertype !== 'STOPLOSS_MARKET' && (
-                            <div className="space-y-2">
-                                <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Price</Label>
-                                <Input
-                                    className="h-11 rounded-xl"
-                                    type="number"
-                                    value={config.price}
-                                    onChange={(e) => setConfig({ ...config, price: e.target.value })}
-                                />
-                            </div>
-                        ))}
-
-                        {(config.ordertype === 'STOPLOSS_LIMIT' || config.ordertype === 'STOPLOSS_MARKET') && (
-                            <div className="space-y-2">
-                                <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Trigger Price</Label>
-                                <Input
-                                    className="h-11 rounded-xl"
-                                    type="number"
-                                    value={config.triggerprice}
-                                    onChange={(e) => setConfig({ ...config, triggerprice: e.target.value })}
-                                />
-                            </div>
-                        )}
-
-                        <div className="flex items-end">
-                            <Button
-                                className="w-full h-11 gap-2 rounded-xl shadow-lg font-bold"
-                                onClick={handleSave}
-                                disabled={loading}
-                            >
-                                {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                                {editingId ? "Update Strategy" : "Save Strategy"}
-                            </Button>
-                        </div>
-                        {editingId && (
-                            <div className="flex items-end">
-                                <Button
-                                    variant="outline"
-                                    className="w-full h-11 gap-2 rounded-xl"
-                                    onClick={() => setEditingId(null)}
-                                >
-                                    Cancel Edit
-                                </Button>
-                            </div>
-                        )}
-                    </div>
-                </CardContent>
-            </Card>
-
-            {Object.entries(runningStrategies).map(([id, strategyData]) => (
-                <Card key={id} className="w-full border-border bg-muted animate-in fade-in slide-in-from-bottom-4 duration-500">
-                    <CardContent className="p-6 space-y-4">
-                        <div className="flex items-center justify-between">
-                            <div className="space-y-1">
-                                <div className="flex items-center gap-3">
-                                    <div className="p-2 bg-muted rounded-lg">
-                                        <Timer className="h-4 w-4 text-primary" />
-                                    </div>
-                                    <p className="text-sm font-bold">Strategy Monitor <span className="text-xs font-mono text-muted-foreground ml-2">#{id}</span></p>
-                                </div>
-                                <div className="flex items-center gap-2 mt-2">
-                                    <span className="relative flex h-2 w-2">
-                                        <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${strategyData.status === 'FAILED' ? 'bg-red-400' : 'bg-green-400'} opacity-75`}></span>
-                                        <span className={`relative inline-flex rounded-full h-2 w-2 ${strategyData.status === 'FAILED' ? 'bg-red-500' : 'bg-green-500'}`}></span>
-                                    </span>
-                                    <span className="text-sm font-bold uppercase tracking-tight">{strategyData.status}</span>
-                                    <span className="text-xs font-bold text-muted-foreground ml-2">Index: {strategyData.config?.index}</span>
-                                </div>
-                            </div>
-                            <Button variant="outline" className="rounded-xl border-destructive hover:bg-red-50 text-destructive" onClick={() => handleStop(id)}>
-                                <StopCircle className="h-4 w-4 mr-2" /> Terminate
-                            </Button>
-                        </div>
-
-                        {strategyData?.status === "IN_POSITION" || strategyData?.status === "COMPLETED" ? (
-                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-4 border-t border-border">
-                                <div className="p-3 bg-muted rounded-xl">
-                                    <span className="text-[10px] font-bold uppercase text-muted-foreground block mb-1">Entry Price</span>
-                                    <span className="text-sm font-mono font-bold">
-                                        {strategyData.legs?.map((l) => l.entryPrice ? l.entryPrice.toFixed(2) : '---').join(' / ') || '---'}
-                                    </span>
-                                </div>
-                                <div className="p-3 bg-muted rounded-xl">
-                                    <span className="text-[10px] font-bold uppercase text-muted-foreground block mb-1">Live LTP</span>
-                                    <span className="text-sm font-mono font-bold animate-pulse">
-                                        {strategyData.legs?.map((l) => l.currentLtp ? l.currentLtp.toFixed(2) : '---').join(' / ') || '---'}
-                                    </span>
-                                </div>
-                                <div className={`p-3 rounded-xl ${(strategyData.pnlPercent || 0) >= 0 ? 'bg-emerald-50' : 'bg-red-50'}`}>
-                                    <span className="text-[10px] font-bold uppercase text-muted-foreground block mb-1">Return (%)</span>
-                                    <span className={`text-lg font-mono font-bold ${(strategyData.pnlPercent || 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                                        {(strategyData.pnlPercent || 0) > 0 ? '+' : ''}{(strategyData.pnlPercent || 0).toFixed(2)}%
-                                    </span>
-                                </div>
-                                <div className={`p-3 rounded-xl ${(strategyData.totalPnlRupees || 0) >= 0 ? 'bg-emerald-50' : 'bg-red-50'}`}>
-                                    <span className="text-[10px] font-bold uppercase text-muted-foreground block mb-1">Total PnL (₹)</span>
-                                    <span className={`text-lg font-mono font-bold ${(strategyData.totalPnlRupees || 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                                        {(strategyData.totalPnlRupees || 0) > 0 ? '+' : ''}{(strategyData.totalPnlRupees || 0).toFixed(2)}
-                                    </span>
-                                </div>
-                            </div>
-                        ) : null}
-                    </CardContent>
-                </Card>
-            ))}
-            {history.length > 0 && (
-                <Card className="w-full border-border bg-card">
-                    <CardHeader className="border-b py-4">
-                        <CardTitle className="text-lg font-bold flex items-center gap-2">
-                            <Timer className="h-4 w-4 text-primary" /> Strategy History
+                <Card className="w-full border-border bg-card overflow-hidden">
+                    <CardHeader className="border-b bg-muted">
+                        <CardTitle className="flex items-center gap-2 text-xl font-bold">
+                            <Target className="h-5 w-5 text-primary" />
+                            Strategy Configuration
                         </CardTitle>
                     </CardHeader>
-                    <CardContent className="p-0">
-                        <div className="overflow-x-auto">
-                            <table className="w-full text-sm">
-                                <thead className="bg-muted text-muted-foreground">
-                                    <tr>
-                                        <th className="px-4 py-2 text-left font-bold">DATE</th>
-                                        <th className="px-4 py-2 text-left font-bold">INDEX</th>
-                                        <th className="px-4 py-2 text-left font-bold">TYPE</th>
-                                        <th className="px-4 py-2 text-left font-bold">STATUS</th>
-                                        <th className="px-4 py-2 text-left font-bold">RESULT</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y border-t">
-                                    {history.map((s) => (
-                                        <tr key={s.id} className="hover:bg-muted/50 transition-colors">
-                                            <td className="px-4 py-3 font-mono text-xs">
-                                                {new Date(s.created_at).toLocaleDateString()} {new Date(s.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                            </td>
-                                            <td className="px-4 py-3 font-bold">{s.config.index}</td>
-                                            <td className="px-4 py-3">
-                                                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-700">
-                                                    {s.config.legs?.map((l) => `${l.side} ${l.option_type}`).join(' | ') || '---'}
-                                                </span>
-                                            </td>
-                                            <td className="px-4 py-3">
-                                                <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${s.status === 'COMPLETED' ? 'bg-blue-100 text-blue-700' :
-                                                    s.status === 'FAILED' ? 'bg-red-100 text-red-700' :
-                                                        s.status === 'SAVED' ? 'bg-slate-100 text-slate-700' : 'bg-yellow-100 text-yellow-700'
-                                                    }`}>
-                                                    {s.status}
-                                                </span>
-                                            </td>
-                                            <td className="px-4 py-3 font-mono font-bold">
-                                                {s.status === 'SAVED' ? (
-                                                    <div className="flex items-center gap-2">
-                                                        <Button
-                                                            size="sm"
-                                                            className="h-7 px-3 gap-1 rounded-lg text-[10px]"
-                                                            onClick={() => handleExecute(s.id)}
-                                                        >
-                                                            <Play className="h-3 w-3" /> Execute
-                                                        </Button>
-                                                        <Button
-                                                            size="sm"
-                                                            variant="outline"
-                                                            className="h-7 px-3 gap-1 rounded-lg text-[10px]"
-                                                            onClick={() => handleEdit(s)}
-                                                        >
-                                                            Edit
-                                                        </Button>
-                                                        <Button
-                                                            size="sm"
-                                                            variant="destructive"
-                                                            className="h-7 px-3 gap-1 rounded-lg text-[10px]"
-                                                            onClick={() => handleDelete(s.id)}
-                                                        >
-                                                            Delete
-                                                        </Button>
-                                                    </div>
-                                                ) : (
-                                                    (s.final_pnl_percent !== null && s.final_pnl_percent !== undefined) ? (
-                                                        <div className="flex flex-col">
-                                                            <span className={s.final_pnl_percent >= 0 ? 'text-emerald-600' : 'text-red-600'}>
-                                                                {s.final_pnl_percent > 0 ? '+' : ''}{Number(s.final_pnl_percent).toFixed(2)}%
-                                                            </span>
-                                                            <span className={`text-[10px] font-bold ${s.totalPnlRupees >= 0 ? 'text-emerald-500' : 'text-red-400'}`}>
-                                                                {s.totalPnlRupees > 0 ? '+' : ''}₹{Number(s.totalPnlRupees || 0).toFixed(2)}
-                                                            </span>
-                                                        </div>
-                                                    ) : '---'
-                                                )}
-                                            </td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
+                    <CardContent className="pt-6">
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                            <div className="space-y-2">
+                                <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+                                    <LayoutDashboard className="h-3 w-3" /> Index
+                                </Label>
+                                <Select value={config.index} onValueChange={(v) => setConfig({ ...config, index: v })}>
+                                    <SelectTrigger className="h-11 rounded-xl">
+                                        <SelectValue placeholder="Select Index" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="NIFTY">NIFTY</SelectItem>
+                                        <SelectItem value="BANKNIFTY">BANKNIFTY</SelectItem>
+                                        <SelectItem value="FINNIFTY">FINNIFTY</SelectItem>
+                                        <SelectItem value="SENSEX">SENSEX (BSE)</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </div>
                         </div>
-                    </CardContent>
-                </Card>
-            )}
+
+                        <div className="flex items-center justify-between pt-6">
+                            <div className="text-sm font-bold uppercase tracking-wider text-muted-foreground">
+                                Strategy Legs
+                            </div>
+                            <Button
+                                type="button"
+                                variant="outline"
+                                className="h-9 gap-2 rounded-xl"
+                                onClick={() => {
+                                    const next = [...config.legs, { strike_criteria: 'STRIKE_TYPE', option_type: 'CE', strike: 'ATM', premium: 0, side: 'BUY', lots: 1, sl_type: 'PERCENTAGE', stop_loss: 10, sl_limit_margin: 0 }];
+                                    setConfig({ ...config, legs: next });
+                                }}
+                            >
+                                <Plus className="h-4 w-4" /> Add Leg
+                            </Button>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4">
+                            {config.legs.map((leg, legIndex) => {
+                                return (
+                                    <div key={`leg-${legIndex}`} className="border rounded-2xl p-4 bg-muted/30">
+                                        <div className="flex items-center justify-between mb-4">
+                                            <div className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                                                Leg {legIndex + 1}
+                                            </div>
+                                            <Button
+                                                type="button"
+                                                variant="ghost"
+                                                className="h-8 px-2 text-destructive"
+                                                onClick={() => {
+                                                    if (config.legs.length === 1) return;
+                                                    const next = config.legs.filter((_, i) => i !== legIndex);
+                                                    setConfig({ ...config, legs: next });
+                                                }}
+                                                disabled={config.legs.length === 1}
+                                                title={config.legs.length === 1 ? "At least one leg is required" : "Remove leg"}
+                                            >
+                                                <Trash2 className="h-4 w-4" />
+                                            </Button>
+                                        </div>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                            <div className="space-y-2">
+                                                <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+                                                    <TrendingUp className="h-3 w-3" /> Option Type
+                                                </Label>
+                                                <Select
+                                                    value={leg.option_type}
+                                                    onValueChange={(v) => {
+                                                        const next = [...config.legs];
+                                                        next[legIndex] = { ...next[legIndex], option_type: v };
+                                                        setConfig({ ...config, legs: next });
+                                                    }}
+                                                >
+                                                    <SelectTrigger className="h-11 rounded-xl">
+                                                        <SelectValue placeholder="Type" />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        <SelectItem value="CE">CE (Call)</SelectItem>
+                                                        <SelectItem value="PE">PE (Put)</SelectItem>
+                                                    </SelectContent>
+                                                </Select>
+                                            </div>
+
+                                            <div className="space-y-2">
+                                                <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+                                                    <Target className="h-3 w-3" /> Strike Criteria
+                                                </Label>
+                                                <Select
+                                                    value={leg.strike_criteria || 'STRIKE_TYPE'}
+                                                    onValueChange={(v) => {
+                                                        const next = [...config.legs];
+                                                        next[legIndex] = { ...next[legIndex], strike_criteria: v };
+                                                        setConfig({ ...config, legs: next });
+                                                    }}
+                                                >
+                                                    <SelectTrigger className="h-11 rounded-xl">
+                                                        <SelectValue placeholder="Criteria" />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        <SelectItem value="STRIKE_TYPE">Strike Type</SelectItem>
+                                                        <SelectItem value="CLOSEST_PREMIUM">Closest Premium</SelectItem>
+                                                    </SelectContent>
+                                                </Select>
+                                            </div>
+
+                                            {leg.strike_criteria === 'CLOSEST_PREMIUM' ? (
+                                                <div className="space-y-2">
+                                                    <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+                                                        Premium (₹)
+                                                    </Label>
+                                                    <Input
+                                                        className="h-11 rounded-xl"
+                                                        type="number"
+                                                        value={leg.premium}
+                                                        onChange={(e) => {
+                                                            const next = [...config.legs];
+                                                            next[legIndex] = { ...next[legIndex], premium: parseFloat(e.target.value) || 0 };
+                                                            setConfig({ ...config, legs: next });
+                                                        }}
+                                                    />
+                                                </div>
+                                            ) : (
+                                                <div className="space-y-2">
+                                                    <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+                                                        <Target className="h-3 w-3" /> Strike
+                                                    </Label>
+                                                    <Select
+                                                        value={leg.strike}
+                                                        onValueChange={(v) => {
+                                                            const next = [...config.legs];
+                                                            next[legIndex] = { ...next[legIndex], strike: v };
+                                                            setConfig({ ...config, legs: next });
+                                                        }}
+                                                    >
+                                                        <SelectTrigger className="h-11 rounded-xl">
+                                                            <SelectValue placeholder="Select Strike" />
+                                                        </SelectTrigger>
+                                                        <SelectContent className="max-h-[300px]">
+                                                            <SelectItem value="ATM">ATM (At the Money)</SelectItem>
+                                                            {Array.from({ length: 30 }, (_, i) => i + 1).map(n => (
+                                                                <SelectItem key={`otm${legIndex}-${n}`} value={`OTM${n}`}>OTM {n} strike{n > 1 ? 's' : ''} away</SelectItem>
+                                                            ))}
+                                                            {Array.from({ length: 30 }, (_, i) => i + 1).map(n => (
+                                                                <SelectItem key={`itm${legIndex}-${n}`} value={`ITM${n}`}>ITM {n} strike{n > 1 ? 's' : ''} away</SelectItem>
+                                                            ))}
+                                                        </SelectContent>
+                                                    </Select>
+                                                </div>
+                                            )}
+
+                                            <div className="space-y-2">
+                                                <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Side</Label>
+                                                <Select
+                                                    value={leg.side}
+                                                    onValueChange={(v) => {
+                                                        const next = [...config.legs];
+                                                        next[legIndex] = { ...next[legIndex], side: v };
+                                                        setConfig({ ...config, legs: next });
+                                                    }}
+                                                >
+                                                    <SelectTrigger className="h-11 rounded-xl">
+                                                        <SelectValue placeholder="Side" />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        <SelectItem value="BUY">BUY</SelectItem>
+                                                        <SelectItem value="SELL">SELL</SelectItem>
+                                                    </SelectContent>
+                                                </Select>
+                                            </div>
+
+                                            <div className="space-y-2">
+                                                <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Lots</Label>
+                                                <Input
+                                                    className="h-11 rounded-xl"
+                                                    type="number"
+                                                    value={leg.lots}
+                                                    onChange={(e) => {
+                                                        const next = [...config.legs];
+                                                        next[legIndex] = { ...next[legIndex], lots: parseInt(e.target.value) };
+                                                        setConfig({ ...config, legs: next });
+                                                    }}
+                                                />
+                                            </div>
+
+                                            <div className="space-y-2">
+                                                <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">SL Type</Label>
+                                                <Select
+                                                    value={leg.sl_type || 'PERCENTAGE'}
+                                                    onValueChange={(v) => {
+                                                        const next = [...config.legs];
+                                                        next[legIndex] = { ...next[legIndex], sl_type: v };
+                                                        setConfig({ ...config, legs: next });
+                                                    }}
+                                                >
+                                                    <SelectTrigger className="h-11 rounded-xl">
+                                                        <SelectValue placeholder="SL Type" />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        <SelectItem value="PERCENTAGE">Percentage (%)</SelectItem>
+                                                        <SelectItem value="POINTS">Points (Pts)</SelectItem>
+                                                    </SelectContent>
+                                                </Select>
+                                            </div>
+
+                                            <div className="space-y-2">
+                                                <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                                                    Stop Loss {leg.sl_type === 'POINTS' ? '(Pts)' : '(%)'}
+                                                </Label>
+                                                <Input
+                                                    className="h-11 rounded-xl"
+                                                    type="number"
+                                                    value={leg.stop_loss}
+                                                    onChange={(e) => {
+                                                        const next = [...config.legs];
+                                                        next[legIndex] = { ...next[legIndex], stop_loss: parseFloat(e.target.value) };
+                                                        setConfig({ ...config, legs: next });
+                                                    }}
+                                                />
+                                            </div>
+
+                                            <div className="space-y-2">
+                                                <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">SL Margin (Pts)</Label>
+                                                <Input
+                                                    className="h-11 rounded-xl"
+                                                    type="number"
+                                                    value={leg.sl_limit_margin}
+                                                    onChange={(e) => {
+                                                        const next = [...config.legs];
+                                                        next[legIndex] = { ...next[legIndex], sl_limit_margin: parseFloat(e.target.value) };
+                                                        setConfig({ ...config, legs: next });
+                                                    }}
+                                                />
+                                            </div>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 pt-6">
+
+                            <div className="space-y-2">
+                                <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Variety</Label>
+                                <Select value={config.variety} onValueChange={(v) => setConfig({ ...config, variety: v })}>
+                                    <SelectTrigger className="h-11 rounded-xl">
+                                        <SelectValue placeholder="Variety" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="NORMAL">NORMAL</SelectItem>
+                                        <SelectItem value="STOPLOSS">STOPLOSS</SelectItem>
+                                        <SelectItem value="ROBO">ROBO</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </div>
+
+                            <div className="space-y-2">
+                                <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Product Type</Label>
+                                <Select value={config.producttype} onValueChange={(v) => setConfig({ ...config, producttype: v })}>
+                                    <SelectTrigger className="h-11 rounded-xl">
+                                        <SelectValue placeholder="Product" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="CARRYFORWARD">CARRYFORWARD (NRML)</SelectItem>
+                                        <SelectItem value="INTRADAY">INTRADAY (MIS)</SelectItem>
+                                        <SelectItem value="DELIVERY">DELIVERY (CNC)</SelectItem>
+                                        <SelectItem value="MARGIN">MARGIN</SelectItem>
+                                        <SelectItem value="BO">BO (Bracket Order)</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </div>
+
+                            <div className="space-y-2">
+                                <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Order Type</Label>
+                                <Select value={config.ordertype} onValueChange={(v) => setConfig({ ...config, ordertype: v })}>
+                                    <SelectTrigger className="h-11 rounded-xl">
+                                        <SelectValue placeholder="Order Type" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="MARKET">MARKET</SelectItem>
+                                        <SelectItem value="LIMIT">LIMIT</SelectItem>
+                                        <SelectItem value="STOPLOSS_LIMIT">SL-L</SelectItem>
+                                        <SelectItem value="STOPLOSS_MARKET">SL-M</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </div>
+
+                            <div className="space-y-2">
+                                <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Duration</Label>
+                                <Select value={config.duration} onValueChange={(v) => setConfig({ ...config, duration: v })}>
+                                    <SelectTrigger className="h-11 rounded-xl">
+                                        <SelectValue placeholder="Duration" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="DAY">DAY</SelectItem>
+                                        <SelectItem value="IOC">IOC</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </div>
+
+                            <div className="space-y-2">
+                                <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+                                    <Timer className="h-3 w-3" /> Entry Time
+                                </Label>
+                                <Input
+                                    className="h-11 rounded-xl"
+                                    type="time"
+                                    step="1"
+                                    value={config.entry_time}
+                                    onChange={(e) => setConfig({ ...config, entry_time: e.target.value })}
+                                />
+                            </div>
+
+                            <div className="space-y-2">
+                                <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+                                    <Timer className="h-3 w-3" /> Exit Time
+                                </Label>
+                                <Input
+                                    className="h-11 rounded-xl"
+                                    type="time"
+                                    step="1"
+                                    value={config.exit_time}
+                                    onChange={(e) => setConfig({ ...config, exit_time: e.target.value })}
+                                />
+                            </div>
+
+                            <div className="space-y-2">
+                                <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+                                    Overall SL Type
+                                </Label>
+                                <Select value={config.overall_sl_type || 'PERCENTAGE'} onValueChange={(v) => setConfig({ ...config, overall_sl_type: v })}>
+                                    <SelectTrigger className="h-11 rounded-xl">
+                                        <SelectValue placeholder="SL Type" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="PERCENTAGE">Percentage (%)</SelectItem>
+                                        <SelectItem value="AMOUNT">Amount (₹)</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </div>
+
+                            <div className="space-y-2">
+                                <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+                                    Overall SL {config.overall_sl_type === 'AMOUNT' ? '(₹)' : '(%)'}
+                                </Label>
+                                <Input
+                                    className="h-11 rounded-xl"
+                                    type="number"
+                                    value={config.overall_sl_value}
+                                    onChange={(e) => setConfig({ ...config, overall_sl_value: parseFloat(e.target.value) || 0 })}
+                                />
+                            </div>
+
+                            {config.ordertype === 'LIMIT' ? (
+                                <div className="space-y-2">
+                                    <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Limit Offset (LTP + )</Label>
+                                    <Input
+                                        className="h-11 rounded-xl"
+                                        type="number"
+                                        value={config.entry_limit_offset}
+                                        onChange={(e) => setConfig({ ...config, entry_limit_offset: parseFloat(e.target.value) || 0 })}
+                                    />
+                                </div>
+                            ) : (config.ordertype !== 'MARKET' && config.ordertype !== 'STOPLOSS_MARKET' && (
+                                <div className="space-y-2">
+                                    <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Price</Label>
+                                    <Input
+                                        className="h-11 rounded-xl"
+                                        type="number"
+                                        value={config.price}
+                                        onChange={(e) => setConfig({ ...config, price: e.target.value })}
+                                    />
+                                </div>
+                            ))}
+
+                            {(config.ordertype === 'STOPLOSS_LIMIT' || config.ordertype === 'STOPLOSS_MARKET') && (
+                                <div className="space-y-2">
+                                    <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Trigger Price</Label>
+                                    <Input
+                                        className="h-11 rounded-xl"
+                                        type="number"
+                                        value={config.triggerprice}
+                                        onChange={(e) => setConfig({ ...config, triggerprice: e.target.value })}
+                                    />
+                                </div>
+                            )}
+
+                            <div className="flex items-end">
+                                <Button
+                                    className="w-full h-11 gap-2 rounded-xl shadow-lg font-bold"
+                                    onClick={handleSave}
+                                    disabled={loading}
+                                >
+                                    {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                                    {editingId ? "Update Strategy" : "Save Strategy"}
+                                </Button>
+                            </div>
+                            {editingId && (
+                                <div className="flex items-end">
+                                    <Button
+                                        variant="outline"
+                                        className="w-full h-11 gap-2 rounded-xl"
+                                        onClick={() => setEditingId(null)}
+                                    >
+                                        Cancel Edit
+                                    </Button>
+                                </div>
+                            )}
+                        </div>
+                    </CardContent >
+                </Card >
+
+                {
+                    Object.entries(runningStrategies)
+                        .filter(([_, data]) => (activeTab === 'paper' ? data.config?.is_paper_trading : !data.config?.is_paper_trading))
+                        .map(([id, strategyData]) => (
+                            <Card key={id} className={`w-full border-border animate-in fade-in slide-in-from-bottom-4 duration-500 ${activeTab === 'paper' ? 'bg-blue-50/50' : 'bg-orange-50/50'}`}>
+                                <CardContent className="p-6 space-y-4">
+                                    <div className="flex items-center justify-between">
+                                        <div className="space-y-1">
+                                            <div className="flex items-center gap-3">
+                                                <div className="p-2 bg-muted rounded-lg">
+                                                    <Timer className="h-4 w-4 text-primary" />
+                                                </div>
+                                                <p className="text-sm font-bold">Strategy Monitor <span className="text-xs font-mono text-muted-foreground ml-2">#{id}</span></p>
+                                            </div>
+                                            <div className="flex items-center gap-2 mt-2">
+                                                <span className="relative flex h-2 w-2">
+                                                    <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${strategyData.status === 'FAILED' ? 'bg-red-400' : 'bg-green-400'} opacity-75`}></span>
+                                                    <span className={`relative inline-flex rounded-full h-2 w-2 ${strategyData.status === 'FAILED' ? 'bg-red-500' : 'bg-green-500'}`}></span>
+                                                </span>
+                                                <span className="text-sm font-bold uppercase tracking-tight">{strategyData.status}</span>
+                                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${strategyData.config?.is_paper_trading ? 'bg-blue-100 text-blue-700' : 'bg-orange-100 text-orange-700'}`}>
+                                                    {strategyData.config?.is_paper_trading ? 'PAPER' : 'LIVE'}
+                                                </span>
+                                                <span className="text-xs font-bold text-muted-foreground ml-2">Index: {strategyData.config?.index}</span>
+                                            </div>
+                                        </div>
+                                        <Button variant="outline" className="rounded-xl border-destructive hover:bg-red-50 text-destructive" onClick={() => handleStop(id)}>
+                                            <StopCircle className="h-4 w-4 mr-2" /> Terminate
+                                        </Button>
+                                    </div>
+
+                                    {strategyData?.status === "IN_POSITION" || strategyData?.status === "COMPLETED" ? (
+                                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-4 border-t border-border">
+                                            <div className="p-3 bg-muted rounded-xl">
+                                                <span className="text-[10px] font-bold uppercase text-muted-foreground block mb-1">Entry Price</span>
+                                                <span className="text-sm font-mono font-bold">
+                                                    {strategyData.legs?.map((l) => l.entryPrice ? l.entryPrice.toFixed(2) : '---').join(' / ') || '---'}
+                                                </span>
+                                            </div>
+                                            <div className="p-3 bg-muted rounded-xl">
+                                                <span className="text-[10px] font-bold uppercase text-muted-foreground block mb-1">Live LTP</span>
+                                                <span className="text-sm font-mono font-bold animate-pulse">
+                                                    {strategyData.legs?.map((l) => l.currentLtp ? l.currentLtp.toFixed(2) : '---').join(' / ') || '---'}
+                                                </span>
+                                            </div>
+                                            <div className={`p-3 rounded-xl ${(strategyData.pnlPercent || 0) >= 0 ? 'bg-emerald-50' : 'bg-red-50'}`}>
+                                                <span className="text-[10px] font-bold uppercase text-muted-foreground block mb-1">Return (%)</span>
+                                                <span className={`text-lg font-mono font-bold ${(strategyData.pnlPercent || 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                                                    {(strategyData.pnlPercent || 0) > 0 ? '+' : ''}{(strategyData.pnlPercent || 0).toFixed(2)}%
+                                                </span>
+                                            </div>
+                                            <div className={`p-3 rounded-xl ${(strategyData.totalPnlRupees || 0) >= 0 ? 'bg-emerald-50' : 'bg-red-50'}`}>
+                                                <span className="text-[10px] font-bold uppercase text-muted-foreground block mb-1">Total PnL (₹)</span>
+                                                <span className={`text-lg font-mono font-bold ${(strategyData.totalPnlRupees || 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                                                    {(strategyData.totalPnlRupees || 0) > 0 ? '+' : ''}{(strategyData.totalPnlRupees || 0).toFixed(2)}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    ) : null}
+                                </CardContent>
+                            </Card>
+                        ))
+                }
+                {
+                    history.length > 0 && (
+                        <Card className="w-full border-border bg-card">
+                            <CardHeader className="border-b py-4">
+                                <CardTitle className="text-lg font-bold flex items-center gap-2">
+                                    <Timer className="h-4 w-4 text-primary" /> Strategy History
+                                </CardTitle>
+                            </CardHeader>
+                            <CardContent className="p-0">
+                                <div className="overflow-x-auto">
+                                    <table className="w-full text-sm">
+                                        <thead className="bg-muted text-muted-foreground">
+                                            <tr>
+                                                <th className="px-4 py-2 text-left font-bold">DATE</th>
+                                                <th className="px-4 py-2 text-left font-bold">MODE</th>
+                                                <th className="px-4 py-2 text-left font-bold">INDEX</th>
+                                                <th className="px-4 py-2 text-left font-bold">TYPE</th>
+                                                <th className="px-4 py-2 text-left font-bold">STATUS</th>
+                                                <th className="px-4 py-2 text-left font-bold">RESULT</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y border-t">
+                                            {history
+                                                .filter(s => (activeTab === 'paper' ? s.config?.is_paper_trading : !s.config?.is_paper_trading))
+                                                .map((s) => (
+                                                    <tr key={s.id} className="hover:bg-muted/50 transition-colors">
+                                                        <td className="px-4 py-3 font-mono text-xs">
+                                                            {new Date(s.created_at).toLocaleDateString()} {new Date(s.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                        </td>
+                                                        <td className="px-4 py-3">
+                                                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${s.config?.is_paper_trading ? 'bg-blue-100 text-blue-700' : 'bg-orange-100 text-orange-700'}`}>
+                                                                {s.config?.is_paper_trading ? 'PAPER' : 'LIVE'}
+                                                            </span>
+                                                        </td>
+                                                        <td className="px-4 py-3 font-bold">{s.config.index}</td>
+                                                        <td className="px-4 py-3">
+                                                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-700">
+                                                                {s.config.legs?.map((l) => `${l.side} ${l.option_type}`).join(' | ') || '---'}
+                                                            </span>
+                                                        </td>
+                                                        <td className="px-4 py-3">
+                                                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${s.status === 'COMPLETED' ? 'bg-blue-100 text-blue-700' :
+                                                                s.status === 'FAILED' ? 'bg-red-100 text-red-700' :
+                                                                    s.status === 'SAVED' ? 'bg-slate-100 text-slate-700' : 'bg-yellow-100 text-yellow-700'
+                                                                }`}>
+                                                                {s.status}
+                                                            </span>
+                                                        </td>
+                                                        <td className="px-4 py-3 font-mono font-bold">
+                                                            {s.status === 'SAVED' ? (
+                                                                <div className="flex items-center gap-2">
+                                                                    <Button
+                                                                        size="sm"
+                                                                        className="h-7 px-3 gap-1 rounded-lg text-[10px]"
+                                                                        onClick={() => handleExecute(s.id)}
+                                                                    >
+                                                                        <Play className="h-3 w-3" /> Execute
+                                                                    </Button>
+                                                                    <Button
+                                                                        size="sm"
+                                                                        variant="outline"
+                                                                        className="h-7 px-3 gap-1 rounded-lg text-[10px]"
+                                                                        onClick={() => handleEdit(s)}
+                                                                    >
+                                                                        Edit
+                                                                    </Button>
+                                                                    <Button
+                                                                        size="sm"
+                                                                        variant="destructive"
+                                                                        className="h-7 px-3 gap-1 rounded-lg text-[10px]"
+                                                                        onClick={() => handleDelete(s.id)}
+                                                                    >
+                                                                        Delete
+                                                                    </Button>
+                                                                </div>
+                                                            ) : (
+                                                                (s.final_pnl_percent !== null && s.final_pnl_percent !== undefined) ? (
+                                                                    <div className="flex flex-col">
+                                                                        <span className={s.final_pnl_percent >= 0 ? 'text-emerald-600' : 'text-red-600'}>
+                                                                            {s.final_pnl_percent > 0 ? '+' : ''}{Number(s.final_pnl_percent).toFixed(2)}%
+                                                                        </span>
+                                                                        <span className={`text-[10px] font-bold ${s.totalPnlRupees >= 0 ? 'text-emerald-500' : 'text-red-400'}`}>
+                                                                            {s.totalPnlRupees > 0 ? '+' : ''}₹{Number(s.totalPnlRupees || 0).toFixed(2)}
+                                                                        </span>
+                                                                    </div>
+                                                                ) : '---'
+                                                            )}
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </CardContent>
+                        </Card>
+                    )}
+            </Tabs>
         </div>
     );
 };
