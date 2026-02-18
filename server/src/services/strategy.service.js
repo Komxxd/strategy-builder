@@ -98,6 +98,7 @@ async function findClosestPremiumInstrument(indexName, optionType, targetPremium
 
 async function placeOrder(config, instrument, connectionId) {
     const isPaperTrading = config.is_paper_trading === true;
+    const connId = connectionId || config.connectionId;
 
     const orderParams = {
         variety: config.variety || "NORMAL",
@@ -126,7 +127,7 @@ async function placeOrder(config, instrument, connectionId) {
 
     try {
         console.log(`[${new Date().toISOString()}] Placing order:`, orderParams);
-        const api = await getAuthorizedInstance(connectionId);
+        const api = await getAuthorizedInstance(connId);
         const response = await api.placeOrder(orderParams);
         if (response.status && response.data) {
             console.log(`[${new Date().toISOString()}] Order placed successfully:`, response.data.orderid);
@@ -206,7 +207,7 @@ async function waitForOrderFillPrice(uniqueOrderId, connectionId, isPaperTrading
     return null;
 }
 
-async function placeStopLossExitOrder({ baseConfig, legSide, entryPrice, instrument, lots, slType, slValue, slLimitMargin }) {
+async function placeStopLossExitOrder({ baseConfig, legSide, entryPrice, instrument, lots, slType, slValue, slLimitMargin, connectionId }) {
     const prices = computeStopLossExitPrices(
         entryPrice,
         legSide,
@@ -226,7 +227,7 @@ async function placeStopLossExitOrder({ baseConfig, legSide, entryPrice, instrum
         triggerprice: prices.trigger.toString(),
     };
 
-    return await placeOrder(slConfig, instrument);
+    return await placeOrder(slConfig, instrument, connectionId);
 }
 
 function getLegStrikeSelection({ index, option_type, strike, spotPrice }) {
@@ -348,7 +349,8 @@ async function executeStrategy(strategyId) {
                                 lots: item.leg.lots,
                                 price: finalPrice
                             },
-                            item.instrument
+                            item.instrument,
+                            config.connectionId
                         );
                         return {
                             ...item,
@@ -396,7 +398,8 @@ async function executeStrategy(strategyId) {
                                 lots: leg.leg.lots,
                                 slType: leg.leg.sl_type || "PERCENTAGE",
                                 slValue: leg.leg.stop_loss,
-                                slLimitMargin: config.entry_limit_offset
+                                slLimitMargin: config.entry_limit_offset,
+                                connectionId: config.connectionId
                             });
                             if (slOrder?.orderid) {
                                 const prices = computeStopLossExitPrices(
@@ -439,6 +442,8 @@ async function executeStrategy(strategyId) {
         if (strategy.status === "IN_POSITION" && strategy.legs?.length) {
             try {
                 await Promise.all(strategy.legs.map(async (leg) => {
+                    if (leg.exited) return; // Skip closed legs for LTP updates
+
                     const currentLtpRes = await marketService.getLTP({
                         exchange: leg.instrument.exch_seg,
                         symboltoken: leg.instrument.token
@@ -457,6 +462,7 @@ async function executeStrategy(strategyId) {
                     }
                 }));
 
+                // Strategy PnL is the sum of all legs (active + exited)
                 const validPnls = strategy.legs
                     .map(l => (typeof l.pnlPercent === "number" ? l.pnlPercent : null))
                     .filter(v => v !== null);
@@ -486,8 +492,26 @@ async function executeStrategy(strategyId) {
                 }
 
                 if (isOverallSlHit) {
-                    console.log(`[${new Date().toISOString()}] ${slReason} for strategy ${strategyId}. Exiting all legs.`);
+                    console.log(`[${new Date().toISOString()}] ${slReason} for strategy ${strategyId}. Exiting remaining legs.`);
+
+                    // Cancel any pending SL orders on exchange for active legs
+                    if (config.variety === "STOPLOSS" && !config.is_paper_trading) {
+                        await Promise.all(strategy.legs.map(async (leg) => {
+                            if (!leg.exited && leg.slOrderId) {
+                                try {
+                                    const api = await getAuthorizedInstance(config.connectionId);
+                                    await api.cancelOrder({ variety: "STOPLOSS", orderid: leg.slOrderId });
+                                    console.log(`Cancelled SL order ${leg.slOrderId} for ${leg.instrument.symbol} due to overall SL`);
+                                } catch (e) {
+                                    console.error(`Failed to cancel SL order ${leg.slOrderId}:`, e.message);
+                                }
+                            }
+                        }));
+                    }
+
                     const exitOrders = await Promise.all(strategy.legs.map(async (leg) => {
+                        if (leg.exited) return leg.exitOrderId;
+
                         const closeConfig = {
                             ...config,
                             side: leg.leg.side === "BUY" ? "SELL" : "BUY",
@@ -495,7 +519,10 @@ async function executeStrategy(strategyId) {
                             ordertype: "MARKET",
                             lots: leg.leg.lots
                         };
-                        const orderData = await placeOrder(closeConfig, leg.instrument);
+                        const orderData = await placeOrder(closeConfig, leg.instrument, config.connectionId);
+                        leg.exited = true;
+                        leg.exitOrderId = orderData.orderid;
+                        leg.exitType = "OVERALL_STOP_LOSS";
                         return orderData.orderid;
                     }));
                     strategy.status = "COMPLETED";
@@ -514,17 +541,19 @@ async function executeStrategy(strategyId) {
 
                 // Check Leg-wise Stop Loss (%) only if we didn't place SmartAPI SL orders (or if it's paper trading)
                 if (config.variety !== "STOPLOSS" || config.is_paper_trading === true) {
-                    let hitLeg = strategy.legs.find(l => {
-                        const slVal = l.leg.stop_loss || 0;
-                        if (l.leg.sl_type === "POINTS") {
-                            return l.pnlPoints <= -slVal;
+                    for (const leg of strategy.legs) {
+                        if (leg.exited) continue;
+
+                        const slVal = leg.leg.stop_loss || 0;
+                        let isHit = false;
+                        if (leg.leg.sl_type === "POINTS") {
+                            isHit = leg.pnlPoints <= -slVal;
                         } else {
-                            return l.pnlPercent <= -slVal;
+                            isHit = leg.pnlPercent <= -slVal;
                         }
-                    });
-                    if (hitLeg) {
-                        console.log(`Stop Loss hit for leg ${hitLeg.instrument.symbol}: PnL%=${hitLeg.pnlPercent.toFixed(2)}%`);
-                        const exitOrders = await Promise.all(strategy.legs.map(async (leg) => {
+
+                        if (isHit) {
+                            console.log(`[${new Date().toISOString()}] Manual Stop Loss hit for leg ${leg.instrument.symbol}: PnL=${leg.pnlPercent.toFixed(2)}%`);
                             const closeConfig = {
                                 ...config,
                                 side: leg.leg.side === "BUY" ? "SELL" : "BUY",
@@ -532,35 +561,84 @@ async function executeStrategy(strategyId) {
                                 ordertype: "MARKET",
                                 lots: leg.leg.lots
                             };
-                            const orderData = await placeOrder(closeConfig, leg.instrument);
-                            return orderData.orderid;
-                        }));
-                        strategy.status = "COMPLETED";
-                        strategy.exitOrderId = exitOrders;
-                        strategy.exitType = "STOP_LOSS";
-                        updateStrategyInMemory(strategyId, {
-                            status: "COMPLETED",
-                            exit_order_id: strategy.exitOrderId,
-                            exit_type: "STOP_LOSS",
-                            final_pnl_percent: avgPnl,
-                            totalPnlRupees: totalPnlRupees
-                        });
-                        clearInterval(interval);
+                            const orderData = await placeOrder(closeConfig, leg.instrument, config.connectionId);
+                            leg.exited = true;
+                            leg.exitOrderId = orderData.orderid;
+                            leg.exitType = "LEG_STOP_LOSS";
+                        }
+                    }
+                } else {
+                    // Real Stop Loss handling for variety="STOPLOSS"
+                    // Check if any exchange SL was hit
+                    for (const leg of strategy.legs) {
+                        if (leg.exited) continue;
+                        if (leg.slUniqueOrderId && !leg.exchangeSlProcessed) {
+                            // Only check exchange if price is close to trigger (to save API quota)
+                            const isNearTrigger = leg.leg.side === "BUY"
+                                ? (leg.currentLtp <= leg.slTriggerPrice * 1.02)
+                                : (leg.currentLtp >= leg.slTriggerPrice * 0.98);
+
+                            if (isNearTrigger) {
+                                try {
+                                    const api = await getAuthorizedInstance(config.connectionId);
+                                    const details = await api.indOrderDetails(leg.slUniqueOrderId);
+                                    if (details?.status && details?.data) {
+                                        const orderStatus = (details.data.orderstatus || details.data.status || "").toString().toLowerCase();
+                                        if (orderStatus === "complete" || orderStatus === "filled") {
+                                            console.log(`[${new Date().toISOString()}] Exchange SL hit for leg ${leg.instrument.symbol}.`);
+                                            leg.exchangeSlProcessed = true;
+                                            leg.exited = true;
+                                            leg.exitType = "EXCHANGE_STOP_LOSS";
+                                        }
+                                    }
+                                } catch (err) {
+                                    console.error("Error checking exchange SL status:", err.message);
+                                }
+                            }
+                        }
                     }
                 }
 
                 // Check Exit Time
                 if (currentTime >= config.exit_time) {
-                    console.log(`Exit time reached for ${strategyId}`);
+                    console.log(`[${new Date().toISOString()}] Exit time reached for ${strategyId}`);
+
+                    // 1. Cancel any pending SL orders first for active legs
+                    if (config.variety === "STOPLOSS" && !config.is_paper_trading) {
+                        await Promise.all(strategy.legs.map(async (leg) => {
+                            if (!leg.exited && leg.slOrderId) {
+                                try {
+                                    const api = await getAuthorizedInstance(config.connectionId);
+                                    await api.cancelOrder({
+                                        variety: "STOPLOSS",
+                                        orderid: leg.slOrderId
+                                    });
+                                    console.log(`Cancelled pending SL order ${leg.slOrderId} for ${leg.instrument.symbol} at exit time`);
+                                } catch (e) {
+                                    console.error(`Failed to cancel SL order ${leg.slOrderId}:`, e.message);
+                                }
+                            }
+                        }));
+                    }
+
+                    // 2. Place Market Exit Orders for remaining active legs
                     const exitOrders = await Promise.all(strategy.legs.map(async (leg) => {
+                        if (leg.exited) return leg.exitOrderId;
+
                         const closeConfig = {
                             ...config,
                             side: leg.leg.side === "BUY" ? "SELL" : "BUY",
+                            variety: "NORMAL",
+                            ordertype: "MARKET",
                             lots: leg.leg.lots
                         };
-                        const orderData = await placeOrder(closeConfig, leg.instrument);
+                        const orderData = await placeOrder(closeConfig, leg.instrument, config.connectionId);
+                        leg.exited = true;
+                        leg.exitOrderId = orderData.orderid;
+                        leg.exitType = "EXIT_TIME";
                         return orderData.orderid;
                     }));
+
                     strategy.status = "COMPLETED";
                     strategy.exitOrderId = exitOrders;
                     strategy.exitType = "EXIT_TIME";
