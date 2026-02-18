@@ -33,7 +33,7 @@ export const StrategyBuilder = ({ userId }) => {
         overall_sl_value: 0,
         entry_limit_offset: 0,
         legs: [
-            { strike_criteria: 'STRIKE_TYPE', option_type: 'CE', strike: 'ATM', premium: 0, side: 'BUY', lots: 1, sl_type: 'PERCENTAGE', stop_loss: 10, sl_limit_margin: 0 }
+            { strike_criteria: 'STRIKE_TYPE', option_type: 'CE', strike: 'ATM', premium: 0, side: 'BUY', lots: 1, sl_type: 'PERCENTAGE', stop_loss: 10 }
         ]
     });
 
@@ -230,7 +230,7 @@ export const StrategyBuilder = ({ userId }) => {
                                 variant="outline"
                                 className="h-9 gap-2 rounded-xl"
                                 onClick={() => {
-                                    const next = [...config.legs, { strike_criteria: 'STRIKE_TYPE', option_type: 'CE', strike: 'ATM', premium: 0, side: 'BUY', lots: 1, sl_type: 'PERCENTAGE', stop_loss: 10, sl_limit_margin: 0 }];
+                                    const next = [...config.legs, { strike_criteria: 'STRIKE_TYPE', option_type: 'CE', strike: 'ATM', premium: 0, side: 'BUY', lots: 1, sl_type: 'PERCENTAGE', stop_loss: 10 }];
                                     setConfig({ ...config, legs: next });
                                 }}
                             >
@@ -421,19 +421,7 @@ export const StrategyBuilder = ({ userId }) => {
                                                 />
                                             </div>
 
-                                            <div className="space-y-2">
-                                                <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">SL Margin (Pts)</Label>
-                                                <Input
-                                                    className="h-11 rounded-xl"
-                                                    type="number"
-                                                    value={leg.sl_limit_margin}
-                                                    onChange={(e) => {
-                                                        const next = [...config.legs];
-                                                        next[legIndex] = { ...next[legIndex], sl_limit_margin: parseFloat(e.target.value) };
-                                                        setConfig({ ...config, legs: next });
-                                                    }}
-                                                />
-                                            </div>
+                                            {/* SL Margin removed - now using global entry_limit_offset */}
                                         </div>
                                     </div>
                                 );
@@ -772,6 +760,6 @@ export const StrategyBuilder = ({ userId }) => {
                         </Card>
                     )}
             </Tabs>
-        </div>
+        </div >
     );
 };

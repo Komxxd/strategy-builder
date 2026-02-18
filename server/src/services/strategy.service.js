@@ -396,7 +396,7 @@ async function executeStrategy(strategyId) {
                                 lots: leg.leg.lots,
                                 slType: leg.leg.sl_type || "PERCENTAGE",
                                 slValue: leg.leg.stop_loss,
-                                slLimitMargin: leg.leg.sl_limit_margin
+                                slLimitMargin: config.entry_limit_offset
                             });
                             if (slOrder?.orderid) {
                                 const prices = computeStopLossExitPrices(
@@ -404,7 +404,7 @@ async function executeStrategy(strategyId) {
                                     leg.leg.side,
                                     leg.leg.sl_type || "PERCENTAGE",
                                     leg.leg.stop_loss,
-                                    leg.leg.sl_limit_margin
+                                    config.entry_limit_offset
                                 );
                                 leg.slOrderId = slOrder.orderid;
                                 leg.slUniqueOrderId = slOrder.uniqueorderid;
