@@ -59,6 +59,18 @@
   }
 }
 
+/* Hide arrows from number inputs */
+input::-webkit-outer-spin-button,
+input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+input[type=number] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
 .animate-float {
   animation: float 6s ease-in-out infinite;
 }

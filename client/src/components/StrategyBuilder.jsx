@@ -535,9 +535,17 @@ export const StrategyBuilder = ({ userId }) => {
                                 </Label>
                                 <Input
                                     className="h-11 rounded-xl"
-                                    type="number"
+                                    type="text"
                                     value={config.overall_sl_value}
-                                    onChange={(e) => setConfig({ ...config, overall_sl_value: parseFloat(e.target.value) || 0 })}
+                                    onChange={(e) => {
+                                        const val = e.target.value;
+                                        if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                                            setConfig({ ...config, overall_sl_value: val });
+                                        }
+                                    }}
+                                    onBlur={(e) => {
+                                        setConfig({ ...config, overall_sl_value: parseFloat(e.target.value) || 0 });
+                                    }}
                                 />
                             </div>
 
@@ -546,9 +554,17 @@ export const StrategyBuilder = ({ userId }) => {
                                     <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Limit Offset (LTP + )</Label>
                                     <Input
                                         className="h-11 rounded-xl"
-                                        type="number"
+                                        type="text"
                                         value={config.entry_limit_offset}
-                                        onChange={(e) => setConfig({ ...config, entry_limit_offset: parseFloat(e.target.value) || 0 })}
+                                        onChange={(e) => {
+                                            const val = e.target.value;
+                                            if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                                                setConfig({ ...config, entry_limit_offset: val });
+                                            }
+                                        }}
+                                        onBlur={(e) => {
+                                            setConfig({ ...config, entry_limit_offset: parseFloat(e.target.value) || 0 });
+                                        }}
                                     />
                                 </div>
                             ) : (config.ordertype !== 'MARKET' && config.ordertype !== 'STOPLOSS_MARKET' && (
