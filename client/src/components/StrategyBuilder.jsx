@@ -314,6 +314,7 @@ export const StrategyBuilder = ({ userId }) => {
                                                     <Input
                                                         className="h-11 rounded-xl"
                                                         type="number"
+                                                        step="0.05"
                                                         value={leg.premium}
                                                         onChange={(e) => {
                                                             const next = [...config.legs];
@@ -340,10 +341,10 @@ export const StrategyBuilder = ({ userId }) => {
                                                         </SelectTrigger>
                                                         <SelectContent className="max-h-[300px]">
                                                             <SelectItem value="ATM">ATM (At the Money)</SelectItem>
-                                                            {Array.from({ length: 30 }, (_, i) => i + 1).map(n => (
+                                                            {Array.from({ length: 40 }, (_, i) => i + 1).map(n => (
                                                                 <SelectItem key={`otm${legIndex}-${n}`} value={`OTM${n}`}>OTM {n} strike{n > 1 ? 's' : ''} away</SelectItem>
                                                             ))}
-                                                            {Array.from({ length: 30 }, (_, i) => i + 1).map(n => (
+                                                            {Array.from({ length: 40 }, (_, i) => i + 1).map(n => (
                                                                 <SelectItem key={`itm${legIndex}-${n}`} value={`ITM${n}`}>ITM {n} strike{n > 1 ? 's' : ''} away</SelectItem>
                                                             ))}
                                                         </SelectContent>
@@ -573,6 +574,7 @@ export const StrategyBuilder = ({ userId }) => {
                                     <Input
                                         className="h-11 rounded-xl"
                                         type="number"
+                                        step="0.05"
                                         value={config.price}
                                         onChange={(e) => setConfig({ ...config, price: e.target.value })}
                                     />
@@ -585,6 +587,7 @@ export const StrategyBuilder = ({ userId }) => {
                                     <Input
                                         className="h-11 rounded-xl"
                                         type="number"
+                                        step="0.05"
                                         value={config.triggerprice}
                                         onChange={(e) => setConfig({ ...config, triggerprice: e.target.value })}
                                     />

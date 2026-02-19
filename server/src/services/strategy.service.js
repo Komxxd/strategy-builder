@@ -22,6 +22,11 @@ function loadInstruments() {
     }
 }
 
+function roundToTick(price, tick = 0.05) {
+    if (!price || isNaN(price)) return 0;
+    return Number(Math.max(tick, Math.round(price / tick) * tick).toFixed(2));
+}
+
 function updateStrategyInMemory(strategyId, data) {
     const existing = savedStrategies.get(strategyId);
     if (!existing) return;
@@ -162,8 +167,8 @@ function computeStopLossExitPrices(entryPrice, side, slType, slValue, limitMargi
         : trigger + margin;
 
     return {
-        trigger: Number(trigger.toFixed(2)),
-        limit: Number(limit.toFixed(2))
+        trigger: roundToTick(trigger),
+        limit: roundToTick(limit)
     };
 }
 
@@ -333,7 +338,7 @@ async function executeStrategy(strategyId) {
                                 if (instLtpRes.status && instLtpRes.data?.fetched?.[0]) {
                                     const instLtp = instLtpRes.data.fetched[0].ltp;
                                     const offset = parseFloat(config.entry_limit_offset || 0);
-                                    finalPrice = (instLtp + offset).toFixed(2);
+                                    finalPrice = roundToTick(instLtp + offset).toString();
                                     console.log(`[${new Date().toISOString()}] Limit Order Calc for ${item.instrument.symbol}: LTP=${instLtp}, Offset=${offset}, FinalPrice=${finalPrice}`);
                                 }
                             } catch (err) {
