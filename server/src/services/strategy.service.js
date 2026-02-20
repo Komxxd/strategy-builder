@@ -203,8 +203,15 @@ async function waitForOrderFillPrice(uniqueOrderId, connectionId, isPaperTrading
                 if ((avgPrice > 0 && filledShares > 0) || orderStatus === "complete" || orderStatus === "filled") {
                     return avgPrice > 0 ? avgPrice : null;
                 }
+
+                if (orderStatus === "rejected" || orderStatus === "cancelled") {
+                    throw new Error(`Order ${orderStatus}: ${details.data.text || details.data.message || ""}`);
+                }
             }
         } catch (err) {
+            if (err.message.includes("Order rejected") || err.message.includes("Order cancelled")) {
+                throw err;
+            }
             console.error("Error polling order details:", err.message);
         }
         await new Promise((r) => setTimeout(r, pollMs));
@@ -233,6 +240,58 @@ async function placeStopLossExitOrder({ baseConfig, legSide, entryPrice, instrum
     };
 
     return await placeOrder(slConfig, instrument, connectionId);
+}
+
+async function placeExitOrder({ config, leg, instrument, exitType }) {
+    if (leg.exited || leg.isExiting) return leg.exitOrderId;
+    leg.isExiting = true;
+
+    const exitSide = leg.leg.side === "BUY" ? "SELL" : "BUY";
+    let exitOrderType = config.ordertype === "LIMIT" ? "LIMIT" : "MARKET";
+    let finalPrice = "0";
+
+    if (exitOrderType === "LIMIT") {
+        try {
+            const ltpRes = await marketService.getLTP({
+                exchange: instrument.exch_seg,
+                symboltoken: instrument.token,
+                connectionId: config.connectionId
+            });
+            if (ltpRes.status && ltpRes.data?.fetched?.[0]) {
+                const ltp = ltpRes.data.fetched[0].ltp;
+                const offset = parseFloat(config.entry_limit_offset || 0);
+
+                // For exit SELL (closing BUY): price = LTP - offset (to be aggressive and fill)
+                // For exit BUY (closing SELL): price = LTP + offset (to be aggressive and fill)
+                if (exitSide === "SELL") {
+                    finalPrice = roundToTick(ltp - offset).toString();
+                } else {
+                    finalPrice = roundToTick(ltp + offset).toString();
+                }
+            } else {
+                console.warn(`Could not fetch LTP for exit of ${instrument.symbol}, falling back to MARKET`);
+                exitOrderType = "MARKET";
+            }
+        } catch (err) {
+            console.error(`Error calculating limit exit price for ${instrument.symbol}:`, err);
+            exitOrderType = "MARKET";
+        }
+    }
+
+    const closeConfig = {
+        ...config,
+        side: exitSide,
+        variety: "NORMAL",
+        ordertype: exitOrderType,
+        price: finalPrice,
+        lots: leg.leg.lots
+    };
+
+    const orderData = await placeOrder(closeConfig, instrument, config.connectionId);
+    leg.exited = true;
+    leg.exitOrderId = orderData.orderid;
+    leg.exitType = exitType;
+    return orderData.orderid;
 }
 
 function getLegStrikeSelection({ index, option_type, strike, spotPrice }) {
@@ -338,8 +397,12 @@ async function executeStrategy(strategyId) {
                                 if (instLtpRes.status && instLtpRes.data?.fetched?.[0]) {
                                     const instLtp = instLtpRes.data.fetched[0].ltp;
                                     const offset = parseFloat(config.entry_limit_offset || 0);
-                                    finalPrice = roundToTick(instLtp + offset).toString();
-                                    console.log(`[${new Date().toISOString()}] Limit Order Calc for ${item.instrument.symbol}: LTP=${instLtp}, Offset=${offset}, FinalPrice=${finalPrice}`);
+                                    if (item.leg.side === "BUY") {
+                                        finalPrice = roundToTick(instLtp + offset).toString();
+                                    } else {
+                                        finalPrice = roundToTick(instLtp - offset).toString();
+                                    }
+                                    console.log(`[${new Date().toISOString()}] Limit Order Calc for ${item.instrument.symbol} (${item.leg.side}): LTP=${instLtp}, Offset=${offset}, FinalPrice=${finalPrice}`);
                                 }
                             } catch (err) {
                                 console.error(`Error calculating limit price for ${item.instrument.symbol}:`, err);
@@ -497,6 +560,8 @@ async function executeStrategy(strategyId) {
                 }
 
                 if (isOverallSlHit) {
+                    if (strategy.exitAttempted) return;
+                    strategy.exitAttempted = true;
                     console.log(`[${new Date().toISOString()}] ${slReason} for strategy ${strategyId}. Exiting remaining legs.`);
 
                     // Cancel any pending SL orders on exchange for active legs
@@ -516,19 +581,12 @@ async function executeStrategy(strategyId) {
 
                     const exitOrders = await Promise.all(strategy.legs.map(async (leg) => {
                         if (leg.exited) return leg.exitOrderId;
-
-                        const closeConfig = {
-                            ...config,
-                            side: leg.leg.side === "BUY" ? "SELL" : "BUY",
-                            variety: "NORMAL",
-                            ordertype: "MARKET",
-                            lots: leg.leg.lots
-                        };
-                        const orderData = await placeOrder(closeConfig, leg.instrument, config.connectionId);
-                        leg.exited = true;
-                        leg.exitOrderId = orderData.orderid;
-                        leg.exitType = "OVERALL_STOP_LOSS";
-                        return orderData.orderid;
+                        return await placeExitOrder({
+                            config,
+                            leg,
+                            instrument: leg.instrument,
+                            exitType: "OVERALL_STOP_LOSS"
+                        });
                     }));
                     strategy.status = "COMPLETED";
                     strategy.exitOrderId = exitOrders;
@@ -559,17 +617,12 @@ async function executeStrategy(strategyId) {
 
                         if (isHit) {
                             console.log(`[${new Date().toISOString()}] Manual Stop Loss hit for leg ${leg.instrument.symbol}: PnL=${leg.pnlPercent.toFixed(2)}%`);
-                            const closeConfig = {
-                                ...config,
-                                side: leg.leg.side === "BUY" ? "SELL" : "BUY",
-                                variety: "NORMAL",
-                                ordertype: "MARKET",
-                                lots: leg.leg.lots
-                            };
-                            const orderData = await placeOrder(closeConfig, leg.instrument, config.connectionId);
-                            leg.exited = true;
-                            leg.exitOrderId = orderData.orderid;
-                            leg.exitType = "LEG_STOP_LOSS";
+                            await placeExitOrder({
+                                config,
+                                leg,
+                                instrument: leg.instrument,
+                                exitType: "LEG_STOP_LOSS"
+                            });
                         }
                     }
                 } else {
@@ -604,8 +657,28 @@ async function executeStrategy(strategyId) {
                     }
                 }
 
+                // Check if all legs have exited
+                const allExited = strategy.legs.every(l => l.exited);
+                if (allExited) {
+                    console.log(`[${new Date().toISOString()}] All legs exited for strategy ${strategyId}. Completing strategy.`);
+                    strategy.status = "COMPLETED";
+                    strategy.exitOrderId = strategy.legs.map(l => l.slOrderId || l.exitOrderId);
+                    strategy.exitType = "LEGS_COMPLETED";
+                    updateStrategyInMemory(strategyId, {
+                        status: "COMPLETED",
+                        exit_order_id: strategy.exitOrderId,
+                        exit_type: "LEGS_COMPLETED",
+                        final_pnl_percent: strategy.pnlPercent,
+                        totalPnlRupees: strategy.totalPnlRupees
+                    });
+                    clearInterval(interval);
+                    return;
+                }
+
                 // Check Exit Time
                 if (currentTime >= config.exit_time) {
+                    if (strategy.exitAttempted) return;
+                    strategy.exitAttempted = true;
                     console.log(`[${new Date().toISOString()}] Exit time reached for ${strategyId}`);
 
                     // 1. Cancel any pending SL orders first for active legs
@@ -626,22 +699,15 @@ async function executeStrategy(strategyId) {
                         }));
                     }
 
-                    // 2. Place Market Exit Orders for remaining active legs
+                    // 2. Place Exit Orders for remaining active legs (respects LIMIT/MARKET config)
                     const exitOrders = await Promise.all(strategy.legs.map(async (leg) => {
                         if (leg.exited) return leg.exitOrderId;
-
-                        const closeConfig = {
-                            ...config,
-                            side: leg.leg.side === "BUY" ? "SELL" : "BUY",
-                            variety: "NORMAL",
-                            ordertype: "MARKET",
-                            lots: leg.leg.lots
-                        };
-                        const orderData = await placeOrder(closeConfig, leg.instrument, config.connectionId);
-                        leg.exited = true;
-                        leg.exitOrderId = orderData.orderid;
-                        leg.exitType = "EXIT_TIME";
-                        return orderData.orderid;
+                        return await placeExitOrder({
+                            config,
+                            leg,
+                            instrument: leg.instrument,
+                            exitType: "EXIT_TIME"
+                        });
                     }));
 
                     strategy.status = "COMPLETED";
