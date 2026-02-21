@@ -21,10 +21,12 @@
     "express": "^5.2.1",
     "greeks": "^1.0.0",
     "node-cache": "^5.1.2",
+    "path": "^0.12.7",
     "rss-parser": "^3.13.0",
     "smartapi-javascript": "^1.0.27",
     "socket.io": "^4.8.3",
     "speakeasy": "^2.0.0",
+    "url": "^0.11.4",
     "uuid": "^13.0.0",
     "yahoo-finance2": "^3.13.0"
   }

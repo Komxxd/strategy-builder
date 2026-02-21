@@ -250,7 +250,7 @@ export const StrategyBuilder = ({ userId }) => {
                                 variant="outline"
                                 className="h-9 gap-2 rounded-xl"
                                 onClick={() => {
-                                    const next = [...config.legs, { strike_criteria: 'STRIKE_TYPE', option_type: 'CE', strike: 'ATM', premium: 0, side: 'BUY', lots: 1, sl_type: 'PERCENTAGE', stop_loss: 10 }];
+                                    const next = [...config.legs, { strike_criteria: 'STRIKE_TYPE', option_type: 'CE', strike: 'ATM', premium: 0, side: 'BUY', lots: 1, sl_type: 'PERCENTAGE', stop_loss: 10, recost_enabled: false, recost_mode: 'RECOST_PLUS_PCT', recost_value: 0, max_reentry: 1 }];
                                     setConfig({ ...config, legs: next });
                                 }}
                             >
@@ -450,6 +450,104 @@ export const StrategyBuilder = ({ userId }) => {
                                             </div>
 
                                             {/* SL Margin removed - now using global entry_limit_offset */}
+
+                                            <div className="md:col-span-2 space-y-4 pt-4 border-t border-dashed mt-2">
+                                                <div className="flex items-center gap-2">
+                                                    <input
+                                                        type="checkbox"
+                                                        id={`recost-${legIndex}`}
+                                                        className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                                        checked={leg.recost_enabled || false}
+                                                        onChange={(e) => {
+                                                            const next = [...config.legs];
+                                                            next[legIndex] = {
+                                                                ...next[legIndex],
+                                                                recost_enabled: e.target.checked,
+                                                                recost_mode: leg.recost_mode || 'RECOST_PLUS_PCT',
+                                                                recost_value: leg.recost_value || 0,
+                                                                max_reentry: leg.max_reentry || 1
+                                                            };
+                                                            setConfig({ ...config, legs: next });
+                                                        }}
+                                                    />
+                                                    <Label htmlFor={`recost-${legIndex}`} className="text-sm font-bold tracking-wide text-foreground cursor-pointer">
+                                                        Enable Re-Entry on SL (RE-COST)
+                                                    </Label>
+                                                </div>
+
+                                                {leg.recost_enabled && (
+                                                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pl-6 animate-in slide-in-from-top-2">
+                                                        <div className="space-y-2">
+                                                            <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Re-Cost Mode</Label>
+                                                            <Select
+                                                                value={leg.recost_mode || 'RECOST_PLUS_PCT'}
+                                                                onValueChange={(v) => {
+                                                                    const next = [...config.legs];
+                                                                    next[legIndex] = { ...next[legIndex], recost_mode: v };
+                                                                    setConfig({ ...config, legs: next });
+                                                                }}
+                                                            >
+                                                                <SelectTrigger className="h-11 rounded-xl">
+                                                                    <SelectValue placeholder="Mode" />
+                                                                </SelectTrigger>
+                                                                <SelectContent>
+                                                                    <SelectItem value="RECOST_PLUS_PCT">RECOST + %</SelectItem>
+                                                                    <SelectItem value="RECOST_PLUS_PTS">RECOST + Pts</SelectItem>
+                                                                    <SelectItem value="RECOST_MINUS_PCT">RECOST - %</SelectItem>
+                                                                    <SelectItem value="RECOST_MINUS_PTS">RECOST - Pts</SelectItem>
+                                                                </SelectContent>
+                                                            </Select>
+                                                        </div>
+
+                                                        <div className="space-y-2">
+                                                            <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+                                                                Value {leg.recost_mode && leg.recost_mode.includes('PCT') ? '(%)' : '(Pts)'}
+                                                            </Label>
+                                                            <Input
+                                                                className="h-11 rounded-xl"
+                                                                type="text"
+                                                                value={leg.recost_value === undefined ? '' : leg.recost_value}
+                                                                onChange={(e) => {
+                                                                    const val = e.target.value;
+                                                                    if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                                                                        const next = [...config.legs];
+                                                                        next[legIndex] = { ...next[legIndex], recost_value: val };
+                                                                        setConfig({ ...config, legs: next });
+                                                                    }
+                                                                }}
+                                                                onBlur={(e) => {
+                                                                    const next = [...config.legs];
+                                                                    next[legIndex] = { ...next[legIndex], recost_value: parseFloat(e.target.value) || 0 };
+                                                                    setConfig({ ...config, legs: next });
+                                                                }}
+                                                            />
+                                                        </div>
+
+                                                        <div className="space-y-2">
+                                                            <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Max Entries</Label>
+                                                            <Select
+                                                                value={(leg.max_reentry || 1).toString()}
+                                                                onValueChange={(v) => {
+                                                                    const next = [...config.legs];
+                                                                    next[legIndex] = { ...next[legIndex], max_reentry: parseInt(v) };
+                                                                    setConfig({ ...config, legs: next });
+                                                                }}
+                                                            >
+                                                                <SelectTrigger className="h-11 rounded-xl">
+                                                                    <SelectValue placeholder="Entries" />
+                                                                </SelectTrigger>
+                                                                <SelectContent className="max-h-[250px]">
+                                                                    {Array.from({ length: 20 }, (_, i) => i + 1).map(num => (
+                                                                        <SelectItem key={`max-recost-${legIndex}-${num}`} value={num.toString()}>
+                                                                            {num} {num === 1 ? 'Entry' : 'Entries'}
+                                                                        </SelectItem>
+                                                                    ))}
+                                                                </SelectContent>
+                                                            </Select>
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </div>
                                         </div>
                                     </div>
                                 );
