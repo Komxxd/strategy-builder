@@ -37,6 +37,28 @@ function App() {
     return () => subscription.unsubscribe();
   }, []);
 
+  useEffect(() => {
+    if (session) {
+      import('./api').then(({ initSocket }) => {
+        const socket = initSocket();
+
+        const handleBrokerStatus = (data) => {
+          setIsConnected(data.connected);
+          if (!data.connected) {
+            // Will silently set false if server restarts, causing UI to show connection screen
+            console.log("Broker disconnected or server restarted.");
+          }
+        };
+
+        socket.on('broker_status', handleBrokerStatus);
+
+        return () => {
+          socket.off('broker_status', handleBrokerStatus);
+        };
+      });
+    }
+  }, [session]);
+
   const handleLogout = async () => {
     await supabase.auth.signOut();
     setIsConnected(false);

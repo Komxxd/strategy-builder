@@ -11,17 +11,25 @@ const PORT = process.env.PORT || 5001;
 
 const server = http.createServer(app);
 
+const frontendUrls = process.env.FRONTEND_URL
+    ? process.env.FRONTEND_URL.split(',')
+    : ["http://localhost:5173", "http://localhost:5174"];
+
 const io = new Server(server, {
     cors: {
-        origin: "*",
-        methods: ["GET", "POST"]
+        origin: frontendUrls,
+        methods: ["GET", "POST"],
+        credentials: true
     }
 });
 
 marketSocketService.setIo(io);
 
+const authService = require("./services/auth.service");
+
 io.on("connection", (socket) => {
     console.log("Frontend connected:", socket.id);
+    socket.emit("broker_status", { connected: !!authService.getSession() });
 
     socket.on("disconnect", () => {
         console.log("Frontend disconnected:", socket.id);

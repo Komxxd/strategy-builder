@@ -1,13 +1,16 @@
 import { io } from "socket.io-client";
 import { supabase } from './lib/supabase';
 
-const API_BASE = "http://localhost:5001/api";
+const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:5001/api";
 
 let socket = null;
 
 export function initSocket() {
     if (!socket) {
-        socket = io("http://localhost:5001");
+        const socketUrl = import.meta.env.VITE_API_BASE_URL
+            ? import.meta.env.VITE_API_BASE_URL.replace('/api', '')
+            : "http://localhost:5001";
+        socket = io(socketUrl);
     }
     return socket;
 }

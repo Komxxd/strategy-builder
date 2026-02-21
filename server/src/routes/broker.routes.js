@@ -56,7 +56,8 @@ router.post("/connect", authMiddleware, async (req, res) => {
         }
 
         // Generate the Angel One Auth URL
-        const callbackUrl = `${process.env.BACKEND_URL}/api/broker/angelone/callback`;
+        const backendUrl = process.env.BACKEND_URL || `http://localhost:${process.env.PORT || 5001}`;
+        const callbackUrl = `${backendUrl}/api/broker/angelone/callback`;
         const angelOneAuthUrl = `https://smartapi.angelone.in/publisher-login?api_key=${api_key}&client_id=${client_id}&redirect_uri=${encodeURIComponent(callbackUrl)}&state=${connectionId}`;
 
         res.json({
