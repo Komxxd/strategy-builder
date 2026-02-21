@@ -7,10 +7,11 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { StrategyBuilder } from './components/StrategyBuilder';
 import { BrokerConnect } from './components/BrokerConnect';
 import { OrderTester } from './components/OrderTester';
+import { StrategyHistory } from './components/StrategyHistory';
 import { supabase } from './lib/supabase';
 import { Auth } from './components/Auth';
 import { LandingPage } from './components/LandingPage';
-import { LayoutDashboard, Power, Cpu, TrendingUp, AlertCircle, CheckCircle2, LogOut } from 'lucide-react';
+import { LayoutDashboard, Power, Cpu, TrendingUp, AlertCircle, CheckCircle2, LogOut, History } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 function App() {
@@ -119,6 +120,9 @@ function App() {
               <TabsTrigger value="execution" className="gap-2">
                 <Cpu className="h-4 w-4" /> Execution
               </TabsTrigger>
+              <TabsTrigger value="history" className="gap-2">
+                <History className="h-4 w-4" /> History
+              </TabsTrigger>
               <TabsTrigger value="orders" className="gap-2">
                 <TrendingUp className="h-4 w-4" /> Orders
               </TabsTrigger>
@@ -163,6 +167,10 @@ function App() {
 
             <TabsContent value="execution" className="animate-in fade-in duration-500">
               <StrategyBuilder userId={session?.user?.id} />
+            </TabsContent>
+
+            <TabsContent value="history" className="animate-in fade-in duration-500">
+              <StrategyHistory userId={session?.user?.id} />
             </TabsContent>
 
             <TabsContent value="orders" className="animate-in fade-in duration-500">

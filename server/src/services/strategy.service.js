@@ -1,13 +1,14 @@
 const { getAuthorizedInstance } = require("../config/smartapi");
 const marketService = require("./market.service");
 const optionChainService = require("./optionChain.service");
+const supabase = require("../config/supabase");
 const fs = require("fs");
 const path = require("path");
 
 const INSTRUMENT_PATH = path.join(__dirname, "../data/instruments.json");
 let instruments = [];
 let activeStrategies = new Map();
-let savedStrategies = new Map();
+// Local memory map 'savedStrategies' is removed in favor of Supabase
 
 function loadInstruments() {
     if (instruments.length > 0) return;
@@ -27,10 +28,30 @@ function roundToTick(price, tick = 0.05) {
     return Number(Math.max(tick, Math.round(price / tick) * tick).toFixed(2));
 }
 
-function updateStrategyInMemory(strategyId, data) {
-    const existing = savedStrategies.get(strategyId);
-    if (!existing) return;
-    savedStrategies.set(strategyId, { ...existing, ...data });
+function updateStrategyInMemory(executionId, data) {
+    // Fire and forget update to Supabase execution_details/status
+    const updateData = {};
+    if (data.status) updateData.status = data.status;
+    if (data.final_pnl_percent !== undefined) updateData.final_pnl_percent = data.final_pnl_percent;
+    if (data.totalPnlRupees !== undefined) updateData.total_pnl_rupees = data.totalPnlRupees;
+    if (data.exit_type) updateData.exit_type = data.exit_type;
+
+    updateData.execution_details = { ...(data.execution_details || {}), _latest: new Date().toISOString() };
+    for (const key of Object.keys(data)) {
+        if (['status', 'final_pnl_percent', 'totalPnlRupees', 'exit_type'].includes(key)) continue;
+        updateData.execution_details[key] = data[key];
+    }
+
+    if (data.status === "COMPLETED" || data.status === "FAILED" || data.status === "TERMINATED") {
+        updateData.completed_at = new Date().toISOString();
+    }
+
+    supabase.from('strategy_executions')
+        .update(updateData)
+        .eq('id', executionId)
+        .then(({ error }) => {
+            if (error) console.error(`Error updating execution ${executionId} in DB:`, error);
+        });
 }
 
 function getATMStrike(indexName, spotPrice) {
@@ -732,69 +753,139 @@ async function executeStrategy(strategyId) {
 }
 
 async function saveStrategy(config) {
-    const strategyId = `str_${Date.now()}`;
-    const strategy = {
-        id: strategyId,
-        user_id: config.userId,
-        config: config,
-        status: "SAVED",
-        created_at: new Date().toISOString(),
-        final_pnl_percent: null,
-        order_id: null,
-        entry_price: null,
-        instrument: null
-    };
-    savedStrategies.set(strategyId, strategy);
-    return strategy;
+    const { data, error } = await supabase
+        .from('strategies')
+        .insert([{
+            user_id: config.userId,
+            name: config.name || `Strategy ${new Date().toLocaleTimeString()}`,
+            config: config,
+            status: "SAVED"
+        }])
+        .select()
+        .single();
+
+    if (error) throw new Error("Error saving strategy DB: " + error.message);
+    return data;
 }
 
 async function updateStrategy(strategyId, config) {
-    const existing = savedStrategies.get(strategyId);
-    if (!existing) throw new Error("Strategy not found");
-    if (existing.status !== "SAVED") {
-        throw new Error("Only SAVED strategies can be modified");
-    }
-    const updated = {
-        ...existing,
-        config,
-        updated_at: new Date().toISOString(),
-    };
-    savedStrategies.set(strategyId, updated);
-    return updated;
+    const { data, error } = await supabase
+        .from('strategies')
+        .update({
+            name: config.name || `Strategy ${new Date().toLocaleTimeString()}`,
+            config: config,
+            updated_at: new Date().toISOString()
+        })
+        .eq('id', strategyId)
+        .select()
+        .single();
+
+    if (error) throw new Error("Error updating strategy DB: " + error.message);
+    return data;
 }
 
 async function deleteStrategy(strategyId) {
-    const existing = savedStrategies.get(strategyId);
-    if (!existing) throw new Error("Strategy not found");
-    if (activeStrategies.has(strategyId)) {
-        throw new Error("Cannot delete an active strategy");
-    }
-    savedStrategies.delete(strategyId);
+    const { error } = await supabase
+        .from('strategies')
+        .delete()
+        .eq('id', strategyId);
+
+    if (error) throw new Error("Error deleting strategy DB: " + error.message);
     return true;
 }
 
 async function startStrategy(strategyId) {
-    const strategy = savedStrategies.get(strategyId);
-    if (!strategy) throw new Error("Strategy not found");
-    if (activeStrategies.has(strategyId)) {
-        throw new Error("Strategy already running");
-    }
+    // strategyId is the template ID.
+    const { data: template, error } = await supabase
+        .from('strategies')
+        .select('*')
+        .eq('id', strategyId)
+        .single();
+
+    if (error || !template) throw new Error("Strategy template not found in DB");
+
+    // Insert a new execution
+    const { data: execution, error: execError } = await supabase
+        .from('strategy_executions')
+        .insert([{
+            strategy_id: template.id,
+            user_id: template.user_id,
+            status: 'WAITING'
+        }])
+        .select()
+        .single();
+
+    if (execError || !execution) throw new Error("Failed to create execution record: " + execError?.message);
 
     const runtimeStrategy = {
-        id: strategyId,
-        user_id: strategy.user_id,
-        config: strategy.config,
+        id: execution.id,  // Active Map maps execution_id to runtime state
+        user_id: template.user_id,
+        config: template.config,
         status: "WAITING",
         entryAttempted: false,
         startTime: new Date()
     };
 
-    activeStrategies.set(strategyId, runtimeStrategy);
+    activeStrategies.set(execution.id, runtimeStrategy);
+    executeStrategy(execution.id);
 
-    updateStrategyInMemory(strategyId, { status: "WAITING" });
-    executeStrategy(strategyId);
+    return execution.id;
+}
 
-    return strategyId;
+async function squareOffStrategy(strategyId) {
+    const strategy = activeStrategies.get(strategyId);
+    if (!strategy) throw new Error("Strategy is not active or not found");
+    if (strategy.status !== "IN_POSITION") throw new Error('Strategy must be in IN_POSITION to be squared off');
+
+    const { config } = strategy;
+    if (strategy.exitAttempted) throw new Error('Exit already in progress');
+    strategy.exitAttempted = true;
+    console.log(`[${new Date().toISOString()}] Manual Square Off triggered for ${strategyId}`);
+
+    // 1. Cancel any pending SL orders on exchange
+    if (config.variety === "STOPLOSS" && !config.is_paper_trading) {
+        await Promise.all(strategy.legs.map(async (leg) => {
+            if (!leg.exited && leg.slOrderId) {
+                try {
+                    const api = await getAuthorizedInstance(config.connectionId);
+                    await api.cancelOrder({ variety: "STOPLOSS", orderid: leg.slOrderId });
+                    console.log(`Cancelled SL order ${leg.slOrderId} for ${leg.instrument.symbol} due to manual square off`);
+                } catch (e) {
+                    console.error(`Failed to cancel SL order ${leg.slOrderId}:`, e.message);
+                }
+            }
+        }));
+    }
+
+    // 2. Place Exit Orders (respects LIMIT/MARKET config just like Exit Time)
+    const exitOrders = await Promise.all(strategy.legs.map(async (leg) => {
+        if (leg.exited) return leg.exitOrderId;
+
+        return await placeExitOrder({
+            config: config,
+            leg,
+            instrument: leg.instrument,
+            exitType: "MANUAL_SQUARE_OFF"
+        });
+    }));
+
+    strategy.status = "COMPLETED";
+    strategy.exitOrderId = exitOrders;
+    strategy.exitType = "MANUAL_SQUARE_OFF";
+
+    updateStrategyInMemory(strategyId, {
+        status: "COMPLETED",
+        exit_order_id: strategy.exitOrderId,
+        exit_type: "MANUAL_SQUARE_OFF",
+        final_pnl_percent: strategy.pnlPercent || 0,
+        totalPnlRupees: strategy.totalPnlRupees || 0
+    });
+
+    if (strategy.interval) {
+        clearInterval(strategy.interval);
+    }
+
+    return true;
 }
 
 async function stopStrategy(strategyId) {
@@ -811,40 +902,103 @@ async function stopStrategy(strategyId) {
     return false;
 }
 
-function getStatus(strategyId) {
+async function getStatus(strategyId) {
     const s = activeStrategies.get(strategyId);
-    if (!s) return null;
+    if (s) {
+        return {
+            id: s.id,
+            status: s.status,
+            config: s.config,
+            error: s.error,
+            legs: s.legs || [],
+            pnlPercent: s.pnlPercent || 0,
+            totalPnlRupees: s.totalPnlRupees || 0,
+            orderId: s.orderId,
+            exitOrderId: s.exitOrderId,
+            exitType: s.exitType,
+            instrument: s.instrument,
+            name: s.config?.name || "Deployed Strategy"
+        };
+    }
+
+    // Fallback to Supabase if execution not in active memory (e.g., cleared on restart)
+    const { data: dbExec, error } = await supabase
+        .from('strategy_executions')
+        .select(`
+            *,
+            strategy:strategies(name)
+        `)
+        .eq('id', strategyId)
+        .single();
+
+    if (error || !dbExec) return null;
 
     return {
-        id: s.id,
-        status: s.status,
-        config: s.config,
-        error: s.error,
-        legs: s.legs || [],
-        pnlPercent: s.pnlPercent || 0,
-        totalPnlRupees: s.totalPnlRupees || 0,
-        orderId: s.orderId,
-        exitOrderId: s.exitOrderId,
-        exitType: s.exitType,
-        instrument: s.instrument
+        id: dbExec.id,
+        status: dbExec.status,
+        config: dbExec.execution_details?.config || {},
+        name: dbExec.strategy?.name || "Deployed Strategy",
+        error: dbExec.execution_details?.error,
+        legs: dbExec.execution_details?.legs || [],
+        pnlPercent: dbExec.final_pnl_percent || 0,
+        totalPnlRupees: dbExec.total_pnl_rupees || 0,
+        exitType: dbExec.exit_type
     };
 }
 
 async function getUserStrategies(userId) {
-    const all = Array.from(savedStrategies.values())
-        .filter((s) => s.user_id === userId)
-        .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-    return all;
+    const { data, error } = await supabase
+        .from('strategies')
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false });
+
+    if (error) throw new Error("Error fetching user strategies: " + error.message);
+    return data;
 }
 
-function getActiveStrategies(userId) {
-    const active = [];
-    for (const [id, s] of activeStrategies.entries()) {
-        if (s.user_id === userId && (s.status === "WAITING" || s.status === "IN_POSITION")) {
-            active.push(getStatus(id));
-        }
-    }
-    return active;
+async function getActiveStrategies(userId) {
+    const { data: executions, error } = await supabase
+        .from('strategy_executions')
+        .select(`
+            *,
+            strategy:strategies(name)
+        `)
+        .eq('user_id', userId)
+        .in('status', ['WAITING', 'IN_POSITION'])
+        .order('started_at', { ascending: false });
+
+    if (error) throw new Error("Error fetching active strategies: " + error.message);
+
+    return Promise.all(executions.map(exec => getStatus(exec.id)));
+}
+
+async function getExecutionHistory(userId) {
+    const { data: executions, error } = await supabase
+        .from('strategy_executions')
+        .select(`
+            *,
+            strategy:strategies(name, config)
+        `)
+        .eq('user_id', userId)
+        .in('status', ['COMPLETED', 'FAILED', 'TERMINATED'])
+        .order('completed_at', { ascending: false });
+
+    if (error) throw new Error("Error fetching execution history: " + error.message);
+
+    return executions.map(dbExec => ({
+        id: dbExec.id,
+        status: dbExec.status,
+        config: dbExec.execution_details?.config || dbExec.strategy?.config || {},
+        name: dbExec.strategy?.name || "Deployed Strategy",
+        error: dbExec.execution_details?.error,
+        legs: dbExec.execution_details?.legs || [],
+        pnlPercent: dbExec.final_pnl_percent || 0,
+        totalPnlRupees: dbExec.total_pnl_rupees || 0,
+        exitType: dbExec.exit_type,
+        started_at: dbExec.started_at,
+        completed_at: dbExec.completed_at
+    }));
 }
 
 module.exports = {
@@ -852,8 +1006,10 @@ module.exports = {
     updateStrategy,
     deleteStrategy,
     startStrategy,
+    squareOffStrategy,
     stopStrategy,
     getStatus,
     getUserStrategies,
-    getActiveStrategies
+    getActiveStrategies,
+    getExecutionHistory
 };

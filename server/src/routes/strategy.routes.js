@@ -40,6 +40,16 @@ router.post("/execute/:id", async (req, res) => {
     }
 });
 
+router.post("/squareoff/:id", async (req, res) => {
+    try {
+        await strategyService.squareOffStrategy(req.params.id);
+        res.json({ success: true, message: "Strategy Squared Off" });
+    } catch (error) {
+        console.error("Error squaring off strategy:", error.message);
+        res.status(500).json({ success: false, message: error.message || "Failed to square off strategy" });
+    }
+});
+
 router.post("/stop/:id", async (req, res) => {
     try {
         await strategyService.stopStrategy(req.params.id);
@@ -60,16 +70,25 @@ router.get("/user/:userId", async (req, res) => {
 
 router.get("/active/:userId", async (req, res) => {
     try {
-        const active = strategyService.getActiveStrategies(req.params.userId);
+        const active = await strategyService.getActiveStrategies(req.params.userId);
         res.json({ success: true, data: active });
     } catch (error) {
         res.status(500).json({ success: false, message: "Failed to fetch active strategies" });
     }
 });
 
+router.get("/history/:userId", async (req, res) => {
+    try {
+        const history = await strategyService.getExecutionHistory(req.params.userId);
+        res.json({ success: true, data: history });
+    } catch (error) {
+        res.status(500).json({ success: false, message: "Failed to fetch strategy history" });
+    }
+});
+
 router.get("/status/:id", async (req, res) => {
     try {
-        const status = strategyService.getStatus(req.params.id);
+        const status = await strategyService.getStatus(req.params.id);
         if (!status) {
             return res.status(404).json({ success: false, message: "Strategy not found" });
         }

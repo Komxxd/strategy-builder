@@ -18,6 +18,7 @@ export const StrategyBuilder = ({ userId }) => {
     const [activeTab, setActiveTab] = useState('paper');
 
     const [config, setConfig] = useState({
+        name: '',
         index: 'NIFTY',
         entry_time: '09:20:00',
         exit_time: '15:15:00',
@@ -89,14 +90,15 @@ export const StrategyBuilder = ({ userId }) => {
     const handleExecute = async (id) => {
         try {
             const res = await axios.post(`${API_BASE_URL}/strategy/execute/${id}`);
-            const newId = res.data.strategy_id;
+            const newId = res.data.strategy_id || res.data.execution_id;
             // Fetch initial status
             const statusRes = await axios.get(`${API_BASE_URL}/strategy/status/${newId}`);
             setRunningStrategies(prev => ({
                 ...prev,
                 [newId]: statusRes.data.data
             }));
-            fetchHistory();
+            fetchActive();
+            // We no longer call fetchHistory() here because execution doesn't create a new template
         } catch (err) {
             alert("Error executing strategy: " + err.message);
         }
@@ -106,14 +108,20 @@ export const StrategyBuilder = ({ userId }) => {
         if (!id) return;
         try {
             await axios.post(`${API_BASE_URL}/strategy/stop/${id}`);
-            setRunningStrategies(prev => {
-                const next = { ...prev };
-                delete next[id];
-                return next;
-            });
-            fetchHistory();
+            fetchActive();
         } catch (err) {
             alert("Error stopping strategy: " + err.message);
+        }
+    };
+
+    const handleSquareOff = async (id) => {
+        if (!id) return;
+        if (!confirm("Are you sure you want to instantly square off all positions for this strategy?")) return;
+        try {
+            await axios.post(`${API_BASE_URL}/strategy/squareoff/${id}`);
+            fetchActive();
+        } catch (err) {
+            alert("Error squaring off strategy: " + err.response?.data?.message || err.message);
         }
     };
 
@@ -170,9 +178,9 @@ export const StrategyBuilder = ({ userId }) => {
                         return hasChanges ? next : prev;
                     });
 
-                    // If any completed, refresh history
+                    // If any completed, refresh active lists
                     if (updates.some(u => !u.error && (u.data.status === "COMPLETED" || u.data.status === "FAILED"))) {
-                        fetchHistory();
+                        fetchActive();
                     }
                 } catch (err) {
                     console.error("Error polling statuses:", err);
@@ -203,6 +211,18 @@ export const StrategyBuilder = ({ userId }) => {
                     </CardHeader>
                     <CardContent className="pt-6">
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                            <div className="space-y-2 lg:col-span-1">
+                                <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+                                    <Target className="h-3 w-3" /> Strategy Name
+                                </Label>
+                                <Input
+                                    className="h-11 rounded-xl"
+                                    type="text"
+                                    placeholder="E.g., Morning Breakout (CE)"
+                                    value={config.name || ''}
+                                    onChange={(e) => setConfig({ ...config, name: e.target.value })}
+                                />
+                            </div>
                             <div className="space-y-2">
                                 <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
                                     <LayoutDashboard className="h-3 w-3" /> Index
@@ -631,7 +651,7 @@ export const StrategyBuilder = ({ userId }) => {
                                                 <div className="p-2 bg-muted rounded-lg">
                                                     <Timer className="h-4 w-4 text-primary" />
                                                 </div>
-                                                <p className="text-sm font-bold">Strategy Monitor <span className="text-xs font-mono text-muted-foreground ml-2">#{id}</span></p>
+                                                <p className="text-sm font-bold">{strategyData.name || strategyData.config?.name || 'Strategy Execution'} <span className="text-xs font-mono text-muted-foreground ml-2">#{id.split('-')[0] || id}</span></p>
                                             </div>
                                             <div className="flex items-center gap-2 mt-2">
                                                 <span className="relative flex h-2 w-2">
@@ -645,9 +665,16 @@ export const StrategyBuilder = ({ userId }) => {
                                                 <span className="text-xs font-bold text-muted-foreground ml-2">Index: {strategyData.config?.index}</span>
                                             </div>
                                         </div>
-                                        <Button variant="outline" className="rounded-xl border-destructive hover:bg-red-50 text-destructive" onClick={() => handleStop(id)}>
-                                            <StopCircle className="h-4 w-4 mr-2" /> Terminate
-                                        </Button>
+                                        <div className="flex items-center gap-2">
+                                            {strategyData?.status === "IN_POSITION" && (
+                                                <Button variant="outline" className="rounded-xl border-orange-500 hover:bg-orange-50 text-orange-600 font-bold" onClick={() => handleSquareOff(id)}>
+                                                    Square Off
+                                                </Button>
+                                            )}
+                                            <Button variant="outline" className="rounded-xl border-destructive hover:bg-red-50 text-destructive" onClick={() => handleStop(id)}>
+                                                <StopCircle className="h-4 w-4 mr-2" /> Terminate
+                                            </Button>
+                                        </div>
                                     </div>
 
                                     {strategyData?.status === "IN_POSITION" || strategyData?.status === "COMPLETED" ? (
@@ -682,12 +709,13 @@ export const StrategyBuilder = ({ userId }) => {
                             </Card>
                         ))
                 }
+
                 {
                     history.length > 0 && (
-                        <Card className="w-full border-border bg-card">
-                            <CardHeader className="border-b py-4">
+                        <Card className="w-full border-border bg-card mt-8">
+                            <CardHeader className="border-b py-4 bg-muted/30">
                                 <CardTitle className="text-lg font-bold flex items-center gap-2">
-                                    <Timer className="h-4 w-4 text-primary" /> Strategy History
+                                    <Save className="h-4 w-4 text-primary" /> Saved Strategies (Templates)
                                 </CardTitle>
                             </CardHeader>
                             <CardContent className="p-0">
@@ -695,12 +723,11 @@ export const StrategyBuilder = ({ userId }) => {
                                     <table className="w-full text-sm">
                                         <thead className="bg-muted text-muted-foreground">
                                             <tr>
-                                                <th className="px-4 py-2 text-left font-bold">DATE</th>
-                                                <th className="px-4 py-2 text-left font-bold">MODE</th>
-                                                <th className="px-4 py-2 text-left font-bold">INDEX</th>
-                                                <th className="px-4 py-2 text-left font-bold">TYPE</th>
-                                                <th className="px-4 py-2 text-left font-bold">STATUS</th>
-                                                <th className="px-4 py-2 text-left font-bold">RESULT</th>
+                                                <th className="px-4 py-3 text-left font-bold text-xs uppercase tracking-wider">Name</th>
+                                                <th className="px-4 py-3 text-left font-bold text-xs uppercase tracking-wider">Date Created</th>
+                                                <th className="px-4 py-3 text-left font-bold text-xs uppercase tracking-wider">Index</th>
+                                                <th className="px-4 py-3 text-left font-bold text-xs uppercase tracking-wider">Type</th>
+                                                <th className="px-4 py-3 text-right font-bold text-xs uppercase tracking-wider">Actions</th>
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y border-t">
@@ -708,67 +735,45 @@ export const StrategyBuilder = ({ userId }) => {
                                                 .filter(s => (activeTab === 'paper' ? s.config?.is_paper_trading : !s.config?.is_paper_trading))
                                                 .map((s) => (
                                                     <tr key={s.id} className="hover:bg-muted/50 transition-colors">
-                                                        <td className="px-4 py-3 font-mono text-xs">
+                                                        <td className="px-4 py-4 font-bold text-base">
+                                                            {s.name || s.config?.name || 'Unnamed Strategy'}
+                                                            <div className="text-[10px] font-mono text-muted-foreground font-normal mt-1">ID: {s.id.split('-')[0] || s.id}</div>
+                                                        </td>
+                                                        <td className="px-4 py-4 font-mono text-xs text-muted-foreground">
                                                             {new Date(s.created_at).toLocaleDateString()} {new Date(s.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                                         </td>
-                                                        <td className="px-4 py-3">
-                                                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${s.config?.is_paper_trading ? 'bg-blue-100 text-blue-700' : 'bg-orange-100 text-orange-700'}`}>
-                                                                {s.config?.is_paper_trading ? 'PAPER' : 'LIVE'}
+                                                        <td className="px-4 py-4 font-bold">{s.config?.index}</td>
+                                                        <td className="px-4 py-4">
+                                                            <span className="px-2 py-1 rounded text-[10px] font-bold bg-slate-100 text-slate-700">
+                                                                {s.config?.legs?.map((l) => `${l.side} ${l.option_type}`).join(' | ') || '---'}
                                                             </span>
                                                         </td>
-                                                        <td className="px-4 py-3 font-bold">{s.config.index}</td>
-                                                        <td className="px-4 py-3">
-                                                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-700">
-                                                                {s.config.legs?.map((l) => `${l.side} ${l.option_type}`).join(' | ') || '---'}
-                                                            </span>
-                                                        </td>
-                                                        <td className="px-4 py-3">
-                                                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${s.status === 'COMPLETED' ? 'bg-blue-100 text-blue-700' :
-                                                                s.status === 'FAILED' ? 'bg-red-100 text-red-700' :
-                                                                    s.status === 'SAVED' ? 'bg-slate-100 text-slate-700' : 'bg-yellow-100 text-yellow-700'
-                                                                }`}>
-                                                                {s.status}
-                                                            </span>
-                                                        </td>
-                                                        <td className="px-4 py-3 font-mono font-bold">
-                                                            {s.status === 'SAVED' ? (
-                                                                <div className="flex items-center gap-2">
-                                                                    <Button
-                                                                        size="sm"
-                                                                        className="h-7 px-3 gap-1 rounded-lg text-[10px]"
-                                                                        onClick={() => handleExecute(s.id)}
-                                                                    >
-                                                                        <Play className="h-3 w-3" /> Execute
-                                                                    </Button>
-                                                                    <Button
-                                                                        size="sm"
-                                                                        variant="outline"
-                                                                        className="h-7 px-3 gap-1 rounded-lg text-[10px]"
-                                                                        onClick={() => handleEdit(s)}
-                                                                    >
-                                                                        Edit
-                                                                    </Button>
-                                                                    <Button
-                                                                        size="sm"
-                                                                        variant="destructive"
-                                                                        className="h-7 px-3 gap-1 rounded-lg text-[10px]"
-                                                                        onClick={() => handleDelete(s.id)}
-                                                                    >
-                                                                        Delete
-                                                                    </Button>
-                                                                </div>
-                                                            ) : (
-                                                                (s.final_pnl_percent !== null && s.final_pnl_percent !== undefined) ? (
-                                                                    <div className="flex flex-col">
-                                                                        <span className={s.final_pnl_percent >= 0 ? 'text-emerald-600' : 'text-red-600'}>
-                                                                            {s.final_pnl_percent > 0 ? '+' : ''}{Number(s.final_pnl_percent).toFixed(2)}%
-                                                                        </span>
-                                                                        <span className={`text-[10px] font-bold ${s.totalPnlRupees >= 0 ? 'text-emerald-500' : 'text-red-400'}`}>
-                                                                            {s.totalPnlRupees > 0 ? '+' : ''}₹{Number(s.totalPnlRupees || 0).toFixed(2)}
-                                                                        </span>
-                                                                    </div>
-                                                                ) : '---'
-                                                            )}
+                                                        <td className="px-4 py-4 text-right">
+                                                            <div className="flex items-center justify-end gap-2">
+                                                                <Button
+                                                                    size="sm"
+                                                                    className="h-8 px-4 gap-1.5 rounded-lg text-xs font-bold shadow-sm"
+                                                                    onClick={() => handleExecute(s.id)}
+                                                                >
+                                                                    <Play className="h-3.5 w-3.5 fill-current" /> Deploy
+                                                                </Button>
+                                                                <Button
+                                                                    size="sm"
+                                                                    variant="outline"
+                                                                    className="h-8 px-3 gap-1 rounded-lg text-xs"
+                                                                    onClick={() => handleEdit(s)}
+                                                                >
+                                                                    Edit
+                                                                </Button>
+                                                                <Button
+                                                                    size="sm"
+                                                                    variant="ghost"
+                                                                    className="h-8 px-3 gap-1 rounded-lg text-xs text-destructive hover:text-destructive hover:bg-red-50"
+                                                                    onClick={() => handleDelete(s.id)}
+                                                                >
+                                                                    <Trash2 className="h-3.5 w-3.5" />
+                                                                </Button>
+                                                            </div>
                                                         </td>
                                                     </tr>
                                                 ))}
