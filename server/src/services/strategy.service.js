@@ -1,6 +1,5 @@
 const { getAuthorizedInstance } = require("../config/smartapi");
 const marketService = require("./market.service");
-const optionChainService = require("./optionChain.service");
 const supabase = require("../config/supabase");
 const fs = require("fs");
 const path = require("path");
@@ -82,44 +81,89 @@ function findOptionInstrument(indexName, optionType, strike) {
     return matches[0];
 }
 
-async function findClosestPremiumInstrument(indexName, optionType, targetPremium) {
-    const exchange = indexName === "SENSEX" ? "BSE" : "NSE";
-    const chainData = optionChainService.getOptionChain({ symbol: indexName, exchange: exchange });
-    if (!chainData || !chainData.chain) return null;
+async function findClosestPremiumInstrument(indexName, optionType, targetPremium, connectionId) {
+    loadInstruments();
+    const exchange = indexName === "SENSEX" ? "BFO" : "NFO";
 
-    const tokens = chainData.chain.map(c => c[optionType]?.token).filter(Boolean);
-    if (tokens.length === 0) return null;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
 
-    // Batch get LTP for all tokens in the chain
-    // Angel supports many tokens in batch, but let's be safe if chain is huge
-    const ltpRes = await marketService.getLTP({
-        exchange,
-        symboltoken: tokens
-    });
+    // 1. Get all options for this index and type
+    const matches = instruments.filter(inst =>
+        inst.name === indexName &&
+        inst.instrumenttype === "OPTIDX" &&
+        inst.symbol.endsWith(optionType) &&
+        new Date(inst.expiry) >= today
+    );
 
-    if (!ltpRes.status || !ltpRes.data?.fetched) return null;
+    if (matches.length === 0) {
+        throw new Error(`[Closest Premium] No ${optionType} instruments found for ${indexName} expiring after today.`);
+    }
 
-    let closest = null;
+    // 2. Find the nearest expiry date
+    matches.sort((a, b) => new Date(a.expiry) - new Date(b.expiry));
+    const nearestExpiry = matches[0].expiry;
+
+    // 3. Filter down to ONLY the strikes for that nearest expiry
+    const currentExpiryOptions = matches.filter(inst => inst.expiry === nearestExpiry);
+    const tokens = currentExpiryOptions.map(inst => inst.token).filter(Boolean);
+
+    if (tokens.length === 0) {
+        throw new Error(`[Closest Premium] No tokens found for ${indexName} ${optionType} expiring on ${nearestExpiry}.`);
+    }
+
+    // 4. Batch get LTP for all tokens in this expiry (SmartAPI limits to ~50 per request)
+    const tokenChunks = [];
+    for (let i = 0; i < tokens.length; i += 40) {
+        tokenChunks.push(tokens.slice(i, i + 40));
+    }
+
+    let allFetchedData = [];
+    for (let i = 0; i < tokenChunks.length; i++) {
+        try {
+            const chunk = tokenChunks[i];
+            const ltpRes = await marketService.getLTP({
+                exchange,
+                symboltoken: chunk,
+                connectionId
+            });
+            if (ltpRes?.status && ltpRes?.data?.fetched) {
+                allFetchedData = allFetchedData.concat(ltpRes.data.fetched);
+            } else if (ltpRes?.message) {
+                console.error(`SmartAPI Error on chunk ${i}: ${ltpRes.message}`);
+            }
+        } catch (err) {
+            console.error(`Error fetching chunk ${i} for nearest premium:`, err.message);
+        }
+    }
+
+    if (allFetchedData.length === 0) {
+        throw new Error(`[Closest Premium] SmartAPI returned 0 prices. Exchange: ${exchange}, Tokens requested: ${tokens.length}. Connection active?`);
+    }
+
+    let closestFound = null;
     let minDiff = Infinity;
 
-    for (const fetched of ltpRes.data.fetched) {
+    // 5. Find the one with the LTP closest to targetPremium
+    for (const fetched of allFetchedData) {
         const diff = Math.abs(fetched.ltp - targetPremium);
         if (diff < minDiff) {
             minDiff = diff;
-            closest = fetched;
+            closestFound = fetched;
         }
     }
 
-    if (!closest) return null;
-
-    // Find the instrument details from our chainData
-    for (const item of chainData.chain) {
-        if (item[optionType]?.token === closest.symboltoken) {
-            return item[optionType];
-        }
+    if (!closestFound) {
+        throw new Error(`[Closest Premium] Could not determine closest premium mathematically for ₹${targetPremium}.`);
     }
 
-    return null;
+    // 6. Return the full instrument object for the winning token
+    const matchingTarget = closestFound.symbolToken || closestFound.symboltoken;
+    const winner = currentExpiryOptions.find(inst => inst.token === matchingTarget);
+    if (!winner) {
+        throw new Error(`[Closest Premium] Matched token ${matchingTarget} not found in options list!`);
+    }
+    return winner;
 }
 
 async function placeOrder(config, instrument, connectionId) {
@@ -373,7 +417,8 @@ async function executeStrategy(strategyId) {
                 console.log(`Fetching LTP for ${config.index} (${indexExchange}:${indexToken})...`);
                 const ltpRes = await marketService.getLTP({
                     exchange: indexExchange,
-                    symboltoken: indexToken
+                    symboltoken: indexToken,
+                    connectionId: config.connectionId // PASS AUTH ALONG
                 });
 
                 if (ltpRes.status && ltpRes.data && ltpRes.data.fetched && ltpRes.data.fetched.length > 0) {
@@ -385,10 +430,7 @@ async function executeStrategy(strategyId) {
                         let targetInstrument = null;
                         if (leg.strike_criteria === 'CLOSEST_PREMIUM') {
                             console.log(`Searching closest premium for ${leg.option_type} @ ₹${leg.premium}`);
-                            targetInstrument = await findClosestPremiumInstrument(config.index, leg.option_type, leg.premium);
-                            if (!targetInstrument) {
-                                throw new Error(`Could not find ${leg.option_type} instrument with premium close to ₹${leg.premium}`);
-                            }
+                            targetInstrument = await findClosestPremiumInstrument(config.index, leg.option_type, leg.premium, config.connectionId);
                         } else {
                             const { atmStrike, targetStrike, strikeLabel } = getLegStrikeSelection({
                                 index: config.index,

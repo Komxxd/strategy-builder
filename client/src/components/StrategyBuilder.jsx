@@ -333,10 +333,17 @@ export const StrategyBuilder = ({ userId }) => {
                                                     </Label>
                                                     <Input
                                                         className="h-11 rounded-xl"
-                                                        type="number"
-                                                        step="0.05"
-                                                        value={leg.premium}
+                                                        type="text"
+                                                        value={leg.premium === undefined ? '' : leg.premium}
                                                         onChange={(e) => {
+                                                            const val = e.target.value;
+                                                            if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                                                                const next = [...config.legs];
+                                                                next[legIndex] = { ...next[legIndex], premium: val };
+                                                                setConfig({ ...config, legs: next });
+                                                            }
+                                                        }}
+                                                        onBlur={(e) => {
                                                             const next = [...config.legs];
                                                             next[legIndex] = { ...next[legIndex], premium: parseFloat(e.target.value) || 0 };
                                                             setConfig({ ...config, legs: next });

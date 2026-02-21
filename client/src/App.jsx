@@ -1,19 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { InstrumentSearch } from './components/InstrumentSearch';
-import { LivePrice } from './components/LivePrice';
-import { OptionChain } from './components/OptionChain';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { StrategyBuilder } from './components/StrategyBuilder';
 import { BrokerConnect } from './components/BrokerConnect';
-import { OrderTester } from './components/OrderTester';
 import { StrategyHistory } from './components/StrategyHistory';
 import { supabase } from './lib/supabase';
 import { Auth } from './components/Auth';
 import { LandingPage } from './components/LandingPage';
 import { LayoutDashboard, Power, Cpu, TrendingUp, AlertCircle, CheckCircle2, LogOut, History } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-
 function App() {
   const [session, setSession] = useState(null);
   const [showAuth, setShowAuth] = useState(false);
@@ -134,58 +129,17 @@ function App() {
             }} />
           </div>
         ) : (
-          <Tabs defaultValue="research" className="w-full">
+          <Tabs defaultValue="execution" className="w-full">
             <TabsList className="mb-4">
-              <TabsTrigger value="research" className="gap-2">
-                <LayoutDashboard className="h-4 w-4" /> Research
-              </TabsTrigger>
               <TabsTrigger value="execution" className="gap-2">
                 <Cpu className="h-4 w-4" /> Execution
               </TabsTrigger>
               <TabsTrigger value="history" className="gap-2">
                 <History className="h-4 w-4" /> History
               </TabsTrigger>
-              <TabsTrigger value="orders" className="gap-2">
-                <TrendingUp className="h-4 w-4" /> Orders
-              </TabsTrigger>
             </TabsList>
 
-            <TabsContent value="research" className="space-y-6 animate-in fade-in duration-500">
-              <div className="flex flex-col md:flex-row gap-6 items-start">
-                <div className="w-full md:w-auto flex-1">
-                  <label className="text-sm font-medium mb-1.5 block">Search Instrument</label>
-                  <InstrumentSearch onSelect={(inst) => {
-                    setSelectedInstrument(inst);
-                    setSpotPrice(null);
-                  }} />
-                </div>
-                {selectedInstrument && (
-                  <Card className="w-full md:w-auto flex-1">
-                    <CardHeader className="py-3 px-4 flex flex-row items-center justify-between space-y-0">
-                      <CardTitle className="text-sm font-medium text-muted-foreground uppercase tracking-wider">Live Price</CardTitle>
-                    </CardHeader>
-                    <CardContent className="py-2 px-4">
-                      <LivePrice instrument={selectedInstrument} onPriceUpdate={setSpotPrice} />
-                    </CardContent>
-                  </Card>
-                )}
-              </div>
 
-              {selectedInstrument && (
-                <OptionChain
-                  symbol={selectedInstrument.name || selectedInstrument.symbol}
-                  exchange={selectedInstrument.exch_seg === 'NSE' ? 'NFO' : (selectedInstrument.exch_seg === 'BSE' ? 'BFO' : selectedInstrument.exch_seg)}
-                  spotPrice={spotPrice}
-                />
-              )}
-
-              {!selectedInstrument && (
-                <div className="flex flex-col items-center justify-center p-24 border border-dashed rounded-lg text-muted-foreground space-y-2">
-                  <p>Search for an index or stock to view the option chain</p>
-                  <p className="text-xs italic">(Try "NIFTY" or "BANKNIFTY")</p>
-                </div>
-              )}
-            </TabsContent>
 
             <TabsContent value="execution" className="animate-in fade-in duration-500">
               <StrategyBuilder userId={session?.user?.id} />
@@ -195,9 +149,7 @@ function App() {
               <StrategyHistory userId={session?.user?.id} />
             </TabsContent>
 
-            <TabsContent value="orders" className="animate-in fade-in duration-500">
-              <OrderTester />
-            </TabsContent>
+
           </Tabs>
         )}
       </div>

@@ -31,38 +31,12 @@ export async function loginBackend() {
     return res.json();
 }
 
-
-export async function searchInstruments({ query, exchange, type }) {
-    const params = new URLSearchParams();
-
-    if (query) params.append("q", query);
-    if (exchange) params.append("exchange", exchange);
-    if (type) params.append("type", type);
-
-    const res = await fetch(
-        `${API_BASE}/instruments/search?${params.toString()}`
-    );
-
-    return res.json();
-}
-
-
 export async function getLTP({ exchange, symboltoken, tradingsymbol, connectionId }) {
     const res = await fetch(`${API_BASE}/market/ltp`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ exchange, symboltoken, tradingsymbol, connectionId }),
     });
-    return res.json();
-}
-
-export async function getOptionChain({ symbol, exchange, expiry }) {
-    const params = new URLSearchParams({ symbol, exchange });
-    if (expiry) params.append("expiry", expiry);
-
-    const res = await fetch(
-        `${API_BASE}/options/chain?${params.toString()}`
-    );
     return res.json();
 }
 
@@ -100,11 +74,3 @@ export async function getBrokerConnections(userId) {
     return res.json();
 }
 
-export async function executeOrderAction({ action, payload, connectionId }) {
-    const res = await fetch(`${API_BASE}/orders/execute`, {
-        method: "POST",
-        headers: await getAuthHeaders(),
-        body: JSON.stringify({ action, payload, connectionId }),
-    });
-    return res.json();
-}
