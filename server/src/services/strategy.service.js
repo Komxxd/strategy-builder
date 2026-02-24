@@ -380,6 +380,80 @@ function getLegStrikeSelection({ index, option_type, strike, spotPrice }) {
     return { atmStrike, targetStrike, strikeLabel: strikeStr };
 }
 
+function handleLegStopOut(leg, exitType, strategy) {
+    // 1. Lock PnL and Mark CURRENT leg as completely exited
+    leg.state = "COMPLETED";
+    leg.exited = true;
+    leg.exitType = exitType;
+    leg.bookedPnlPoints = (leg.bookedPnlPoints || 0) + (leg.currentActivePnlPoints || 0);
+    leg.bookedPnlRupees = (leg.bookedPnlRupees || 0) + (leg.currentActivePnlRupees || 0);
+    leg.currentActivePnlPoints = 0;
+    leg.currentActivePnlRupees = 0;
+
+    // Wipe exchange fields to ensure clean exit visualization
+    leg.slOrderId = null;
+    leg.slUniqueOrderId = null;
+    leg.slLimitPrice = null;
+    leg.slTriggerPrice = null;
+    leg.exchangeSlProcessed = true;
+
+    if (leg.leg.recost_enabled && (leg.reentry_count < (leg.leg.max_reentry || 1))) {
+        const otp = leg.original_traded_price;
+        const mode = leg.leg.recost_mode || "RECOST_PLUS_PCT";
+        const val = leg.leg.recost_value || 0;
+        let rtp = otp;
+
+        if (mode === "RECOST_PLUS_PCT") rtp = otp + (otp * val / 100);
+        else if (mode === "RECOST_PLUS_PTS") rtp = otp + val;
+        else if (mode === "RECOST_MINUS_PCT") rtp = otp - (otp * val / 100);
+        else if (mode === "RECOST_MINUS_PTS") rtp = otp - val;
+
+        const newRtp = roundToTick(rtp);
+
+        // Spawn a brand new leg array element!
+        const newLeg = {
+            leg: { ...leg.leg }, // keep the configuration identical
+            instrument: { ...leg.instrument },
+            orderId: null,
+            uniqueOrderId: null,
+            exitOrderId: null,
+            state: "WAITING_FOR_RECOST",
+            exited: false,
+            exitType: null,
+            isExiting: false,
+            entryPrice: null,
+            currentLtp: leg.currentLtp,
+            last_tick_price: leg.currentLtp,
+
+            reentry_count: leg.reentry_count, // Keeps context of how many times it was already re-entered
+
+            original_traded_price: otp, // Carries over the original base entry price
+            recost_trigger_price: newRtp,
+
+            bookedPnlPoints: 0,
+            bookedPnlRupees: 0,
+            currentActivePnlPoints: 0,
+            currentActivePnlRupees: 0,
+            currentActivePnlPercent: 0,
+            pnlPercent: 0,
+            pnlPoints: 0,
+            pnlRupees: 0,
+
+            slOrderId: null,
+            slUniqueOrderId: null,
+            slTriggerPrice: null,
+            slLimitPrice: null,
+            exchangeSlProcessed: false
+        };
+
+        strategy.legs.push(newLeg);
+
+        console.log(`[RE-COST] New leg spawned for ${newLeg.instrument.symbol} in WAITING_FOR_RECOST. OTP: ${otp}, Calculated RTP: ${newRtp}`);
+    } else {
+        console.log(`[RE-COST] Leg ${leg.instrument.symbol} fully stopped out and completed. Re-entry disabled or count exhausted.`);
+    }
+}
+
 async function executeStrategy(strategyId) {
     const strategy = activeStrategies.get(strategyId);
     if (!strategy) return;
@@ -487,9 +561,20 @@ async function executeStrategy(strategyId) {
                             ...item,
                             orderId: orderData.orderid,
                             uniqueOrderId: orderData.uniqueorderid,
+                            state: "ACTIVE",
+                            original_traded_price: null,
+                            recost_trigger_price: null,
+                            reentry_count: 0,
+                            last_tick_price: null,
+                            bookedPnlPoints: 0,
+                            bookedPnlRupees: 0,
+                            currentActivePnlPoints: 0,
+                            currentActivePnlRupees: 0,
                             entryPrice: null,
                             currentLtp: null,
                             pnlPercent: 0,
+                            pnlPoints: 0,
+                            pnlRupees: 0,
                             slOrderId: null,
                             slUniqueOrderId: null,
                             slTriggerPrice: null,
@@ -509,6 +594,7 @@ async function executeStrategy(strategyId) {
                             );
                             if (fillPrice) {
                                 leg.entryPrice = fillPrice;
+                                leg.original_traded_price = leg.original_traded_price || fillPrice;
                             } else {
                                 const optLtpRes = await marketService.getLTP({
                                     exchange: leg.instrument.exch_seg,
@@ -516,6 +602,7 @@ async function executeStrategy(strategyId) {
                                 });
                                 if (optLtpRes.status && optLtpRes.data?.fetched?.[0]) {
                                     leg.entryPrice = optLtpRes.data.fetched[0].ltp;
+                                    leg.original_traded_price = leg.original_traded_price || leg.entryPrice;
                                 }
                             }
                         }
@@ -573,7 +660,7 @@ async function executeStrategy(strategyId) {
         if (strategy.status === "IN_POSITION" && strategy.legs?.length) {
             try {
                 await Promise.all(strategy.legs.map(async (leg) => {
-                    if (leg.exited) return; // Skip closed legs for LTP updates
+                    if (leg.exited && leg.state !== "WAITING_FOR_RECOST") return; // Skip closed legs for LTP updates
 
                     const currentLtpRes = await marketService.getLTP({
                         exchange: leg.instrument.exch_seg,
@@ -581,14 +668,122 @@ async function executeStrategy(strategyId) {
                     });
                     if (currentLtpRes.status && currentLtpRes.data?.fetched?.[0]) {
                         leg.currentLtp = currentLtpRes.data.fetched[0].ltp;
-                        if (leg.entryPrice) {
+
+                        // RE-COST Engines: Crossing Logic
+                        if (leg.state === "WAITING_FOR_RECOST" && leg.last_tick_price !== null) {
+                            const currentTick = leg.currentLtp;
+                            const prevTick = leg.last_tick_price;
+                            const rtp = leg.recost_trigger_price;
+
+                            let triggerReEntry = false;
+
+                            if (leg.leg.side === "BUY") {
+                                if (leg.leg.recost_mode.includes("PLUS")) {
+                                    // BUY RECOST+ (Enter higher): Price drops below RTP then crosses upward
+                                    if (prevTick <= rtp && currentTick > rtp) triggerReEntry = true;
+                                } else {
+                                    // BUY RECOST- (Enter lower): Price rises above RTP then crosses downward
+                                    if (prevTick >= rtp && currentTick < rtp) triggerReEntry = true;
+                                }
+                            } else {
+                                if (leg.leg.recost_mode.includes("PLUS")) {
+                                    // SELL RECOST+ (Enter higher): Price rises above RTP then crosses downward
+                                    if (prevTick >= rtp && currentTick < rtp) triggerReEntry = true;
+                                } else {
+                                    // SELL RECOST- (Enter lower): Price drops below RTP then crosses upward
+                                    if (prevTick <= rtp && currentTick > rtp) triggerReEntry = true;
+                                }
+                            }
+
+                            if (triggerReEntry) {
+                                console.log(`[RE-COST] Condition met for ${leg.instrument.symbol}! Re-entering (Attempt ${leg.reentry_count + 1}/${leg.leg.max_reentry})...`);
+                                leg.reentry_count++;
+                                leg.entryPrice = null; // IMPORTANT: Clear this out so Stop Loss engine aborts checking while we wait for fill!
+                                leg.state = "ACTIVE";
+
+                                let finalPrice = (config.price || "0").toString();
+                                if (config.ordertype === 'LIMIT') {
+                                    const offset = parseFloat(config.entry_limit_offset || 0);
+                                    if (leg.leg.side === "BUY") {
+                                        finalPrice = roundToTick(currentTick + offset).toString();
+                                    } else {
+                                        finalPrice = roundToTick(currentTick - offset).toString();
+                                    }
+                                }
+
+                                try {
+                                    const reEntryOrder = await placeOrder(
+                                        {
+                                            ...config,
+                                            side: leg.leg.side,
+                                            variety: config.variety === "STOPLOSS" ? "NORMAL" : config.variety, // Force Normal for re-entries generally to guarantee market fill, sl tracking applies next
+                                            ordertype: config.ordertype,
+                                            price: finalPrice,
+                                            lots: leg.leg.lots
+                                        },
+                                        leg.instrument,
+                                        config.connectionId
+                                    );
+
+                                    leg.orderId = reEntryOrder.orderid;
+                                    leg.uniqueOrderId = reEntryOrder.uniqueorderid;
+
+                                    // Wait for fill cleanly
+                                    setTimeout(async () => {
+                                        try {
+                                            const fill = await waitForOrderFillPrice(leg.uniqueOrderId, null, config.is_paper_trading === true, leg.instrument);
+                                            leg.entryPrice = fill || currentTick;
+                                        } catch (e) { leg.entryPrice = currentTick; }
+
+                                        // Redeploy exchange SL if needed
+                                        if (config.variety === "STOPLOSS") {
+                                            const activeSlType = leg.leg.reentry_sl_enabled ? leg.leg.reentry_sl_type : (leg.leg.sl_type || "PERCENTAGE");
+                                            const activeSlValue = leg.leg.reentry_sl_enabled ? leg.leg.reentry_sl_value : leg.leg.stop_loss;
+
+                                            const slOrder = await placeStopLossExitOrder({
+                                                baseConfig: config,
+                                                legSide: leg.leg.side,
+                                                entryPrice: leg.entryPrice,
+                                                instrument: leg.instrument,
+                                                lots: leg.leg.lots,
+                                                slType: activeSlType,
+                                                slValue: activeSlValue,
+                                                slLimitMargin: config.entry_limit_offset,
+                                                connectionId: config.connectionId
+                                            });
+                                            if (slOrder?.orderid) {
+                                                const prices = computeStopLossExitPrices(leg.entryPrice, leg.leg.side, activeSlType, activeSlValue, config.entry_limit_offset);
+                                                leg.slOrderId = slOrder.orderid;
+                                                leg.slUniqueOrderId = slOrder.uniqueorderid;
+                                                leg.slTriggerPrice = prices?.trigger;
+                                                leg.slLimitPrice = prices?.limit;
+                                                leg.exchangeSlProcessed = false;
+                                            }
+                                        }
+                                    }, 500);
+                                } catch (err) {
+                                    console.error("[RE-COST] Re-entry failed. Halting leg completely.", err);
+                                    leg.state = "COMPLETED";
+                                    leg.exited = true;
+                                }
+                            }
+                        }
+
+                        leg.last_tick_price = leg.currentLtp;
+
+                        if (leg.entryPrice && leg.state === "ACTIVE") {
                             const pnlPoints = leg.leg.side === "BUY"
                                 ? (leg.currentLtp - leg.entryPrice)
                                 : (leg.entryPrice - leg.currentLtp);
-                            leg.pnlPercent = (pnlPoints / leg.entryPrice) * 100;
-                            leg.pnlPoints = pnlPoints;
+
+                            leg.currentActivePnlPoints = pnlPoints;
                             const quantity = leg.leg.lots * parseInt(leg.instrument.lotsize || 1);
-                            leg.pnlRupees = pnlPoints * quantity;
+                            leg.currentActivePnlRupees = pnlPoints * quantity;
+
+                            leg.pnlPercent = ((leg.bookedPnlPoints || 0) + pnlPoints) / leg.original_traded_price * 100;
+                            leg.currentActivePnlPercent = (pnlPoints / leg.entryPrice) * 100;
+                            leg.pnlPoints = (leg.bookedPnlPoints || 0) + leg.currentActivePnlPoints;
+                            leg.pnlRupees = (leg.bookedPnlRupees || 0) + leg.currentActivePnlRupees;
                         }
                     }
                 }));
@@ -668,14 +863,17 @@ async function executeStrategy(strategyId) {
                 // Check Leg-wise Stop Loss (%) only if we didn't place SmartAPI SL orders (or if it's paper trading)
                 if (config.variety !== "STOPLOSS" || config.is_paper_trading === true) {
                     for (const leg of strategy.legs) {
-                        if (leg.exited) continue;
+                        if (leg.exited || leg.state === "WAITING_FOR_RECOST") continue;
 
-                        const slVal = leg.leg.stop_loss || 0;
+                        const isReentered = leg.reentry_count > 0;
+                        const activeSlType = isReentered && leg.leg.reentry_sl_enabled ? leg.leg.reentry_sl_type : (leg.leg.sl_type || "PERCENTAGE");
+                        const activeSlValue = isReentered && leg.leg.reentry_sl_enabled ? leg.leg.reentry_sl_value : (leg.leg.stop_loss || 0);
+
                         let isHit = false;
-                        if (leg.leg.sl_type === "POINTS") {
-                            isHit = leg.pnlPoints <= -slVal;
+                        if (activeSlType === "POINTS") {
+                            isHit = leg.currentActivePnlPoints <= -activeSlValue;
                         } else {
-                            isHit = leg.pnlPercent <= -slVal;
+                            isHit = leg.currentActivePnlPercent <= -activeSlValue;
                         }
 
                         if (isHit) {
@@ -686,13 +884,14 @@ async function executeStrategy(strategyId) {
                                 instrument: leg.instrument,
                                 exitType: "LEG_STOP_LOSS"
                             });
+                            handleLegStopOut(leg, "LEG_STOP_LOSS", strategy);
                         }
                     }
                 } else {
                     // Real Stop Loss handling for variety="STOPLOSS"
                     // Check if any exchange SL was hit
                     for (const leg of strategy.legs) {
-                        if (leg.exited) continue;
+                        if (leg.exited || leg.state === "WAITING_FOR_RECOST") continue;
                         if (leg.slUniqueOrderId && !leg.exchangeSlProcessed) {
                             // Only check exchange if price is close to trigger (to save API quota)
                             const isNearTrigger = leg.leg.side === "BUY"
@@ -708,8 +907,7 @@ async function executeStrategy(strategyId) {
                                         if (orderStatus === "complete" || orderStatus === "filled") {
                                             console.log(`[${new Date().toISOString()}] Exchange SL hit for leg ${leg.instrument.symbol}.`);
                                             leg.exchangeSlProcessed = true;
-                                            leg.exited = true;
-                                            leg.exitType = "EXCHANGE_STOP_LOSS";
+                                            handleLegStopOut(leg, "EXCHANGE_STOP_LOSS", strategy);
                                         }
                                     }
                                 } catch (err) {
@@ -930,6 +1128,52 @@ async function squareOffStrategy(strategyId) {
     return true;
 }
 
+async function squareOffLeg(strategyId, legIndex) {
+    const strategy = activeStrategies.get(strategyId);
+    if (!strategy) throw new Error("Strategy is not active or not found");
+    if (strategy.status !== "IN_POSITION") throw new Error('Strategy must be in IN_POSITION to square off a leg');
+
+    const leg = strategy.legs[legIndex];
+    if (!leg) throw new Error("Leg not found");
+    if (leg.exited) throw new Error("Leg has already exited");
+    if (leg.isExiting) throw new Error("Leg is already in process of exiting");
+
+    const { config } = strategy;
+    console.log(`[${new Date().toISOString()}] Manual Square Off triggered for leg index ${legIndex} of strategy ${strategyId}`);
+
+    leg.isExiting = true;
+
+    // Fast-path: If the leg is just waiting for Re-Cost, it holds no position. Just cancel the Recost.
+    if (leg.state === "WAITING_FOR_RECOST") {
+        leg.state = "COMPLETED";
+        leg.exited = true;
+        leg.exitType = "MANUAL_CANCELLED_RECOST";
+        return true;
+    }
+
+    // 1. Cancel pending SL order on exchange for this specific leg
+    if (config.variety === "STOPLOSS" && !config.is_paper_trading && leg.slOrderId) {
+        try {
+            const api = await getAuthorizedInstance(config.connectionId);
+            await api.cancelOrder({ variety: "STOPLOSS", orderid: leg.slOrderId });
+            console.log(`Cancelled SL order ${leg.slOrderId} for leg ${leg.instrument.symbol} due to manual leg square off`);
+        } catch (e) {
+            console.error(`Failed to cancel SL order ${leg.slOrderId}:`, e.message);
+        }
+    }
+
+    // 2. Place Exit Order for this leg
+    await placeExitOrder({
+        config: config,
+        leg: leg,
+        instrument: leg.instrument,
+        exitType: "MANUAL_LEG_SQUARE_OFF"
+    });
+
+    // Strategy loop will handle pushing the leg to "COMPLETED" state when it checks that leg.exited is true
+    return true;
+}
+
 async function stopStrategy(strategyId) {
     const strategy = activeStrategies.get(strategyId);
     if (strategy) {
@@ -1049,6 +1293,7 @@ module.exports = {
     deleteStrategy,
     startStrategy,
     squareOffStrategy,
+    squareOffLeg,
     stopStrategy,
     getStatus,
     getUserStrategies,

@@ -50,6 +50,16 @@ router.post("/squareoff/:id", async (req, res) => {
     }
 });
 
+router.post("/squareoff/:id/leg/:legIndex", async (req, res) => {
+    try {
+        await strategyService.squareOffLeg(req.params.id, parseInt(req.params.legIndex));
+        res.json({ success: true, message: "Leg Squared Off" });
+    } catch (error) {
+        console.error("Error squaring off leg:", error.message);
+        res.status(500).json({ success: false, message: error.message || "Failed to square off leg" });
+    }
+});
+
 router.post("/stop/:id", async (req, res) => {
     try {
         await strategyService.stopStrategy(req.params.id);

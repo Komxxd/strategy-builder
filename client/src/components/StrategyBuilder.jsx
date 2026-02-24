@@ -125,6 +125,17 @@ export const StrategyBuilder = ({ userId }) => {
         }
     };
 
+    const handleSquareOffLeg = async (id, legIndex) => {
+        if (!id) return;
+        if (!confirm("Are you sure you want to instantly square off this specific leg?")) return;
+        try {
+            await axios.post(`${API_BASE_URL}/strategy/squareoff/${id}/leg/${legIndex}`);
+            fetchActive();
+        } catch (err) {
+            alert("Error squaring off leg: " + err.response?.data?.message || err.message);
+        }
+    };
+
     const handleEdit = (strategy) => {
         setConfig(strategy.config);
         setEditingId(strategy.id);
@@ -250,7 +261,7 @@ export const StrategyBuilder = ({ userId }) => {
                                 variant="outline"
                                 className="h-9 gap-2 rounded-xl"
                                 onClick={() => {
-                                    const next = [...config.legs, { strike_criteria: 'STRIKE_TYPE', option_type: 'CE', strike: 'ATM', premium: 0, side: 'BUY', lots: 1, sl_type: 'PERCENTAGE', stop_loss: 10, recost_enabled: false, recost_mode: 'RECOST_PLUS_PCT', recost_value: 0, max_reentry: 1 }];
+                                    const next = [...config.legs, { strike_criteria: 'STRIKE_TYPE', option_type: 'CE', strike: 'ATM', premium: 0, side: 'BUY', lots: 1, sl_type: 'PERCENTAGE', stop_loss: 10, recost_enabled: false, recost_mode: 'RECOST_PLUS_PCT', recost_value: 0, max_reentry: 1, reentry_sl_enabled: false, reentry_sl_type: 'PERCENTAGE', reentry_sl_value: 10 }];
                                     setConfig({ ...config, legs: next });
                                 }}
                             >
@@ -465,7 +476,10 @@ export const StrategyBuilder = ({ userId }) => {
                                                                 recost_enabled: e.target.checked,
                                                                 recost_mode: leg.recost_mode || 'RECOST_PLUS_PCT',
                                                                 recost_value: leg.recost_value || 0,
-                                                                max_reentry: leg.max_reentry || 1
+                                                                max_reentry: leg.max_reentry || 1,
+                                                                reentry_sl_enabled: leg.reentry_sl_enabled || false,
+                                                                reentry_sl_type: leg.reentry_sl_type || 'PERCENTAGE',
+                                                                reentry_sl_value: leg.reentry_sl_value || leg.stop_loss || 0
                                                             };
                                                             setConfig({ ...config, legs: next });
                                                         }}
@@ -545,6 +559,67 @@ export const StrategyBuilder = ({ userId }) => {
                                                                 </SelectContent>
                                                             </Select>
                                                         </div>
+                                                    </div>
+                                                )}
+
+                                                {leg.recost_enabled && (
+                                                    <div className="pt-2 animate-in slide-in-from-top-2">
+                                                        <div className="flex items-center gap-2 mb-4">
+                                                            <input
+                                                                type="checkbox"
+                                                                id={`reentry-sl-${legIndex}`}
+                                                                className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                                                checked={leg.reentry_sl_enabled || false}
+                                                                onChange={(e) => {
+                                                                    const next = [...config.legs];
+                                                                    next[legIndex] = { ...next[legIndex], reentry_sl_enabled: e.target.checked };
+                                                                    setConfig({ ...config, legs: next });
+                                                                }}
+                                                            />
+                                                            <Label htmlFor={`reentry-sl-${legIndex}`} className="text-xs font-bold tracking-wide text-foreground cursor-pointer">
+                                                                Override Stop Loss on Re-Entry
+                                                            </Label>
+                                                        </div>
+
+                                                        {leg.reentry_sl_enabled && (
+                                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pl-6 animate-in slide-in-from-top-2 border-l-2 border-primary/20">
+                                                                <div className="space-y-2">
+                                                                    <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">New SL Type</Label>
+                                                                    <Select
+                                                                        value={leg.reentry_sl_type || 'PERCENTAGE'}
+                                                                        onValueChange={(v) => {
+                                                                            const next = [...config.legs];
+                                                                            next[legIndex] = { ...next[legIndex], reentry_sl_type: v };
+                                                                            setConfig({ ...config, legs: next });
+                                                                        }}
+                                                                    >
+                                                                        <SelectTrigger className="h-11 rounded-xl">
+                                                                            <SelectValue placeholder="SL Type" />
+                                                                        </SelectTrigger>
+                                                                        <SelectContent>
+                                                                            <SelectItem value="PERCENTAGE">Percentage (%)</SelectItem>
+                                                                            <SelectItem value="POINTS">Points (Pts)</SelectItem>
+                                                                        </SelectContent>
+                                                                    </Select>
+                                                                </div>
+
+                                                                <div className="space-y-2">
+                                                                    <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+                                                                        New SL Value {leg.reentry_sl_type === 'POINTS' ? '(Pts)' : '(%)'}
+                                                                    </Label>
+                                                                    <Input
+                                                                        className="h-11 rounded-xl"
+                                                                        type="number"
+                                                                        value={leg.reentry_sl_value !== undefined ? leg.reentry_sl_value : (leg.stop_loss || 0)}
+                                                                        onChange={(e) => {
+                                                                            const next = [...config.legs];
+                                                                            next[legIndex] = { ...next[legIndex], reentry_sl_value: parseFloat(e.target.value) };
+                                                                            setConfig({ ...config, legs: next });
+                                                                        }}
+                                                                    />
+                                                                </div>
+                                                            </div>
+                                                        )}
                                                     </div>
                                                 )}
                                             </div>
@@ -783,31 +858,99 @@ export const StrategyBuilder = ({ userId }) => {
                                     </div>
 
                                     {strategyData?.status === "IN_POSITION" || strategyData?.status === "COMPLETED" ? (
-                                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-4 border-t border-border">
-                                            <div className="p-3 bg-muted rounded-xl">
-                                                <span className="text-[10px] font-bold uppercase text-muted-foreground block mb-1">Entry Price</span>
-                                                <span className="text-sm font-mono font-bold">
-                                                    {strategyData.legs?.map((l) => l.entryPrice ? l.entryPrice.toFixed(2) : '---').join(' / ') || '---'}
-                                                </span>
+                                        <div className="space-y-4 pt-4 border-t border-border">
+                                            {/* Overall Strategy PnL Summary */}
+                                            <div className="grid grid-cols-2 gap-4">
+                                                <div className={`p-4 rounded-xl flex flex-col justify-center items-center ${(strategyData.pnlPercent || 0) >= 0 ? 'bg-emerald-50' : 'bg-red-50'}`}>
+                                                    <span className="text-xs font-bold uppercase text-muted-foreground mb-1">Overall Return (%)</span>
+                                                    <span className={`text-2xl font-mono font-bold ${(strategyData.pnlPercent || 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                                                        {(strategyData.pnlPercent || 0) > 0 ? '+' : ''}{(strategyData.pnlPercent || 0).toFixed(2)}%
+                                                    </span>
+                                                </div>
+                                                <div className={`p-4 rounded-xl flex flex-col justify-center items-center ${(strategyData.totalPnlRupees || 0) >= 0 ? 'bg-emerald-50' : 'bg-red-50'}`}>
+                                                    <span className="text-xs font-bold uppercase text-muted-foreground mb-1">Overall PnL (₹)</span>
+                                                    <span className={`text-2xl font-mono font-bold ${(strategyData.totalPnlRupees || 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                                                        {(strategyData.totalPnlRupees || 0) > 0 ? '+' : ''}{(strategyData.totalPnlRupees || 0).toFixed(2)}
+                                                    </span>
+                                                </div>
                                             </div>
-                                            <div className="p-3 bg-muted rounded-xl">
-                                                <span className="text-[10px] font-bold uppercase text-muted-foreground block mb-1">Live LTP</span>
-                                                <span className="text-sm font-mono font-bold animate-pulse">
-                                                    {strategyData.legs?.map((l) => l.currentLtp ? l.currentLtp.toFixed(2) : '---').join(' / ') || '---'}
-                                                </span>
-                                            </div>
-                                            <div className={`p-3 rounded-xl ${(strategyData.pnlPercent || 0) >= 0 ? 'bg-emerald-50' : 'bg-red-50'}`}>
-                                                <span className="text-[10px] font-bold uppercase text-muted-foreground block mb-1">Return (%)</span>
-                                                <span className={`text-lg font-mono font-bold ${(strategyData.pnlPercent || 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                                                    {(strategyData.pnlPercent || 0) > 0 ? '+' : ''}{(strategyData.pnlPercent || 0).toFixed(2)}%
-                                                </span>
-                                            </div>
-                                            <div className={`p-3 rounded-xl ${(strategyData.totalPnlRupees || 0) >= 0 ? 'bg-emerald-50' : 'bg-red-50'}`}>
-                                                <span className="text-[10px] font-bold uppercase text-muted-foreground block mb-1">Total PnL (₹)</span>
-                                                <span className={`text-lg font-mono font-bold ${(strategyData.totalPnlRupees || 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                                                    {(strategyData.totalPnlRupees || 0) > 0 ? '+' : ''}{(strategyData.totalPnlRupees || 0).toFixed(2)}
-                                                </span>
-                                            </div>
+
+                                            {/* Running Legs */}
+                                            {strategyData.legs?.filter(l => !l.exited).length > 0 && (
+                                                <div className="space-y-2">
+                                                    <span className="text-xs font-bold uppercase text-muted-foreground">Running Legs</span>
+                                                    <div className="space-y-2">
+                                                        {strategyData.legs.map((l, idx) => !l.exited && (
+                                                            <div key={idx} className="flex items-center justify-between p-3 bg-white border border-border rounded-xl">
+                                                                <div className="flex flex-col">
+                                                                    <span className="text-sm font-bold">{l.instrument?.symbol || "---"} ({l.leg?.side})</span>
+                                                                    <div className="flex items-center gap-2 mt-1 text-xs font-mono text-muted-foreground">
+                                                                        <span>Entry: {(l.entryPrice || 0).toFixed(2)}</span>
+                                                                        <span>|</span>
+                                                                        <span className="animate-pulse text-blue-600">LTP: {(l.currentLtp || 0).toFixed(2)}</span>
+                                                                        {l.state === "WAITING_FOR_RECOST" && (
+                                                                            <span className="px-2 py-0.5 ml-2 bg-yellow-100 text-yellow-700 font-bold rounded">Waiting Re-Entry</span>
+                                                                        )}
+                                                                    </div>
+                                                                </div>
+                                                                <div className="flex items-center gap-4">
+                                                                    <div className="flex flex-col items-end">
+                                                                        <span className={`text-sm font-mono font-bold ${(l.currentActivePnlPercent || 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                                                                            {(l.currentActivePnlPercent || 0) > 0 ? '+' : ''}{(l.currentActivePnlPercent || 0).toFixed(2)}%
+                                                                        </span>
+                                                                        <span className={`text-xs font-mono font-bold ${(l.currentActivePnlRupees || 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                                                                            {(l.currentActivePnlRupees || 0) > 0 ? '+' : ''}₹{(l.currentActivePnlRupees || 0).toFixed(2)}
+                                                                        </span>
+                                                                    </div>
+                                                                    <Button
+                                                                        size="sm"
+                                                                        variant="outline"
+                                                                        className="rounded-lg border-orange-500 hover:bg-orange-50 text-orange-600 text-xs font-bold px-3 h-8"
+                                                                        onClick={() => handleSquareOffLeg(id, idx)}
+                                                                        disabled={l.isExiting}
+                                                                    >
+                                                                        {l.isExiting ? "Exiting..." : (l.state === "WAITING_FOR_RECOST" ? "Cancel Re-Cost" : "Square Off")}
+                                                                    </Button>
+                                                                </div>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {/* Closed Legs */}
+                                            {strategyData.legs?.filter(l => l.exited).length > 0 && (
+                                                <div className="space-y-2">
+                                                    <span className="text-xs font-bold uppercase text-muted-foreground">Closed Legs</span>
+                                                    <div className="space-y-2">
+                                                        {strategyData.legs.map((l, idx) => l.exited && (
+                                                            <div key={idx} className="flex items-center justify-between p-3 bg-muted/50 border border-border/50 rounded-xl opacity-80">
+                                                                <div className="flex flex-col">
+                                                                    <span className="text-sm font-bold line-through text-muted-foreground">{l.instrument?.symbol || "---"} ({l.leg?.side})</span>
+                                                                    <div className="flex items-center gap-2 mt-1 text-xs font-mono text-muted-foreground">
+                                                                        <span>Entry: {(l.original_traded_price || l.entryPrice || 0).toFixed(2)}</span>
+                                                                        <span>|</span>
+                                                                        <span>Exit: {l.exitType || "---"}</span>
+                                                                    </div>
+                                                                </div>
+                                                                <div className="flex items-center gap-4">
+                                                                    <div className="flex flex-col items-end">
+                                                                        <span className={`text-sm font-mono font-bold ${(l.pnlPercent || 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                                                                            {(l.pnlPercent || 0) > 0 ? '+' : ''}{(l.pnlPercent || 0).toFixed(2)}%
+                                                                        </span>
+                                                                        <span className={`text-xs font-mono font-bold ${(l.pnlRupees || 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                                                                            {(l.pnlRupees || 0) > 0 ? '+' : ''}₹{(l.pnlRupees || 0).toFixed(2)}
+                                                                        </span>
+                                                                    </div>
+                                                                    <div className="w-[88px] text-center">
+                                                                        <span className="px-2 py-1 text-[10px] font-bold bg-slate-200 text-slate-500 rounded uppercase">Closed</span>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            )}
                                         </div>
                                     ) : null}
                                 </CardContent>
