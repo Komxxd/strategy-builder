@@ -705,9 +705,9 @@ async function executeStrategy(strategyId) {
                                 if (config.ordertype === 'LIMIT') {
                                     const offset = parseFloat(config.entry_limit_offset || 0);
                                     if (leg.leg.side === "BUY") {
-                                        finalPrice = roundToTick(currentTick + offset).toString();
-                                    } else {
                                         finalPrice = roundToTick(currentTick - offset).toString();
+                                    } else {
+                                        finalPrice = roundToTick(currentTick + offset).toString();
                                     }
                                 }
 
@@ -797,8 +797,6 @@ async function executeStrategy(strategyId) {
 
                 const totalPnlRupees = strategy.legs.reduce((sum, l) => sum + (l.pnlRupees || 0), 0);
                 strategy.totalPnlRupees = totalPnlRupees;
-
-                console.log(`Strategy ${strategyId}: Avg PnL%=${avgPnl.toFixed(2)}%, Total PnL ₹=${totalPnlRupees.toFixed(2)}`);
 
                 // Check Overall Stop Loss
                 const slType = config.overall_sl_type || "PERCENTAGE";

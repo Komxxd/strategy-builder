@@ -928,7 +928,7 @@ export const StrategyBuilder = ({ userId }) => {
                                                                 <div className="flex flex-col">
                                                                     <span className="text-sm font-bold line-through text-muted-foreground">{l.instrument?.symbol || "---"} ({l.leg?.side})</span>
                                                                     <div className="flex items-center gap-2 mt-1 text-xs font-mono text-muted-foreground">
-                                                                        <span>Entry: {(l.original_traded_price || l.entryPrice || 0).toFixed(2)}</span>
+                                                                        <span>Entry: {(l.entryPrice || 0).toFixed(2)}</span>
                                                                         <span>|</span>
                                                                         <span>Exit: {l.exitType || "---"}</span>
                                                                     </div>
