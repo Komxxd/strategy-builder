@@ -333,13 +333,31 @@ async function placeExitOrder({ config, leg, instrument, exitType }) {
                 } else {
                     finalPrice = roundToTick(ltp + offset).toString();
                 }
+            } else if (leg.currentLtp) {
+                console.warn(`Could not fetch fresh LTP for exit of ${instrument.symbol}, falling back to last known active LTP: ${leg.currentLtp}`);
+                const ltp = leg.currentLtp;
+                const offset = parseFloat(config.entry_limit_offset || 0);
+
+                if (exitSide === "SELL") {
+                    finalPrice = roundToTick(ltp - offset).toString();
+                } else {
+                    finalPrice = roundToTick(ltp + offset).toString();
+                }
             } else {
-                console.warn(`Could not fetch LTP for exit of ${instrument.symbol}, falling back to MARKET`);
+                console.warn(`Could not fetch LTP for exit of ${instrument.symbol} and no previous LTP available, falling back to MARKET. API Response:`, JSON.stringify(ltpRes));
                 exitOrderType = "MARKET";
             }
         } catch (err) {
-            console.error(`Error calculating limit exit price for ${instrument.symbol}:`, err);
-            exitOrderType = "MARKET";
+            if (leg.currentLtp) {
+                console.warn(`Error calculating limit exit price for ${instrument.symbol}, falling back to last known active LTP:`, err.message);
+                const ltp = leg.currentLtp;
+                const offset = parseFloat(config.entry_limit_offset || 0);
+                if (exitSide === "SELL") finalPrice = roundToTick(ltp - offset).toString();
+                else finalPrice = roundToTick(ltp + offset).toString();
+            } else {
+                console.error(`Error calculating limit exit price for ${instrument.symbol}:`, err.message);
+                exitOrderType = "MARKET";
+            }
         }
     }
 
@@ -529,7 +547,8 @@ async function executeStrategy(strategyId) {
                             try {
                                 const instLtpRes = await marketService.getLTP({
                                     exchange: item.instrument.exch_seg,
-                                    symboltoken: item.instrument.token
+                                    symboltoken: item.instrument.token,
+                                    connectionId: config.connectionId
                                 });
                                 if (instLtpRes.status && instLtpRes.data?.fetched?.[0]) {
                                     const instLtp = instLtpRes.data.fetched[0].ltp;
@@ -588,7 +607,7 @@ async function executeStrategy(strategyId) {
                         if (leg.uniqueOrderId) {
                             const fillPrice = await waitForOrderFillPrice(
                                 leg.uniqueOrderId,
-                                null,
+                                config.connectionId,
                                 config.is_paper_trading === true,
                                 leg.instrument
                             );
@@ -598,7 +617,8 @@ async function executeStrategy(strategyId) {
                             } else {
                                 const optLtpRes = await marketService.getLTP({
                                     exchange: leg.instrument.exch_seg,
-                                    symboltoken: leg.instrument.token
+                                    symboltoken: leg.instrument.token,
+                                    connectionId: config.connectionId
                                 });
                                 if (optLtpRes.status && optLtpRes.data?.fetched?.[0]) {
                                     leg.entryPrice = optLtpRes.data.fetched[0].ltp;
@@ -664,7 +684,8 @@ async function executeStrategy(strategyId) {
 
                     const currentLtpRes = await marketService.getLTP({
                         exchange: leg.instrument.exch_seg,
-                        symboltoken: leg.instrument.token
+                        symboltoken: leg.instrument.token,
+                        connectionId: config.connectionId
                     });
                     if (currentLtpRes.status && currentLtpRes.data?.fetched?.[0]) {
                         leg.currentLtp = currentLtpRes.data.fetched[0].ltp;
@@ -705,9 +726,9 @@ async function executeStrategy(strategyId) {
                                 if (config.ordertype === 'LIMIT') {
                                     const offset = parseFloat(config.entry_limit_offset || 0);
                                     if (leg.leg.side === "BUY") {
-                                        finalPrice = roundToTick(currentTick - offset).toString();
-                                    } else {
                                         finalPrice = roundToTick(currentTick + offset).toString();
+                                    } else {
+                                        finalPrice = roundToTick(currentTick - offset).toString();
                                     }
                                 }
 
@@ -731,7 +752,7 @@ async function executeStrategy(strategyId) {
                                     // Wait for fill cleanly
                                     setTimeout(async () => {
                                         try {
-                                            const fill = await waitForOrderFillPrice(leg.uniqueOrderId, null, config.is_paper_trading === true, leg.instrument);
+                                            const fill = await waitForOrderFillPrice(leg.uniqueOrderId, config.connectionId, config.is_paper_trading === true, leg.instrument);
                                             leg.entryPrice = fill || currentTick;
                                         } catch (e) { leg.entryPrice = currentTick; }
 
