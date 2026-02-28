@@ -45,6 +45,18 @@ if (!fs.existsSync(INSTRUMENT_PATH)) {
         .catch(err => console.error("Error downloading instruments:", err));
 }
 
+// Keep-Alive Ping for Render Free Tier
+const RENDER_EXTERNAL_URL = process.env.RENDER_EXTERNAL_URL;
+if (RENDER_EXTERNAL_URL) {
+    const https = require("https");
+    setInterval(() => {
+        https.get(`${RENDER_EXTERNAL_URL}/api/health`).on('error', (err) => {
+            console.error('Keep-alive ping failed:', err.message);
+        });
+    }, 10 * 60 * 1000); // 10 minutes
+    console.log(`Keep-alive interval started for ${RENDER_EXTERNAL_URL}`);
+}
+
 server.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
 });

@@ -6,7 +6,9 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon --ignore src/data/ src/server.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate deploy"
   },
   "keywords": [],
   "author": "",
@@ -15,13 +17,14 @@
     "nodemon": "^3.1.11"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.94.1",
+    "@prisma/client": "^5.22.0",
     "cors": "^2.8.6",
     "dotenv": "^17.2.3",
     "express": "^5.2.1",
     "greeks": "^1.0.0",
     "node-cache": "^5.1.2",
     "path": "^0.12.7",
+    "prisma": "^5.22.0",
     "rss-parser": "^3.13.0",
     "smartapi-javascript": "^1.0.27",
     "socket.io": "^4.8.3",

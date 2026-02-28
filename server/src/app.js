@@ -5,7 +5,7 @@ const authRoutes = require("./routes/auth.routes");
 const marketRoutes = require("./routes/market.routes");
 const marketSocketRoutes = require("./routes/marketSocket.routes");
 const strategyRoutes = require("./routes/strategy.routes");
-const brokerRoutes = require("./routes/broker.routes");
+const authMiddleware = require("./utils/authMiddleware");
 
 const app = express();
 
@@ -25,11 +25,12 @@ app.use(cors({
 }));
 app.use(express.json());
 
-app.use("/api/auth", authRoutes);
-app.use("/api/market", marketRoutes);
-app.use("/api/market-socket", marketSocketRoutes);
-app.use("/api/strategy", strategyRoutes);
-app.use("/api/broker", brokerRoutes);
+app.use("/api/auth", authRoutes); // Auth route allows getting initialized sessions seamlessly
+
+// Apply API Key security to the protected endpoints
+app.use("/api/market", authMiddleware, marketRoutes);
+app.use("/api/market-socket", authMiddleware, marketSocketRoutes);
+app.use("/api/strategy", authMiddleware, strategyRoutes);
 
 app.get("/api/health", (req, res) => {
     res.json({ status: "ok" });

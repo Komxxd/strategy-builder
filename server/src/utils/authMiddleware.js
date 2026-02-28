@@ -1,29 +1,15 @@
-const supabase = require("../config/supabase");
+const authMiddleware = (req, res, next) => {
+    const apiKey = req.headers['x-api-key'];
+    const serverKey = process.env.SECRET_API_KEY;
 
-const authMiddleware = async (req, res, next) => {
-    const authHeader = req.headers.authorization;
-    if (!authHeader) {
-        return res.status(401).json({ success: false, message: "No authorization header" });
-    }
-
-    const token = authHeader.split(" ")[1];
-    if (!token) {
-        return res.status(401).json({ success: false, message: "No token provided" });
-    }
-
-    try {
-        const { data: { user }, error } = await supabase.auth.getUser(token);
-
-        if (error || !user) {
-            return res.status(401).json({ success: false, message: "Invalid or expired token" });
+    // Only strictly require an API key if one is defined in the server environment
+    if (serverKey) {
+        if (!apiKey || apiKey !== serverKey) {
+            return res.status(401).json({ success: false, message: "Unauthorized: Invalid API Key" });
         }
-
-        req.user = user;
-        next();
-    } catch (err) {
-        console.error("Auth middleware error:", err);
-        return res.status(500).json({ success: false, message: "Authentication failed" });
     }
+
+    next();
 };
 
 module.exports = authMiddleware;

@@ -69,30 +69,33 @@ router.post("/stop/:id", async (req, res) => {
     }
 });
 
-router.get("/user/:userId", async (req, res) => {
+router.get("/user", async (req, res) => {
     try {
-        const data = await strategyService.getUserStrategies(req.params.userId);
+        const data = await strategyService.getUserStrategies();
         res.json({ success: true, data });
     } catch (error) {
-        res.status(500).json({ success: false, message: "Failed to fetch strategies" });
+        console.error("Error fetching user strategies:", error);
+        res.status(500).json({ success: false, message: "Failed to fetch strategies", details: error.message });
     }
 });
 
-router.get("/active/:userId", async (req, res) => {
+router.get("/active", async (req, res) => {
     try {
-        const active = await strategyService.getActiveStrategies(req.params.userId);
+        const active = await strategyService.getActiveStrategies();
         res.json({ success: true, data: active });
     } catch (error) {
-        res.status(500).json({ success: false, message: "Failed to fetch active strategies" });
+        console.error("Error fetching active strategies:", error);
+        res.status(500).json({ success: false, message: "Failed to fetch active strategies", details: error.message });
     }
 });
 
-router.get("/history/:userId", async (req, res) => {
+router.get("/history", async (req, res) => {
     try {
-        const history = await strategyService.getExecutionHistory(req.params.userId);
+        const history = await strategyService.getExecutionHistory();
         res.json({ success: true, data: history });
     } catch (error) {
-        res.status(500).json({ success: false, message: "Failed to fetch strategy history" });
+        console.error("Error fetching execution history:", error);
+        res.status(500).json({ success: false, message: "Failed to fetch strategy history", details: error.message });
     }
 });
 
@@ -104,7 +107,8 @@ router.get("/status/:id", async (req, res) => {
         }
         res.json({ success: true, data: status });
     } catch (error) {
-        res.status(500).json({ success: false, message: "Failed to get strategy status" });
+        console.error("Error fetching strategy status:", error);
+        res.status(500).json({ success: false, message: "Failed to get strategy status", details: error.message });
     }
 });
 

@@ -10,10 +10,10 @@ import axios from 'axios';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:5001/api";
 
-export const StrategyBuilder = ({ userId }) => {
+export const StrategyBuilder = () => {
     const [loading, setLoading] = useState(false);
     const [runningStrategies, setRunningStrategies] = useState({}); // { id: data }
-    const [history, setHistory] = useState([]);
+    const [savedStrategies, setSavedStrategies] = useState([]);
     const [editingId, setEditingId] = useState(null);
     const [activeTab, setActiveTab] = useState('paper');
 
@@ -38,20 +38,18 @@ export const StrategyBuilder = ({ userId }) => {
         ]
     });
 
-    const fetchHistory = async () => {
-        if (!userId) return;
+    const fetchSavedStrategies = async () => {
         try {
-            const res = await axios.get(`${API_BASE_URL}/strategy/user/${userId}`);
-            setHistory(res.data?.data || []);
+            const res = await axios.get(`${API_BASE_URL}/strategy/user`);
+            setSavedStrategies(res.data?.data || []);
         } catch (err) {
-            console.error("Error fetching history:", err);
+            console.error("Error fetching saved strategies:", err);
         }
     };
 
     const fetchActive = async () => {
-        if (!userId) return;
         try {
-            const res = await axios.get(`${API_BASE_URL}/strategy/active/${userId}`);
+            const res = await axios.get(`${API_BASE_URL}/strategy/active`);
             if (res.data?.data && Array.isArray(res.data.data)) {
                 const activeMap = {};
                 res.data.data.forEach(s => {
@@ -65,13 +63,13 @@ export const StrategyBuilder = ({ userId }) => {
     };
 
     React.useEffect(() => {
-        fetchHistory();
+        fetchSavedStrategies();
         fetchActive();
-    }, [userId]);
+    }, []);
 
     const handleSave = async () => {
         setLoading(true);
-        const finalConfig = { ...config, is_paper_trading: activeTab === 'paper', userId };
+        const finalConfig = { ...config, is_paper_trading: activeTab === 'paper' };
         try {
             if (editingId) {
                 await axios.put(`${API_BASE_URL}/strategy/update/${editingId}`, finalConfig);
@@ -79,7 +77,7 @@ export const StrategyBuilder = ({ userId }) => {
             } else {
                 await axios.post(`${API_BASE_URL}/strategy/save`, finalConfig);
             }
-            fetchHistory();
+            fetchSavedStrategies();
         } catch (err) {
             alert("Error saving strategy: " + err.message);
         } finally {
@@ -98,7 +96,7 @@ export const StrategyBuilder = ({ userId }) => {
                 [newId]: statusRes.data.data
             }));
             fetchActive();
-            // We no longer call fetchHistory() here because execution doesn't create a new template
+            // We no longer call fetchSavedStrategies() here because execution doesn't create a new template
         } catch (err) {
             alert("Error executing strategy: " + err.message);
         }
@@ -147,7 +145,7 @@ export const StrategyBuilder = ({ userId }) => {
         if (!confirm("Delete this strategy?")) return;
         try {
             await axios.delete(`${API_BASE_URL}/strategy/delete/${strategyIdToDelete}`);
-            fetchHistory();
+            fetchSavedStrategies();
         } catch (err) {
             alert("Error deleting strategy: " + err.message);
         }
@@ -563,63 +561,138 @@ export const StrategyBuilder = ({ userId }) => {
                                                 )}
 
                                                 {leg.recost_enabled && (
-                                                    <div className="pt-2 animate-in slide-in-from-top-2">
-                                                        <div className="flex items-center gap-2 mb-4">
-                                                            <input
-                                                                type="checkbox"
-                                                                id={`reentry-sl-${legIndex}`}
-                                                                className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
-                                                                checked={leg.reentry_sl_enabled || false}
-                                                                onChange={(e) => {
-                                                                    const next = [...config.legs];
-                                                                    next[legIndex] = { ...next[legIndex], reentry_sl_enabled: e.target.checked };
-                                                                    setConfig({ ...config, legs: next });
-                                                                }}
-                                                            />
-                                                            <Label htmlFor={`reentry-sl-${legIndex}`} className="text-xs font-bold tracking-wide text-foreground cursor-pointer">
-                                                                Override Stop Loss on Re-Entry
-                                                            </Label>
+                                                    <div className="pt-2 animate-in slide-in-from-top-2 space-y-4">
+                                                        <div>
+                                                            <div className="flex items-center gap-2 mb-4">
+                                                                <input
+                                                                    type="checkbox"
+                                                                    id={`reentry-mntm-${legIndex}`}
+                                                                    className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                                                    checked={leg.recost_mntm_enabled || false}
+                                                                    onChange={(e) => {
+                                                                        const next = [...config.legs];
+                                                                        next[legIndex] = {
+                                                                            ...next[legIndex],
+                                                                            recost_mntm_enabled: e.target.checked,
+                                                                            recost_mntm_mode: leg.recost_mntm_mode || 'RECOST_PLUS_PCT',
+                                                                            recost_mntm_value: leg.recost_mntm_value || 0
+                                                                        };
+                                                                        setConfig({ ...config, legs: next });
+                                                                    }}
+                                                                />
+                                                                <Label htmlFor={`reentry-mntm-${legIndex}`} className="text-xs font-bold tracking-wide text-foreground cursor-pointer">
+                                                                    Re Entry Mntm
+                                                                </Label>
+                                                            </div>
+
+                                                            {leg.recost_mntm_enabled && (
+                                                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pl-6 mb-4 animate-in slide-in-from-top-2 border-l-2 border-primary/20">
+                                                                    <div className="space-y-2">
+                                                                        <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Mntm Mode</Label>
+                                                                        <Select
+                                                                            value={leg.recost_mntm_mode || 'RECOST_PLUS_PCT'}
+                                                                            onValueChange={(v) => {
+                                                                                const next = [...config.legs];
+                                                                                next[legIndex] = { ...next[legIndex], recost_mntm_mode: v };
+                                                                                setConfig({ ...config, legs: next });
+                                                                            }}
+                                                                        >
+                                                                            <SelectTrigger className="h-11 rounded-xl">
+                                                                                <SelectValue placeholder="Mode" />
+                                                                            </SelectTrigger>
+                                                                            <SelectContent>
+                                                                                <SelectItem value="RECOST_PLUS_PCT">RTP + %</SelectItem>
+                                                                                <SelectItem value="RECOST_PLUS_PTS">RTP + Pts</SelectItem>
+                                                                                <SelectItem value="RECOST_MINUS_PCT">RTP - %</SelectItem>
+                                                                                <SelectItem value="RECOST_MINUS_PTS">RTP - Pts</SelectItem>
+                                                                            </SelectContent>
+                                                                        </Select>
+                                                                    </div>
+                                                                    <div className="space-y-2">
+                                                                        <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                                                                            Value {leg.recost_mntm_mode && leg.recost_mntm_mode.includes('PCT') ? '(%)' : '(Pts)'}
+                                                                        </Label>
+                                                                        <Input
+                                                                            className="h-11 rounded-xl"
+                                                                            type="text"
+                                                                            value={leg.recost_mntm_value === undefined ? '' : leg.recost_mntm_value}
+                                                                            onChange={(e) => {
+                                                                                const val = e.target.value;
+                                                                                if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                                                                                    const next = [...config.legs];
+                                                                                    next[legIndex] = { ...next[legIndex], recost_mntm_value: val };
+                                                                                    setConfig({ ...config, legs: next });
+                                                                                }
+                                                                            }}
+                                                                            onBlur={(e) => {
+                                                                                const next = [...config.legs];
+                                                                                next[legIndex] = { ...next[legIndex], recost_mntm_value: parseFloat(e.target.value) || 0 };
+                                                                                setConfig({ ...config, legs: next });
+                                                                            }}
+                                                                        />
+                                                                    </div>
+                                                                </div>
+                                                            )}
                                                         </div>
 
-                                                        {leg.reentry_sl_enabled && (
-                                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pl-6 animate-in slide-in-from-top-2 border-l-2 border-primary/20">
-                                                                <div className="space-y-2">
-                                                                    <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">New SL Type</Label>
-                                                                    <Select
-                                                                        value={leg.reentry_sl_type || 'PERCENTAGE'}
-                                                                        onValueChange={(v) => {
-                                                                            const next = [...config.legs];
-                                                                            next[legIndex] = { ...next[legIndex], reentry_sl_type: v };
-                                                                            setConfig({ ...config, legs: next });
-                                                                        }}
-                                                                    >
-                                                                        <SelectTrigger className="h-11 rounded-xl">
-                                                                            <SelectValue placeholder="SL Type" />
-                                                                        </SelectTrigger>
-                                                                        <SelectContent>
-                                                                            <SelectItem value="PERCENTAGE">Percentage (%)</SelectItem>
-                                                                            <SelectItem value="POINTS">Points (Pts)</SelectItem>
-                                                                        </SelectContent>
-                                                                    </Select>
-                                                                </div>
-
-                                                                <div className="space-y-2">
-                                                                    <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
-                                                                        New SL Value {leg.reentry_sl_type === 'POINTS' ? '(Pts)' : '(%)'}
-                                                                    </Label>
-                                                                    <Input
-                                                                        className="h-11 rounded-xl"
-                                                                        type="number"
-                                                                        value={leg.reentry_sl_value !== undefined ? leg.reentry_sl_value : (leg.stop_loss || 0)}
-                                                                        onChange={(e) => {
-                                                                            const next = [...config.legs];
-                                                                            next[legIndex] = { ...next[legIndex], reentry_sl_value: parseFloat(e.target.value) };
-                                                                            setConfig({ ...config, legs: next });
-                                                                        }}
-                                                                    />
-                                                                </div>
+                                                        <div>
+                                                            <div className="flex items-center gap-2 mb-4">
+                                                                <input
+                                                                    type="checkbox"
+                                                                    id={`reentry-sl-${legIndex}`}
+                                                                    className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                                                    checked={leg.reentry_sl_enabled || false}
+                                                                    onChange={(e) => {
+                                                                        const next = [...config.legs];
+                                                                        next[legIndex] = { ...next[legIndex], reentry_sl_enabled: e.target.checked };
+                                                                        setConfig({ ...config, legs: next });
+                                                                    }}
+                                                                />
+                                                                <Label htmlFor={`reentry-sl-${legIndex}`} className="text-xs font-bold tracking-wide text-foreground cursor-pointer">
+                                                                    Override Stop Loss on Re-Entry
+                                                                </Label>
                                                             </div>
-                                                        )}
+
+                                                            {leg.reentry_sl_enabled && (
+                                                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pl-6 animate-in slide-in-from-top-2 border-l-2 border-primary/20">
+                                                                    <div className="space-y-2">
+                                                                        <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">New SL Type</Label>
+                                                                        <Select
+                                                                            value={leg.reentry_sl_type || 'PERCENTAGE'}
+                                                                            onValueChange={(v) => {
+                                                                                const next = [...config.legs];
+                                                                                next[legIndex] = { ...next[legIndex], reentry_sl_type: v };
+                                                                                setConfig({ ...config, legs: next });
+                                                                            }}
+                                                                        >
+                                                                            <SelectTrigger className="h-11 rounded-xl">
+                                                                                <SelectValue placeholder="SL Type" />
+                                                                            </SelectTrigger>
+                                                                            <SelectContent>
+                                                                                <SelectItem value="PERCENTAGE">Percentage (%)</SelectItem>
+                                                                                <SelectItem value="POINTS">Points (Pts)</SelectItem>
+                                                                            </SelectContent>
+                                                                        </Select>
+                                                                    </div>
+
+                                                                    <div className="space-y-2">
+                                                                        <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+                                                                            New SL Value {leg.reentry_sl_type === 'POINTS' ? '(Pts)' : '(%)'}
+                                                                        </Label>
+                                                                        <Input
+                                                                            className="h-11 rounded-xl"
+                                                                            type="number"
+                                                                            value={leg.reentry_sl_value !== undefined ? leg.reentry_sl_value : (leg.stop_loss || 0)}
+                                                                            onChange={(e) => {
+                                                                                const next = [...config.legs];
+                                                                                next[legIndex] = { ...next[legIndex], reentry_sl_value: parseFloat(e.target.value) };
+                                                                                setConfig({ ...config, legs: next });
+                                                                            }}
+                                                                        />
+                                                                    </div>
+                                                                </div>
+                                                            )}
+                                                        </div>
                                                     </div>
                                                 )}
                                             </div>
@@ -888,6 +961,12 @@ export const StrategyBuilder = ({ userId }) => {
                                                                         <span>Entry: {(l.entryPrice || 0).toFixed(2)}</span>
                                                                         <span>|</span>
                                                                         <span className="animate-pulse text-blue-600">LTP: {(l.currentLtp || 0).toFixed(2)}</span>
+                                                                        {l.slTriggerPrice != null && (
+                                                                            <>
+                                                                                <span>|</span>
+                                                                                <span className="text-red-500 font-bold">SL: {l.slTriggerPrice.toFixed(2)}</span>
+                                                                            </>
+                                                                        )}
                                                                         {l.state === "WAITING_FOR_RECOST" && (
                                                                             <span className="px-2 py-0.5 ml-2 bg-yellow-100 text-yellow-700 font-bold rounded">Waiting Re-Entry</span>
                                                                         )}
@@ -927,8 +1006,16 @@ export const StrategyBuilder = ({ userId }) => {
                                                             <div key={idx} className="flex items-center justify-between p-3 bg-muted/50 border border-border/50 rounded-xl opacity-80">
                                                                 <div className="flex flex-col">
                                                                     <span className="text-sm font-bold line-through text-muted-foreground">{l.instrument?.symbol || "---"} ({l.leg?.side})</span>
-                                                                    <div className="flex items-center gap-2 mt-1 text-xs font-mono text-muted-foreground">
+                                                                    <div className="flex items-center gap-2 mt-1 text-xs font-mono text-muted-foreground flex-wrap">
                                                                         <span>Entry: {(l.entryPrice || 0).toFixed(2)}</span>
+                                                                        {(l.exitType === 'SL_HIT' && l.exitSnapshot) && (
+                                                                            <>
+                                                                                <span>|</span>
+                                                                                <span className="text-red-400 font-bold">SL Set: {(l.exitSnapshot.slTriggerPrice || 0).toFixed(2)}</span>
+                                                                                <span>|</span>
+                                                                                <span className="text-orange-400 font-bold">SL Hit: {(l.exitSnapshot.exitLtp || 0).toFixed(2)}</span>
+                                                                            </>
+                                                                        )}
                                                                         <span>|</span>
                                                                         <span>Exit: {l.exitType || "---"}</span>
                                                                     </div>
@@ -959,7 +1046,7 @@ export const StrategyBuilder = ({ userId }) => {
                 }
 
                 {
-                    history.length > 0 && (
+                    savedStrategies.length > 0 && (
                         <Card className="w-full border-border bg-card mt-8">
                             <CardHeader className="border-b py-4 bg-muted/30">
                                 <CardTitle className="text-lg font-bold flex items-center gap-2">
@@ -979,7 +1066,7 @@ export const StrategyBuilder = ({ userId }) => {
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y border-t">
-                                            {history
+                                            {savedStrategies
                                                 .filter(s => (activeTab === 'paper' ? s.config?.is_paper_trading : !s.config?.is_paper_trading))
                                                 .map((s) => (
                                                     <tr key={s.id} className="hover:bg-muted/50 transition-colors">
