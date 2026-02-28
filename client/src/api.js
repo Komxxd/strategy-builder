@@ -28,6 +28,14 @@ export async function loginBackend() {
     return res.json();
 }
 
+export async function logoutBackend() {
+    const res = await fetch(`${API_BASE}/auth/logout`, {
+        method: "POST",
+        headers: getHeaders(),
+    });
+    return res.json();
+}
+
 export async function getLTP({ exchange, symboltoken, tradingsymbol, connectionId }) {
     const res = await fetch(`${API_BASE}/market/ltp`, {
         method: "POST",

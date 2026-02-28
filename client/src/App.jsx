@@ -6,8 +6,9 @@ import {
   AlertCircle, CheckCircle2, Search, LayoutDashboard, Box,
   ShoppingCart, Users, MessageSquare, Mail, Zap, BarChart2,
   Share2, Share, Bell, Folder, Tag, HelpCircle, MessageCircle,
-  Settings, Rocket, ChevronRight, Menu
+  Settings, Rocket, ChevronRight, Menu, LogOut, Loader2
 } from 'lucide-react';
+import { logoutBackend } from './api';
 import axios from 'axios';
 
 // Globally attach backend secret
@@ -17,6 +18,20 @@ function App() {
   const [isConnected, setIsConnected] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
+  const [logoutLoading, setLogoutLoading] = useState(false);
+
+  const handleLogout = async () => {
+    try {
+      setLogoutLoading(true);
+      await logoutBackend();
+      setIsConnected(false);
+      setSuccess("Successfully logged out and disconnected.");
+    } catch (err) {
+      setError("Failed to logout: " + err.message);
+    } finally {
+      setLogoutLoading(false);
+    }
+  };
 
   useEffect(() => {
     import('./api').then(({ initSocket }) => {
@@ -98,9 +113,21 @@ function App() {
 
           <div className="flex items-center gap-4">
             {isConnected && (
-              <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 bg-green-50 text-green-700 rounded-full text-xs font-bold border border-green-200">
-                <CheckCircle2 className="h-3.5 w-3.5" />
-                Angel One Connected
+              <div className="flex items-center gap-4">
+                <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 bg-green-50 text-green-700 rounded-full text-xs font-bold border border-green-200">
+                  <CheckCircle2 className="h-3.5 w-3.5" />
+                  Angel One Connected
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleLogout}
+                  disabled={logoutLoading}
+                  className="h-9 px-3 gap-2 border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700 active:bg-red-100 transition-colors font-semibold rounded-lg"
+                >
+                  {logoutLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <LogOut className="h-4 w-4" />}
+                  Disconnect
+                </Button>
               </div>
             )}
           </div>

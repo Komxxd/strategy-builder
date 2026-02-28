@@ -50,8 +50,9 @@ const RENDER_EXTERNAL_URL = process.env.RENDER_EXTERNAL_URL;
 if (RENDER_EXTERNAL_URL) {
     const https = require("https");
     setInterval(() => {
+        console.log(`[Keep-Alive] Sending self-ping to: ${RENDER_EXTERNAL_URL}/api/health`);
         https.get(`${RENDER_EXTERNAL_URL}/api/health`).on('error', (err) => {
-            console.error('Keep-alive ping failed:', err.message);
+            console.error('[Keep-Alive] Ping failed:', err.message);
         });
     }, 10 * 60 * 1000); // 10 minutes
     console.log(`Keep-alive interval started for ${RENDER_EXTERNAL_URL}`);

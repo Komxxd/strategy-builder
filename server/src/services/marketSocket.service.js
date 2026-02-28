@@ -59,8 +59,19 @@ function subscribeTokens({ exchangeType, tokens }) {
     socket.fetchData(request);
 }
 
+function disconnectMarketSocket() {
+    if (socket) {
+        if (socket.terminate) socket.terminate();
+        else if (socket.close) socket.close();
+        socket = null;
+        isConnected = false;
+        console.log("Market WebSocket disconnected.");
+    }
+}
+
 module.exports = {
     initMarketSocket,
     subscribeTokens,
-    setIo
+    setIo,
+    disconnectMarketSocket
 };

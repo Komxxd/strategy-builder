@@ -44,7 +44,14 @@ function getSession() {
     return sessionData;
 }
 
+function logout() {
+    sessionData = null;
+    marketSocketService.disconnectMarketSocket();
+    console.log("Logged out from SmartAPI");
+}
+
 module.exports = {
     login,
     getSession,
+    logout,
 };
