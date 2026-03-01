@@ -14,6 +14,7 @@ const validateStrategy = [
     (req, res, next) => {
         const errors = validationResult(req);
         if (!errors.isEmpty()) {
+            console.error("Validation failed for strategy operation:", JSON.stringify(errors.array(), null, 2));
             return res.status(400).json({ success: false, errors: errors.array() });
         }
         next();

@@ -1199,23 +1199,6 @@ async function executeStrategy(strategyId) {
                             }
                         }
 
-                        // Check if all legs have exited
-                        const allExited = strategy.legs.every(l => l.exited);
-                        if (allExited) {
-                            console.log(`[${new Date().toISOString()}] All legs exited for strategy ${strategyId}. Completing strategy.`);
-                            strategy.status = "COMPLETED";
-                            strategy.exitOrderId = strategy.legs.map(l => l.slOrderId || l.exitOrderId);
-                            strategy.exitType = "LEGS_COMPLETED";
-                            updateStrategyInMemory(strategyId, {
-                                status: "COMPLETED",
-                                exit_order_id: strategy.exitOrderId,
-                                exit_type: "LEGS_COMPLETED",
-                                final_pnl_percent: strategy.pnlPercent,
-                                totalPnlRupees: strategy.totalPnlRupees
-                            });
-                            clearInterval(interval);
-                            return;
-                        }
 
                         // Check Exit Time
                         if (currentTime >= config.exit_time) {
@@ -1264,6 +1247,24 @@ async function executeStrategy(strategyId) {
                             });
                             clearInterval(interval);
                         }
+                    }
+
+                    // Automatic Completion Check: If all legs have exited, finalize strategy
+                    const allExited = strategy.legs.every(l => l.exited);
+                    if (allExited) {
+                        console.log(`[${new Date().toISOString()}] All legs exited for strategy ${strategyId}. Completing strategy.`);
+                        strategy.status = "COMPLETED";
+                        strategy.exitOrderId = strategy.legs.map(l => l.slOrderId || l.exitOrderId);
+                        strategy.exitType = "LEGS_COMPLETED";
+                        updateStrategyInMemory(strategyId, {
+                            status: "COMPLETED",
+                            exit_order_id: strategy.exitOrderId,
+                            exit_type: "LEGS_COMPLETED",
+                            final_pnl_percent: strategy.pnlPercent,
+                            totalPnlRupees: strategy.totalPnlRupees
+                        });
+                        clearInterval(interval);
+                        return;
                     }
                 } catch (err) {
                     console.error("Monitoring/Exit failed", err);
@@ -1409,8 +1410,6 @@ async function squareOffLeg(strategyId, legIndex) {
 
     const { config } = strategy;
     console.log(`[${new Date().toISOString()}] Manual Square Off triggered for leg index ${legIndex} of strategy ${strategyId}`);
-
-    leg.isExiting = true;
 
     // Fast-path: If the leg is just waiting for Re-Cost, it holds no position. Just cancel the Recost.
     if (leg.state === "WAITING_FOR_RECOST") {

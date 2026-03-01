@@ -88,7 +88,13 @@ export const StrategyBuilder = () => {
             }
             fetchSavedStrategies();
         } catch (err) {
-            alert("Error saving strategy: " + err.message);
+            const validationErrors = err.response?.data?.errors;
+            if (validationErrors && Array.isArray(validationErrors)) {
+                const errorMsg = validationErrors.map(e => `${e.path}: ${e.msg}`).join('\n');
+                alert("Validation Error:\n" + errorMsg);
+            } else {
+                alert("Error saving strategy: " + (err.response?.data?.message || err.message));
+            }
         } finally {
             setLoading(false);
         }
