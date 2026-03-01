@@ -58,6 +58,23 @@ if (RENDER_EXTERNAL_URL) {
     console.log(`Keep-alive interval started for ${RENDER_EXTERNAL_URL}`);
 }
 
-server.listen(PORT, () => {
+const strategyService = require("./services/strategy.service");
+const authService = require("./services/auth.service");
+
+server.listen(PORT, async () => {
     console.log(`Server running on port ${PORT}`);
+
+    // Auto-login to Angel One if credentials exist (Critical for background strategies on server restart)
+    if (process.env.SMARTAPI_CLIENT_ID && process.env.SMARTAPI_TOTP_SECRET) {
+        try {
+            console.log("Attempting auto-login to Angel One...");
+            await authService.login();
+            console.log("Auto-login successful on startup");
+        } catch (err) {
+            console.error("Auto-login failed on startup:", err.message);
+        }
+    }
+
+    // Restore and resume active strategies from DB
+    strategyService.initializeActiveStrategies();
 });

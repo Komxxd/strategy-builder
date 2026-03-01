@@ -59,6 +59,19 @@ function getATMStrike(indexName, spotPrice) {
     return Math.round(spotPrice / step) * step;
 }
 
+/**
+ * Gets current time in IST (Asia/Kolkata) as HH:mm:ss
+ */
+function getISTTime() {
+    return new Intl.DateTimeFormat('en-GB', {
+        timeZone: 'Asia/Kolkata',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false
+    }).format(new Date());
+}
+
 function findOptionInstrument(indexName, optionType, strike) {
     loadInstruments();
 
@@ -665,9 +678,11 @@ async function executeStrategy(strategyId) {
         if (strategy.isProcessing) return;
         strategy.isProcessing = true;
 
+        // Counter for regular DB persistence (every 30 seconds)
+        strategy.persistenceTicks = (strategy.persistenceTicks || 0) + 1;
+
         try {
-            const now = new Date();
-            const currentTime = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}`;
+            const currentTime = getISTTime();
 
             if (strategy.status === "WAITING" && currentTime >= config.entry_time) {
                 if (strategy.entryAttempted) {
@@ -1266,8 +1281,17 @@ async function executeStrategy(strategyId) {
                         clearInterval(interval);
                         return;
                     }
+                    // Periodic persistence to DB (every 30 seconds)
+                    if (strategy.status === "IN_POSITION" && strategy.persistenceTicks >= 30) {
+                        strategy.persistenceTicks = 0;
+                        updateStrategyInMemory(strategyId, {
+                            currentActivePnlPercent: strategy.pnlPercent,
+                            totalPnlRupees: strategy.totalPnlRupees,
+                            legs: strategy.legs
+                        });
+                    }
                 } catch (err) {
-                    console.error("Monitoring/Exit failed", err);
+                    console.error(`[${strategyId}] Monitoring/Exit failed:`, err.message);
                 }
             }
         } catch (intervalErr) {
@@ -1496,6 +1520,46 @@ async function getStatus(strategyId) {
     };
 }
 
+async function initializeActiveStrategies() {
+    console.log("Strategy Service: Initializing active strategies from DB...");
+    try {
+        const activeExecutions = await prisma.strategy_executions.findMany({
+            where: {
+                status: {
+                    in: ["WAITING", "IN_POSITION"]
+                }
+            },
+            include: {
+                strategy: true
+            }
+        });
+
+        console.log(`Strategy Service: Found ${activeExecutions.length} active executions to restore`);
+
+        for (const exec of activeExecutions) {
+            if (!exec.strategy) continue;
+
+            // Use the config from the template
+            const runtimeStrategy = {
+                id: exec.id,
+                config: exec.strategy.config,
+                status: exec.status,
+                entryAttempted: exec.status === "IN_POSITION",
+                startTime: exec.started_at,
+                legs: (exec.execution_details && typeof exec.execution_details === 'object' && exec.execution_details.legs) ? exec.execution_details.legs : [],
+                pnlPercent: Number(exec.final_pnl_percent || 0),
+                totalPnlRupees: Number(exec.total_pnl_rupees || 0)
+            };
+
+            activeStrategies.set(exec.id, runtimeStrategy);
+            executeStrategy(exec.id);
+            console.log(`Strategy Service: Restored strategy ${exec.id} (${exec.strategy.name}) in state ${exec.status}`);
+        }
+    } catch (err) {
+        console.error("Strategy Service: Error initializing active strategies:", err.message);
+    }
+}
+
 async function getUserStrategies() {
     const data = await prisma.strategies.findMany({
         orderBy: { created_at: 'desc' }
@@ -1546,5 +1610,6 @@ module.exports = {
     getStatus,
     getUserStrategies,
     getActiveStrategies,
-    getExecutionHistory
+    getExecutionHistory,
+    initializeActiveStrategies
 };
