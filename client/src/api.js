@@ -1,12 +1,16 @@
 import { io } from "socket.io-client";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:5001/api";
-const API_KEY = import.meta.env.VITE_API_KEY || "my-super-secret-local-api-key-123";
 
-const getHeaders = () => ({
-    "Content-Type": "application/json",
-    "x-api-key": API_KEY
-});
+// Tier 1 - Rule 1: No secrets in VITE_ env.
+// We now retrieve the API Key from sessionStorage after a successful PasswordLock verification.
+const getHeaders = () => {
+    const sessionKey = sessionStorage.getItem('app_api_key');
+    return {
+        "Content-Type": "application/json",
+        "x-api-key": sessionKey || ""
+    };
+};
 
 let socket = null;
 
@@ -18,6 +22,16 @@ export function initSocket() {
         socket = io(socketUrl);
     }
     return socket;
+}
+
+// Phase 2: Password-to-Token Bridge
+export async function verifyPassword(password) {
+    const res = await fetch(`${API_BASE}/auth/verify`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password }),
+    });
+    return res.json();
 }
 
 export async function loginBackend() {

@@ -1,8 +1,26 @@
 const express = require("express");
 const router = express.Router();
+const { body, validationResult } = require("express-validator");
 const strategyService = require("../services/strategy.service");
 
-router.post("/save", async (req, res) => {
+// Tier 2 - Rule 8: Basic input validation
+const validateStrategy = [
+    body("name").trim().notEmpty().withMessage("Strategy name is required").isLength({ max: 100 }),
+    body("index").isIn(["NIFTY", "BANKNIFTY", "FINNIFTY", "SENSEX"]).withMessage("Invalid index selection"),
+    body("legs").isArray({ min: 1 }).withMessage("At least one leg is required"),
+    body("legs.*.option_type").isIn(["CE", "PE"]).withMessage("Invalid option type"),
+    body("legs.*.side").isIn(["BUY", "SELL"]).withMessage("Invalid side"),
+    body("legs.*.lots").isInt({ min: 1 }).withMessage("Lots must be a positive integer"),
+    (req, res, next) => {
+        const errors = validationResult(req);
+        if (!errors.isEmpty()) {
+            return res.status(400).json({ success: false, errors: errors.array() });
+        }
+        next();
+    }
+];
+
+router.post("/save", validateStrategy, async (req, res) => {
     try {
         const strategy = await strategyService.saveStrategy(req.body);
         res.json({ success: true, strategy });
@@ -12,7 +30,7 @@ router.post("/save", async (req, res) => {
     }
 });
 
-router.put("/update/:id", async (req, res) => {
+router.put("/update/:id", validateStrategy, async (req, res) => {
     try {
         const strategy = await strategyService.updateStrategy(req.params.id, req.body);
         res.json({ success: true, data: strategy });
@@ -20,6 +38,7 @@ router.put("/update/:id", async (req, res) => {
         res.status(500).json({ success: false, message: error.message || "Failed to update strategy" });
     }
 });
+
 
 router.delete("/delete/:id", async (req, res) => {
     try {

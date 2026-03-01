@@ -2,11 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { StrategyBuilder } from './components/StrategyBuilder';
 import { BrokerConnect } from './components/BrokerConnect';
+import { PasswordLock } from './components/PasswordLock';
 import {
   AlertCircle, CheckCircle2, Search, LayoutDashboard, Box,
   ShoppingCart, Users, MessageSquare, Mail, Zap, BarChart2,
   Share2, Share, Bell, Folder, Tag, HelpCircle, MessageCircle,
-  Settings, Rocket, ChevronRight, Menu, LogOut, Loader2
+  Settings, Rocket, ChevronRight, Menu, LogOut, Loader2, Lock
 } from 'lucide-react';
 import { logoutBackend } from './api';
 import axios from 'axios';
@@ -15,10 +16,19 @@ import axios from 'axios';
 axios.defaults.headers.common['x-api-key'] = import.meta.env.VITE_API_KEY || "my-super-secret-local-api-key-123";
 
 function App() {
+  const [isAuthenticated, setIsAuthenticated] = useState(() => {
+    return sessionStorage.getItem('app_authenticated') === 'true';
+  });
   const [isConnected, setIsConnected] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
   const [logoutLoading, setLogoutLoading] = useState(false);
+
+  const handleAuthenticated = () => {
+    setIsAuthenticated(true);
+    sessionStorage.setItem('app_authenticated', 'true');
+    setSuccess("Access unlocked! Welcome back.");
+  };
 
   const handleLogout = async () => {
     try {
@@ -31,6 +41,12 @@ function App() {
     } finally {
       setLogoutLoading(false);
     }
+  };
+
+  const handleLock = () => {
+    setIsAuthenticated(false);
+    sessionStorage.removeItem('app_authenticated');
+    setSuccess("Application locked safely.");
   };
 
   useEffect(() => {
@@ -62,13 +78,23 @@ function App() {
     </button>
   );
 
+  if (!isAuthenticated) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-[#fcfcfc] text-foreground font-sans w-full">
+        <PasswordLock onAuthenticated={handleAuthenticated} />
+      </div>
+    );
+  }
+
   if (!isConnected) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-[#fcfcfc] text-foreground font-sans w-full">
-        <BrokerConnect onConnected={() => {
-          setIsConnected(true);
-          setSuccess("Successfully connected to the live market!");
-        }} />
+        <div className="w-full max-w-md">
+          <BrokerConnect onConnected={() => {
+            setIsConnected(true);
+            setSuccess("Successfully connected to the live market!");
+          }} />
+        </div>
       </div>
     );
   }
@@ -97,6 +123,17 @@ function App() {
           </div>
 
         </div>
+
+        <div className="p-4 border-t">
+          <Button
+            variant="ghost"
+            className="w-full justify-start gap-3 text-muted-foreground hover:text-foreground hover:bg-red-50 hover:text-red-600 transition-all rounded-xl"
+            onClick={handleLock}
+          >
+            <Lock className="h-4 w-4" />
+            <span>Lock Workspace</span>
+          </Button>
+        </div>
       </aside>
 
       {/* Main Container */}
@@ -118,6 +155,9 @@ function App() {
                   <CheckCircle2 className="h-3.5 w-3.5" />
                   Angel One Connected
                 </div>
+
+                <div className="h-8 w-[1px] bg-gray-100 hidden sm:block"></div>
+
                 <Button
                   variant="outline"
                   size="sm"
@@ -165,3 +205,4 @@ function App() {
 }
 
 export default App;
+
