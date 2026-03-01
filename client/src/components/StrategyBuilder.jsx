@@ -10,6 +10,15 @@ import axios from 'axios';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:5001/api";
 
+// Tier 1 - Rule 1 & Phase 2: Interceptor to ensuring session key is always sent
+axios.interceptors.request.use((config) => {
+    const sessionKey = sessionStorage.getItem('app_api_key');
+    if (sessionKey && !config.headers['x-api-key']) {
+        config.headers['x-api-key'] = sessionKey;
+    }
+    return config;
+});
+
 export const StrategyBuilder = () => {
     const [loading, setLoading] = useState(false);
     const [runningStrategies, setRunningStrategies] = useState({}); // { id: data }

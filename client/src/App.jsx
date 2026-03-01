@@ -12,8 +12,8 @@ import {
 import { logoutBackend } from './api';
 import axios from 'axios';
 
-// Globally attach backend secret
-axios.defaults.headers.common['x-api-key'] = import.meta.env.VITE_API_KEY || "my-super-secret-local-api-key-123";
+// Globally attach backend secret if already in session
+axios.defaults.headers.common['x-api-key'] = sessionStorage.getItem('app_api_key') || "";
 
 function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(() => {
@@ -25,6 +25,10 @@ function App() {
   const [logoutLoading, setLogoutLoading] = useState(false);
 
   const handleAuthenticated = () => {
+    // Phase 2: Sync new key to axios
+    const newKey = sessionStorage.getItem('app_api_key');
+    axios.defaults.headers.common['x-api-key'] = newKey;
+
     setIsAuthenticated(true);
     sessionStorage.setItem('app_authenticated', 'true');
     setSuccess("Access unlocked! Welcome back.");
@@ -46,8 +50,17 @@ function App() {
   const handleLock = () => {
     setIsAuthenticated(false);
     sessionStorage.removeItem('app_authenticated');
+    sessionStorage.removeItem('app_api_key'); // Also wipe the sensitive key on lock
+    axios.defaults.headers.common['x-api-key'] = "";
     setSuccess("Application locked safely.");
   };
+
+  useEffect(() => {
+    // Ensure axios remains synced if someone refreshes while authenticated
+    if (isAuthenticated) {
+      axios.defaults.headers.common['x-api-key'] = sessionStorage.getItem('app_api_key');
+    }
+  }, [isAuthenticated]);
 
   useEffect(() => {
     import('./api').then(({ initSocket }) => {
