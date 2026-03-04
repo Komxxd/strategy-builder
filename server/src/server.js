@@ -37,12 +37,17 @@ io.on("connection", (socket) => {
     });
 });
 
-// Auto-download instruments if they don't exist
+// Auto-download instruments if they don't exist or are older than 24 hours
 const INSTRUMENT_PATH = path.join(__dirname, "./data/instruments.json");
-if (!fs.existsSync(INSTRUMENT_PATH)) {
-    console.log("Instruments file not found. Downloading...");
+const shouldDownload = !fs.existsSync(INSTRUMENT_PATH) || (Date.now() - fs.statSync(INSTRUMENT_PATH).mtimeMs > 24 * 60 * 60 * 1000);
+
+if (shouldDownload) {
+    console.log("Instruments file stale or missing. Downloading...");
     downloadInstruments()
-        .then(() => console.log("Instruments downloaded successfully"))
+        .then(() => {
+            console.log("Instruments downloaded successfully");
+            // Clear strategy service cache if needed (it reloads via loadInstruments() check)
+        })
         .catch(err => console.error("Error downloading instruments:", err));
 }
 

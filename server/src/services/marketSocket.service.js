@@ -34,29 +34,7 @@ function initMarketSocket({ jwtToken, feedToken, clientCode, apiKey }) {
         console.error("Market WebSocket connection error:", err);
     });
 
-    socket.on("tick", (data) => {
-        if (io) {
-            io.emit("tick", data);
-        }
-    });
-
     return socket;
-}
-
-function subscribeTokens({ exchangeType, tokens }) {
-    if (!socket || !isConnected) {
-        throw new Error("Socket not connected");
-    }
-
-    const request = {
-        correlationID: "live_price",
-        action: 1,        // subscribe
-        mode: 1,          // LTP
-        exchangeType,
-        tokens,
-    };
-
-    socket.fetchData(request);
 }
 
 function disconnectMarketSocket() {
@@ -71,7 +49,6 @@ function disconnectMarketSocket() {
 
 module.exports = {
     initMarketSocket,
-    subscribeTokens,
     setIo,
     disconnectMarketSocket
 };

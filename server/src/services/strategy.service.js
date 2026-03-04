@@ -7,7 +7,65 @@ const path = require("path");
 const INSTRUMENT_PATH = path.join(__dirname, "../data/instruments.json");
 let instruments = [];
 let activeStrategies = new Map();
-// Local memory map 'savedStrategies' is removed in favor of Supabase
+let globalLtpMap = {};
+
+let isFetchingGlobalLtp = false;
+
+/**
+ * Singleton background fetcher that aggregates all tokens from all active strategies
+ * and fetches their LTP in chunks of 40 to stay within SmartAPI batch limits.
+ */
+async function runGlobalPriceFetcher() {
+    if (isFetchingGlobalLtp || activeStrategies.size === 0) return;
+    isFetchingGlobalLtp = true;
+
+    try {
+        const tasks = {}; // { connectionId: { exchange: Set(tokens) } }
+
+        for (const [id, strategy] of activeStrategies) {
+            if (strategy.status !== "IN_POSITION" || !strategy.legs) continue;
+            const connId = strategy.config.connectionId;
+            if (!tasks[connId]) tasks[connId] = {};
+
+            for (const leg of strategy.legs) {
+                if (leg.exited && leg.state !== "WAITING_FOR_RECOST") continue;
+                const exch = leg.instrument.exch_seg;
+                const token = leg.instrument.token;
+                if (!tasks[connId][exch]) tasks[connId][exch] = new Set();
+                tasks[connId][exch].add(token);
+            }
+        }
+
+        for (const [connId, exchanges] of Object.entries(tasks)) {
+            for (const [exch, tokensSet] of Object.entries(exchanges)) {
+                const allTokens = Array.from(tokensSet);
+                for (let i = 0; i < allTokens.length; i += 40) {
+                    const chunk = allTokens.slice(i, i + 40);
+                    try {
+                        const ltpRes = await marketService.getLTP({
+                            exchange: exch,
+                            symboltoken: chunk,
+                            connectionId: connId
+                        });
+                        if (ltpRes?.status && ltpRes?.data?.fetched) {
+                            for (const item of ltpRes.data.fetched) {
+                                const t = item.symbolToken || item.symboltoken;
+                                globalLtpMap[`${exch}_${t}`] = item.ltp;
+                            }
+                        }
+                    } catch (err) {
+                        // Silently fail or log occasionally
+                    }
+                }
+            }
+        }
+    } finally {
+        isFetchingGlobalLtp = false;
+    }
+}
+
+// Start price fetcher heartbeat once globally
+setInterval(runGlobalPriceFetcher, 1000);
 
 function loadInstruments() {
     if (instruments.length > 0) return;
@@ -252,8 +310,8 @@ function computeStopLossExitPrices(entryPrice, side, slType, slValue, limitMargi
 
 async function waitForOrderFillPrice(uniqueOrderId, connectionId, isPaperTrading = false, instrument = null, timeoutMs = 60000, pollMs = 2000, paperConfig = null) {
     if (isPaperTrading) {
-        if (!paperConfig) {
-            // Un-tracked Legacy Market Order Mode (Instantly return LTP)
+        // If no specifically monitored target price is provided, fill instantly at LTP (Standard Entry)
+        if (!paperConfig || paperConfig.ordertype === "MARKET") {
             try {
                 if (instrument) {
                     const ltpRes = await marketService.getLTP({
@@ -262,7 +320,9 @@ async function waitForOrderFillPrice(uniqueOrderId, connectionId, isPaperTrading
                         connectionId: connectionId
                     });
                     if (ltpRes.status && ltpRes.data?.fetched?.[0]) {
-                        return ltpRes.data.fetched[0].ltp;
+                        const ltp = ltpRes.data.fetched[0].ltp;
+                        console.log(`[PAPER_FILL] Instant Market Fill for ${instrument.symbol} at ${ltp}`);
+                        return ltp;
                     }
                 }
             } catch (err) {
@@ -271,9 +331,11 @@ async function waitForOrderFillPrice(uniqueOrderId, connectionId, isPaperTrading
             return null;
         }
 
-        // Advanced Mode: Dynamically monitor Limit / Stoploss conditions against LIVE ltp ticks every poll interval
+        // Advanced Mode: Monitor for Limit / Stoploss crossing (Used for Re-cost RTP and Momentum MTP)
         const start = Date.now();
-        console.log(`[PAPER_SIMULATOR] Engaging Background Target Monitoring for ${paperConfig.ordertype} on ${instrument?.symbol} against Target: ${paperConfig.ordertype === 'LIMIT' ? paperConfig.price : paperConfig.triggerprice}`);
+        const effectiveTarget = (paperConfig.triggerprice > 0) ? paperConfig.triggerprice : paperConfig.price;
+        const targetDesc = (paperConfig.triggerprice > 0) ? `Target Trigger (MTP/RTP): ${effectiveTarget}` : `Target Price: ${effectiveTarget}`;
+        console.log(`[PAPER_SIMULATOR] Monitoring ${instrument?.symbol} ${paperConfig.ordertype} ${paperConfig.side} specifically reaching ${targetDesc}`);
 
         while (Date.now() - start < timeoutMs) {
             try {
@@ -288,27 +350,24 @@ async function waitForOrderFillPrice(uniqueOrderId, connectionId, isPaperTrading
                         const ltp = ltpRes.data.fetched[0].ltp;
                         const { side, ordertype, price, triggerprice } = paperConfig;
 
+                        // Determine the primary target price we are waiting for (MTP, RTP, or Limit Price)
+                        const target = (triggerprice > 0) ? triggerprice : price;
+
                         if (ordertype === "LIMIT") {
-                            // BUY LIMIT executes only when LTP falls to or below limit
-                            if (side === "BUY" && ltp <= price) return price;
-                            // SELL LIMIT executes only when LTP climbs to or above limit
-                            if (side === "SELL" && ltp >= price) return price;
+                            // BUY LIMIT executes only when LTP falls to or below target
+                            if (side === "BUY" && ltp <= target) return target;
+                            // SELL LIMIT executes only when LTP climbs to or above target
+                            if (side === "SELL" && ltp >= target) return target;
                         }
                         else if (ordertype === "STOPLOSS_LIMIT" || ordertype === "STOPLOSS") {
-                            // BUY SL executes only when LTP climbs to or above trigger
-                            if (side === "BUY" && ltp >= triggerprice) return triggerprice;
-                            // SELL SL executes only when LTP falls to or below trigger
-                            if (side === "SELL" && ltp <= triggerprice) return triggerprice;
-                        }
-                        else {
-                            // Regular MARKET executes instantly
-                            return ltp;
+                            // Momentum BUY (BUY above current)
+                            if (side === "BUY" && ltp >= target) return target;
+                            // Momentum SELL (SELL below current)
+                            if (side === "SELL" && ltp <= target) return target;
                         }
                     }
                 }
-            } catch (err) {
-                // Silently loop
-            }
+            } catch (err) { /* Silently retry next poll */ }
             await new Promise(r => setTimeout(r, pollMs));
         }
         return null;
@@ -432,6 +491,7 @@ async function placeExitOrder({ config, leg, instrument, exitType }) {
     leg.exited = true;
     leg.exitOrderId = orderData.orderid;
     leg.exitType = exitType;
+    leg.exitTime = getISTTime();
     return orderData.orderid;
 }
 
@@ -469,8 +529,10 @@ async function handleLegStopOut(leg, exitType, strategy) {
     // Capture the exact trigger and execution price at the very millisecond of stop-out for the UI history
     leg.exitSnapshot = {
         slTriggerPrice: leg.slTriggerPrice,
-        exitLtp: leg.currentLtp
+        exitLtp: leg.currentLtp,
+        exitTime: getISTTime()
     };
+    leg.exitTime = getISTTime();
 
     // Wipe exchange fields to ensure clean exit visualization
     leg.slOrderId = null;
@@ -480,7 +542,7 @@ async function handleLegStopOut(leg, exitType, strategy) {
     leg.exchangeSlProcessed = true;
 
     if (leg.leg.recost_enabled && (leg.reentry_count < (leg.leg.max_reentry || 1))) {
-        const otp = leg.original_traded_price;
+        const otp = leg.base_otp || leg.original_traded_price;
         const mode = leg.leg.recost_mode || "RECOST_PLUS_PCT";
         const val = leg.leg.recost_value || 0;
         let rtp = otp;
@@ -504,6 +566,7 @@ async function handleLegStopOut(leg, exitType, strategy) {
                 uniqueOrderId: null,
                 exitOrderId: null,
                 state: "WAITING_FOR_MNTM",
+                legIndex: leg.legIndex,
                 exited: false,
                 exitType: null,
                 isExiting: false,
@@ -511,7 +574,8 @@ async function handleLegStopOut(leg, exitType, strategy) {
                 currentLtp: currentLtp,
                 last_tick_price: currentLtp,
                 reentry_count: leg.reentry_count, // Note: We increment this once the cross happens
-                original_traded_price: otp,
+                original_traded_price: 0,
+                base_otp: otp,
                 recost_trigger_price: newRtp,
                 bookedPnlPoints: 0,
                 bookedPnlRupees: 0,
@@ -525,6 +589,8 @@ async function handleLegStopOut(leg, exitType, strategy) {
                 slUniqueOrderId: null,
                 slTriggerPrice: null,
                 slLimitPrice: null,
+                rtp: newRtp,
+                mtp: null,
                 exchangeSlProcessed: false
             };
             strategy.legs.push(newLeg);
@@ -566,6 +632,7 @@ async function handleLegStopOut(leg, exitType, strategy) {
             orderId: null,
             uniqueOrderId: null,
             exitOrderId: null,
+            legIndex: leg.legIndex,
             state: "ACTIVE", // Start instantly bypassing WAITING_FOR_RECOST
             exited: false,
             exitType: null,
@@ -574,7 +641,8 @@ async function handleLegStopOut(leg, exitType, strategy) {
             currentLtp: currentLtp,
             last_tick_price: currentLtp,
             reentry_count: leg.reentry_count + 1,
-            original_traded_price: otp,
+            original_traded_price: 0,
+            base_otp: otp,
             recost_trigger_price: newRtp,
             bookedPnlPoints: 0,
             bookedPnlRupees: 0,
@@ -588,6 +656,8 @@ async function handleLegStopOut(leg, exitType, strategy) {
             slUniqueOrderId: null,
             slTriggerPrice: null,
             slLimitPrice: null,
+            rtp: newRtp,
+            mtp: null,
             exchangeSlProcessed: false
         };
 
@@ -602,7 +672,7 @@ async function handleLegStopOut(leg, exitType, strategy) {
                     variety: variety,
                     ordertype: ordertype,
                     price: finalPriceStr,
-                    triggerprice: (variety === "STOPLOSS") ? triggerPriceStr : "0",
+                    triggerprice: triggerPriceStr,
                     lots: newLeg.leg.lots
                 },
                 newLeg.instrument,
@@ -630,7 +700,13 @@ async function handleLegStopOut(leg, exitType, strategy) {
                         }
                     );
                     newLeg.entryPrice = fill || currentLtp;
-                } catch (e) { newLeg.entryPrice = currentLtp; }
+                    newLeg.entryTime = getISTTime();
+                    newLeg.original_traded_price = newLeg.entryPrice;
+                    // base_otp is inherited and stays constant across re-entries
+                } catch (e) {
+                    newLeg.entryPrice = currentLtp;
+                    newLeg.entryTime = getISTTime();
+                }
 
                 if (config.variety === "STOPLOSS" && newLeg.entryPrice) {
                     const activeSlType = newLeg.leg.reentry_sl_enabled ? newLeg.leg.reentry_sl_type : (newLeg.leg.sl_type || "PERCENTAGE");
@@ -741,7 +817,7 @@ async function executeStrategy(strategyId) {
                         }
                         console.log(`Resolved ${resolvedLegs.length} legs. Placing orders...`);
 
-                        const placedLegs = await Promise.all(resolvedLegs.map(async (item) => {
+                        const placedLegs = await Promise.all(resolvedLegs.map(async (item, idx) => {
                             let finalPrice = (config.price || "0").toString();
 
                             if (config.ordertype === 'LIMIT') {
@@ -781,8 +857,10 @@ async function executeStrategy(strategyId) {
                                 ...item,
                                 orderId: orderData.orderid,
                                 uniqueOrderId: orderData.uniqueorderid,
+                                legIndex: idx,
                                 state: "ACTIVE",
-                                original_traded_price: null,
+                                original_traded_price: parseFloat(finalPrice) || 0,
+                                base_otp: parseFloat(finalPrice) || 0,
                                 recost_trigger_price: null,
                                 reentry_count: 0,
                                 last_tick_price: null,
@@ -813,7 +891,9 @@ async function executeStrategy(strategyId) {
                                 );
                                 if (fillPrice) {
                                     leg.entryPrice = fillPrice;
-                                    leg.original_traded_price = leg.original_traded_price || fillPrice;
+                                    leg.entryTime = getISTTime();
+                                    leg.original_traded_price = fillPrice;
+                                    leg.base_otp = fillPrice;
                                 } else {
                                     const optLtpRes = await marketService.getLTP({
                                         exchange: leg.instrument.exch_seg,
@@ -822,7 +902,9 @@ async function executeStrategy(strategyId) {
                                     });
                                     if (optLtpRes.status && optLtpRes.data?.fetched?.[0]) {
                                         leg.entryPrice = optLtpRes.data.fetched[0].ltp;
-                                        leg.original_traded_price = leg.original_traded_price || leg.entryPrice;
+                                        leg.entryTime = getISTTime();
+                                        leg.original_traded_price = leg.entryPrice;
+                                        leg.base_otp = leg.entryPrice;
                                     }
                                 }
                             }
@@ -885,33 +967,8 @@ async function executeStrategy(strategyId) {
                     const activeLegs = strategy.legs.filter(leg => !(leg.exited && leg.state !== "WAITING_FOR_RECOST"));
 
                     if (activeLegs.length > 0) {
-                        const exchangeGroups = {};
-                        for (const leg of activeLegs) {
-                            const exch = leg.instrument.exch_seg;
-                            if (!exchangeGroups[exch]) exchangeGroups[exch] = [];
-                            if (!exchangeGroups[exch].includes(leg.instrument.token)) {
-                                exchangeGroups[exch].push(leg.instrument.token);
-                            }
-                        }
-
-                        const ltpMap = {};
-                        for (const [exch, tokens] of Object.entries(exchangeGroups)) {
-                            try {
-                                const ltpRes = await marketService.getLTP({
-                                    exchange: exch,
-                                    symboltoken: tokens,
-                                    connectionId: config.connectionId
-                                });
-                                if (ltpRes.status && ltpRes.data?.fetched) {
-                                    for (const item of ltpRes.data.fetched) {
-                                        const t = item.symbolToken || item.symboltoken;
-                                        ltpMap[`${exch}_${t}`] = item.ltp;
-                                    }
-                                }
-                            } catch (err) {
-                                console.error(`Error batch fetching LTP for ${exch}:`, err.message);
-                            }
-                        }
+                        // Using centralized globalLtpMap updated by the singleton fetcher
+                        const ltpMap = globalLtpMap;
 
                         for (const leg of activeLegs) {
                             const exch = leg.instrument.exch_seg;
@@ -929,22 +986,11 @@ async function executeStrategy(strategyId) {
 
                                     let triggerReEntry = false;
 
-                                    if (leg.leg.side === "BUY") {
-                                        if (leg.leg.recost_mode.includes("PLUS")) {
-                                            // BUY RECOST+ (Enter higher): Price drops below RTP then crosses upward
-                                            if (prevTick <= rtp && currentTick > rtp) triggerReEntry = true;
-                                        } else {
-                                            // BUY RECOST- (Enter lower): Price rises above RTP then crosses downward
-                                            if (prevTick >= rtp && currentTick < rtp) triggerReEntry = true;
-                                        }
+                                    // RECOST Crossing Logic: Trigger based on direction (PLUS = Upward Hit, MINUS = Downward Hit)
+                                    if (leg.leg.recost_mode.includes("PLUS")) {
+                                        if (prevTick <= rtp && currentTick >= rtp) triggerReEntry = true;
                                     } else {
-                                        if (leg.leg.recost_mode.includes("PLUS")) {
-                                            // SELL RECOST+ (Enter higher): Price rises above RTP then crosses downward
-                                            if (prevTick >= rtp && currentTick < rtp) triggerReEntry = true;
-                                        } else {
-                                            // SELL RECOST- (Enter lower): Price drops below RTP then crosses upward
-                                            if (prevTick <= rtp && currentTick > rtp) triggerReEntry = true;
-                                        }
+                                        if (prevTick >= rtp && currentTick <= rtp) triggerReEntry = true;
                                     }
 
                                     if (triggerReEntry) {
@@ -1003,7 +1049,7 @@ async function executeStrategy(strategyId) {
                                                     variety: variety,
                                                     ordertype: ordertype,
                                                     price: finalPriceStr,
-                                                    triggerprice: (variety === "STOPLOSS") ? triggerPriceStr : "0",
+                                                    triggerprice: triggerPriceStr,
                                                     lots: leg.leg.lots
                                                 },
                                                 leg.instrument,
@@ -1012,6 +1058,8 @@ async function executeStrategy(strategyId) {
 
                                             leg.orderId = reEntryOrder.orderid;
                                             leg.uniqueOrderId = reEntryOrder.uniqueorderid;
+                                            leg.mtp = roundedMtp;
+                                            leg.rtp = rtp;
 
                                             // Wait for fill cleanly in background (allow up to 8 hours for Limits to cross)
                                             setTimeout(async () => {
@@ -1031,7 +1079,13 @@ async function executeStrategy(strategyId) {
                                                         }
                                                     );
                                                     leg.entryPrice = fill || currentTick;
-                                                } catch (e) { leg.entryPrice = currentTick; }
+                                                    leg.entryTime = getISTTime();
+                                                    leg.original_traded_price = leg.entryPrice;
+                                                    // base_otp is inherited and stays constant across re-entries
+                                                } catch (e) {
+                                                    leg.entryPrice = currentTick;
+                                                    leg.entryTime = getISTTime();
+                                                }
 
                                                 // Redeploy exchange SL if needed
                                                 if (config.variety === "STOPLOSS" && leg.entryPrice) {
@@ -1086,15 +1140,20 @@ async function executeStrategy(strategyId) {
                             }
                         }
 
-                        // Strategy PnL is the sum of all legs (active + exited)
-                        const validPnls = strategy.legs
-                            .map(l => (typeof l.pnlPercent === "number" ? l.pnlPercent : null))
-                            .filter(v => v !== null);
-                        const avgPnl = validPnls.length ? validPnls.reduce((a, b) => a + b, 0) / validPnls.length : 0;
-                        strategy.pnlPercent = avgPnl;
-
+                        // Total PnL in Rupees
                         const totalPnlRupees = strategy.legs.reduce((sum, l) => sum + (l.pnlRupees || 0), 0);
                         strategy.totalPnlRupees = totalPnlRupees;
+
+                        // Calculate weighted overall return % based on cumulative capital deployment
+                        const totalOriginalValue = strategy.legs.reduce((sum, l) => {
+                            if (!l.original_traded_price) return sum;
+                            const quantity = (l.leg?.lots || 0) * parseInt(l.instrument?.lotsize || 1);
+                            return sum + (l.original_traded_price * quantity);
+                        }, 0);
+
+                        const avgPnl = totalOriginalValue > 0 ? (totalPnlRupees / totalOriginalValue) * 100 : 0;
+                        strategy.pnlPercent = avgPnl;
+                        strategy.totalOriginalValue = totalOriginalValue;
 
                         // Check Overall Stop Loss
                         const slType = config.overall_sl_type || "PERCENTAGE";
@@ -1440,6 +1499,7 @@ async function squareOffLeg(strategyId, legIndex) {
         leg.state = "COMPLETED";
         leg.exited = true;
         leg.exitType = "MANUAL_CANCELLED_RECOST";
+        leg.exitTime = getISTTime();
         return true;
     }
 
@@ -1491,6 +1551,7 @@ async function getStatus(strategyId) {
             legs: s.legs || [],
             pnlPercent: s.pnlPercent || 0,
             totalPnlRupees: s.totalPnlRupees || 0,
+            totalOriginalValue: s.totalOriginalValue || 0,
             orderId: s.orderId,
             exitOrderId: s.exitOrderId,
             exitType: s.exitType,

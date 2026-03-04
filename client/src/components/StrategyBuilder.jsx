@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { StopCircle, Loader2, TrendingUp, Timer, LayoutDashboard, Target, Save, Play, Plus, Trash2, ShieldCheck, Zap } from 'lucide-react';
+import { StopCircle, Loader2, TrendingUp, Timer, LayoutDashboard, Target, Save, Play, Plus, Trash2, ShieldCheck, Zap, Copy } from 'lucide-react';
 import axios from 'axios';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:5001/api";
@@ -29,11 +29,11 @@ export const StrategyBuilder = () => {
     const [config, setConfig] = useState({
         name: '',
         index: 'NIFTY',
-        entry_time: '09:20:00',
-        exit_time: '15:15:00',
-        variety: 'NORMAL',
-        ordertype: 'MARKET',
-        producttype: 'INTRADAY',
+        entry_time: '09:16:00',
+        exit_time: '15:29:00',
+        variety: 'STOPLOSS',
+        ordertype: 'LIMIT',
+        producttype: 'CARRYFORWARD',
         duration: 'DAY',
         price: '0',
         triggerprice: '0',
@@ -290,20 +290,35 @@ export const StrategyBuilder = () => {
                                             <div className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
                                                 Leg {legIndex + 1}
                                             </div>
-                                            <Button
-                                                type="button"
-                                                variant="ghost"
-                                                className="h-8 px-2 text-destructive"
-                                                onClick={() => {
-                                                    if (config.legs.length === 1) return;
-                                                    const next = config.legs.filter((_, i) => i !== legIndex);
-                                                    setConfig({ ...config, legs: next });
-                                                }}
-                                                disabled={config.legs.length === 1}
-                                                title={config.legs.length === 1 ? "At least one leg is required" : "Remove leg"}
-                                            >
-                                                <Trash2 className="h-4 w-4" />
-                                            </Button>
+                                            <div className="flex items-center gap-1">
+                                                <Button
+                                                    type="button"
+                                                    variant="ghost"
+                                                    className="h-8 px-2 text-primary hover:text-primary/80"
+                                                    onClick={() => {
+                                                        const next = [...config.legs];
+                                                        next.splice(legIndex + 1, 0, { ...config.legs[legIndex] });
+                                                        setConfig({ ...config, legs: next });
+                                                    }}
+                                                    title="Copy leg"
+                                                >
+                                                    <Copy className="h-4 w-4" />
+                                                </Button>
+                                                <Button
+                                                    type="button"
+                                                    variant="ghost"
+                                                    className="h-8 px-2 text-destructive"
+                                                    onClick={() => {
+                                                        if (config.legs.length === 1) return;
+                                                        const next = config.legs.filter((_, i) => i !== legIndex);
+                                                        setConfig({ ...config, legs: next });
+                                                    }}
+                                                    disabled={config.legs.length === 1}
+                                                    title={config.legs.length === 1 ? "At least one leg is required" : "Remove leg"}
+                                                >
+                                                    <Trash2 className="h-4 w-4" />
+                                                </Button>
+                                            </div>
                                         </div>
                                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                             <div className="space-y-2">
@@ -726,9 +741,9 @@ export const StrategyBuilder = () => {
                                         <SelectValue placeholder="Variety" />
                                     </SelectTrigger>
                                     <SelectContent>
-                                        <SelectItem value="NORMAL">NORMAL</SelectItem>
                                         <SelectItem value="STOPLOSS">STOPLOSS</SelectItem>
-                                        <SelectItem value="ROBO">ROBO</SelectItem>
+                                        {/* <SelectItem value="NORMAL">NORMAL</SelectItem> */}
+                                        {/* <SelectItem value="ROBO">ROBO</SelectItem> */}
                                     </SelectContent>
                                 </Select>
                             </div>
@@ -742,9 +757,9 @@ export const StrategyBuilder = () => {
                                     <SelectContent>
                                         <SelectItem value="CARRYFORWARD">CARRYFORWARD (NRML)</SelectItem>
                                         <SelectItem value="INTRADAY">INTRADAY (MIS)</SelectItem>
-                                        <SelectItem value="DELIVERY">DELIVERY (CNC)</SelectItem>
-                                        <SelectItem value="MARGIN">MARGIN</SelectItem>
-                                        <SelectItem value="BO">BO (Bracket Order)</SelectItem>
+                                        {/* <SelectItem value="DELIVERY">DELIVERY (CNC)</SelectItem> */}
+                                        {/* <SelectItem value="MARGIN">MARGIN</SelectItem> */}
+                                        {/* <SelectItem value="BO">BO (Bracket Order)</SelectItem> */}
                                     </SelectContent>
                                 </Select>
                             </div>
@@ -758,8 +773,8 @@ export const StrategyBuilder = () => {
                                     <SelectContent>
                                         <SelectItem value="MARKET">MARKET</SelectItem>
                                         <SelectItem value="LIMIT">LIMIT</SelectItem>
-                                        <SelectItem value="STOPLOSS_LIMIT">SL-L</SelectItem>
-                                        <SelectItem value="STOPLOSS_MARKET">SL-M</SelectItem>
+                                        {/* <SelectItem value="STOPLOSS_LIMIT">SL-L</SelectItem> */}
+                                        {/* <SelectItem value="STOPLOSS_MARKET">SL-M</SelectItem> */}
                                     </SelectContent>
                                 </Select>
                             </div>
@@ -772,7 +787,7 @@ export const StrategyBuilder = () => {
                                     </SelectTrigger>
                                     <SelectContent>
                                         <SelectItem value="DAY">DAY</SelectItem>
-                                        <SelectItem value="IOC">IOC</SelectItem>
+                                        {/* <SelectItem value="IOC">IOC</SelectItem> */}
                                     </SelectContent>
                                 </Select>
                             </div>
@@ -948,7 +963,7 @@ export const StrategyBuilder = () => {
                                     {strategyData?.status === "IN_POSITION" || strategyData?.status === "COMPLETED" ? (
                                         <div className="space-y-4 pt-4 border-t border-border">
                                             {/* Overall Strategy PnL Summary */}
-                                            <div className="grid grid-cols-2 gap-4">
+                                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                                                 <div className={`p-4 rounded-xl flex flex-col justify-center items-center ${(strategyData.pnlPercent || 0) >= 0 ? 'bg-emerald-50' : 'bg-red-50'}`}>
                                                     <span className="text-xs font-bold uppercase text-muted-foreground mb-1">Overall Return (%)</span>
                                                     <span className={`text-2xl font-mono font-bold ${(strategyData.pnlPercent || 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
@@ -959,6 +974,12 @@ export const StrategyBuilder = () => {
                                                     <span className="text-xs font-bold uppercase text-muted-foreground mb-1">Overall PnL (₹)</span>
                                                     <span className={`text-2xl font-mono font-bold ${(strategyData.totalPnlRupees || 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
                                                         {(strategyData.totalPnlRupees || 0) > 0 ? '+' : ''}{(strategyData.totalPnlRupees || 0).toFixed(2)}
+                                                    </span>
+                                                </div>
+                                                <div className="p-4 rounded-xl flex flex-col justify-center items-center bg-slate-50 border border-slate-100">
+                                                    <span className="text-xs font-bold uppercase text-muted-foreground mb-1">Total Entry Value</span>
+                                                    <span className="text-2xl font-mono font-bold text-slate-700">
+                                                        ₹{(strategyData.totalOriginalValue || 0).toFixed(2)}
                                                     </span>
                                                 </div>
                                             </div>
@@ -972,14 +993,28 @@ export const StrategyBuilder = () => {
                                                             <div key={idx} className="flex items-center justify-between p-3 bg-white border border-border rounded-xl">
                                                                 <div className="flex flex-col">
                                                                     <span className="text-sm font-bold">{l.instrument?.symbol || "---"} ({l.leg?.side})</span>
-                                                                    <div className="flex items-center gap-2 mt-1 text-xs font-mono text-muted-foreground">
+                                                                    <div className="flex items-center gap-2 mt-1 text-xs font-mono text-muted-foreground flex-wrap">
+                                                                        <span className="text-primary font-bold">{l.entryTime || "---"}</span>
+                                                                        <span>|</span>
                                                                         <span>Entry: {(l.entryPrice || 0).toFixed(2)}</span>
                                                                         <span>|</span>
-                                                                        <span className="animate-pulse text-blue-600">LTP: {(l.currentLtp || 0).toFixed(2)}</span>
+                                                                        <span className="animate-pulse text-blue-600 font-bold">LTP: {(l.currentLtp || 0).toFixed(2)}</span>
                                                                         {l.slTriggerPrice != null && (
                                                                             <>
                                                                                 <span>|</span>
                                                                                 <span className="text-red-500 font-bold">SL: {l.slTriggerPrice.toFixed(2)}</span>
+                                                                            </>
+                                                                        )}
+                                                                        {l.rtp != null && (
+                                                                            <>
+                                                                                <span>|</span>
+                                                                                <span className="text-orange-500 font-bold">RTP: {l.rtp.toFixed(2)}</span>
+                                                                            </>
+                                                                        )}
+                                                                        {l.mtp != null && (
+                                                                            <>
+                                                                                <span>|</span>
+                                                                                <span className="text-purple-500 font-bold">MTP: {l.mtp.toFixed(2)}</span>
                                                                             </>
                                                                         )}
                                                                         {l.state === "WAITING_FOR_RECOST" && (
@@ -1018,34 +1053,43 @@ export const StrategyBuilder = () => {
                                                     <span className="text-xs font-bold uppercase text-muted-foreground">Closed Legs</span>
                                                     <div className="space-y-2">
                                                         {strategyData.legs.map((l, idx) => l.exited && (
-                                                            <div key={idx} className="flex items-center justify-between p-3 bg-muted/50 border border-border/50 rounded-xl opacity-80">
-                                                                <div className="flex flex-col">
-                                                                    <span className="text-sm font-bold line-through text-muted-foreground">{l.instrument?.symbol || "---"} ({l.leg?.side})</span>
-                                                                    <div className="flex items-center gap-2 mt-1 text-xs font-mono text-muted-foreground flex-wrap">
-                                                                        <span>Entry: {(l.entryPrice || 0).toFixed(2)}</span>
-                                                                        {(l.exitType === 'SL_HIT' && l.exitSnapshot) && (
-                                                                            <>
-                                                                                <span>|</span>
-                                                                                <span className="text-red-400 font-bold">SL Set: {(l.exitSnapshot.slTriggerPrice || 0).toFixed(2)}</span>
-                                                                                <span>|</span>
-                                                                                <span className="text-orange-400 font-bold">SL Hit: {(l.exitSnapshot.exitLtp || 0).toFixed(2)}</span>
-                                                                            </>
-                                                                        )}
-                                                                        <span>|</span>
-                                                                        <span>Exit: {l.exitType || "---"}</span>
+                                                            <div key={idx} className="flex items-center justify-between p-3 bg-muted/50 border border-border/50 rounded-xl opacity-90">
+                                                                <div className="flex flex-col w-full">
+                                                                    <div className="flex items-center justify-between mb-2">
+                                                                        <span className="text-sm font-bold text-muted-foreground">{l.instrument?.symbol || "---"} ({l.leg?.side})</span>
+                                                                        <div className="flex items-center gap-3">
+                                                                            <span className={`text-sm font-mono font-bold ${(l.pnlPercent || 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                                                                                {(l.pnlPercent || 0) > 0 ? '+' : ''}{(l.pnlPercent || 0).toFixed(2)}%
+                                                                            </span>
+                                                                            <span className={`text-sm font-mono font-bold ${(l.pnlRupees || 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                                                                                {(l.pnlRupees || 0) > 0 ? '+' : ''}₹{(l.pnlRupees || 0).toFixed(2)}
+                                                                            </span>
+                                                                            <span className="px-2 py-0.5 text-[10px] font-bold bg-slate-200 text-slate-500 rounded uppercase">Closed</span>
+                                                                        </div>
                                                                     </div>
-                                                                </div>
-                                                                <div className="flex items-center gap-4">
-                                                                    <div className="flex flex-col items-end">
-                                                                        <span className={`text-sm font-mono font-bold ${(l.pnlPercent || 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                                                                            {(l.pnlPercent || 0) > 0 ? '+' : ''}{(l.pnlPercent || 0).toFixed(2)}%
-                                                                        </span>
-                                                                        <span className={`text-xs font-mono font-bold ${(l.pnlRupees || 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                                                                            {(l.pnlRupees || 0) > 0 ? '+' : ''}₹{(l.pnlRupees || 0).toFixed(2)}
-                                                                        </span>
-                                                                    </div>
-                                                                    <div className="w-[88px] text-center">
-                                                                        <span className="px-2 py-1 text-[10px] font-bold bg-slate-200 text-slate-500 rounded uppercase">Closed</span>
+                                                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-y-2 gap-x-4 text-[11px] font-mono text-muted-foreground">
+                                                                        <div className="flex items-center gap-2 p-1.5 bg-white/50 rounded-md">
+                                                                            <span className="text-primary font-bold">ENTRY: {l.entryTime || "---"}</span>
+                                                                            <span>@</span>
+                                                                            <span className="text-foreground">{(l.entryPrice || 0).toFixed(2)}</span>
+                                                                        </div>
+                                                                        <div className="flex items-center gap-2 p-1.5 bg-white/50 rounded-md">
+                                                                            <span className="text-red-500 font-bold">TRIGGERED SL: {l.exitTime || l.exitSnapshot?.exitTime || "---"}</span>
+                                                                            <span>@</span>
+                                                                            <span className="text-foreground">{(l.exitSnapshot?.exitLtp || l.currentLtp || 0).toFixed(2)}</span>
+                                                                        </div>
+                                                                        <div className="flex items-center gap-2 flex-wrap col-span-1 sm:col-span-2">
+                                                                            <span className="px-1.5 py-0.5 bg-slate-100 rounded text-slate-600">Type: {l.exitType}</span>
+                                                                            {l.exitSnapshot?.slTriggerPrice != null && (
+                                                                                <span className="px-1.5 py-0.5 bg-red-100 text-red-600 rounded">Initial SL: {l.exitSnapshot.slTriggerPrice.toFixed(2)}</span>
+                                                                            )}
+                                                                            {l.rtp != null && (
+                                                                                <span className="px-1.5 py-0.5 bg-orange-100 text-orange-600 rounded">RTP: {l.rtp.toFixed(2)}</span>
+                                                                            )}
+                                                                            {l.mtp != null && (
+                                                                                <span className="px-1.5 py-0.5 bg-purple-100 text-purple-600 rounded">MTP: {l.mtp.toFixed(2)}</span>
+                                                                            )}
+                                                                        </div>
                                                                     </div>
                                                                 </div>
                                                             </div>

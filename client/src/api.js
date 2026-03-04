@@ -59,14 +59,6 @@ export async function getLTP({ exchange, symboltoken, tradingsymbol, connectionI
     return res.json();
 }
 
-export async function subscribeToTokens({ exchangeType, tokens }) {
-    const res = await fetch(`${API_BASE}/market-socket/subscribe`, {
-        method: "POST",
-        headers: getHeaders(),
-        body: JSON.stringify({ exchangeType, tokens }),
-    });
-    return res.json();
-}
 
 export async function fetchCandles({ exchange, symboltoken, interval, fromdate, todate, connectionId }) {
     const res = await fetch(`${API_BASE}/market/candles`, {
