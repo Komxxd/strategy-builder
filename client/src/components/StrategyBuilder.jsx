@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -7,8 +7,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { StopCircle, Loader2, TrendingUp, Timer, LayoutDashboard, Target, Save, Play, Plus, Trash2, ShieldCheck, Zap, Copy } from 'lucide-react';
 import axios from 'axios';
+import { io } from 'socket.io-client';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:5001/api";
+const SOCKET_URL = API_BASE_URL.replace(/\/api\/?$/, "");
 
 // Tier 1 - Rule 1 & Phase 2: Interceptor to ensuring session key is always sent
 axios.interceptors.request.use((config) => {
@@ -166,11 +168,55 @@ export const StrategyBuilder = () => {
         }
     };
 
-    React.useEffect(() => {
-        let interval;
-        const activeIds = Object.keys(runningStrategies);
+    // Tier 1 - Live Streaming: WebSocket initialization
+    useEffect(() => {
+        console.log("[Socket] Connecting to:", SOCKET_URL);
+        const socket = io(SOCKET_URL, {
+            autoConnect: true,
+            reconnection: true
+        });
 
-        if (activeIds.length > 0) {
+        socket.on('ltp_update', (data) => {
+            setRunningStrategies(prev => {
+                let next = { ...prev };
+                let overallHasChanges = false;
+
+                Object.keys(next).forEach(id => {
+                    const strategy = next[id];
+                    if (strategy.legs) {
+                        let strategyLegsChanged = false;
+                        const updatedLegs = strategy.legs.map(leg => {
+                            if (leg.instrument.token === data.token &&
+                                (leg.instrument.exch_seg === data.exchange || leg.instrument.exchange === data.exchange)) {
+                                if (leg.currentLtp !== data.ltp) {
+                                    strategyLegsChanged = true;
+                                    return { ...leg, currentLtp: data.ltp };
+                                }
+                            }
+                            return leg;
+                        });
+
+                        if (strategyLegsChanged) {
+                            next = { ...next, [id]: { ...strategy, legs: updatedLegs } };
+                            overallHasChanges = true;
+                        }
+                    }
+                });
+
+                return overallHasChanges ? next : prev;
+            });
+        });
+
+        socket.on('connect', () => console.log('WebSocket Connected'));
+
+        return () => {
+            socket.disconnect();
+        };
+    }, []);
+
+    useEffect(() => {
+        let interval;
+        if (Object.keys(runningStrategies).length > 0) {
             interval = setInterval(async () => {
                 try {
                     const latestActiveIds = Object.keys(runningStrategies);
@@ -186,8 +232,9 @@ export const StrategyBuilder = () => {
                     );
 
                     setRunningStrategies(prev => {
-                        const next = { ...prev };
+                        let next = { ...prev };
                         let hasChanges = false;
+
                         updates.forEach(u => {
                             if (u.error || u.data.status === "COMPLETED" || u.data.status === "FAILED") {
                                 if (next[u.id]) {
@@ -195,21 +242,40 @@ export const StrategyBuilder = () => {
                                     hasChanges = true;
                                 }
                             } else {
-                                next[u.id] = u.data;
-                                hasChanges = true;
+                                const existing = next[u.id];
+                                // Add if new, or update if status changed
+                                if (!existing || existing.status !== u.data.status) {
+                                    next[u.id] = u.data;
+                                    hasChanges = true;
+                                } else {
+                                    // Periodic refresh of non-price data (pnl, etc)
+                                    // We merge u.data (latest DB state) with our local memory (carrying LTPs)
+                                    const latestLegs = u.data.legs || [];
+                                    next[u.id] = {
+                                        ...u.data,
+                                        legs: latestLegs.map(newLeg => {
+                                            // Try to find matching leg in our current memory to preserve its fast price
+                                            const existingLeg = existing.legs?.find(ex => ex.instrument.token === newLeg.instrument.token);
+                                            return {
+                                                ...newLeg,
+                                                currentLtp: existingLeg ? (existingLeg.currentLtp || newLeg.currentLtp) : newLeg.currentLtp
+                                            };
+                                        })
+                                    };
+                                    hasChanges = true;
+                                }
                             }
                         });
                         return hasChanges ? next : prev;
                     });
 
-                    // If any completed, refresh active lists
                     if (updates.some(u => !u.error && (u.data.status === "COMPLETED" || u.data.status === "FAILED"))) {
                         fetchActive();
                     }
                 } catch (err) {
                     console.error("Error polling statuses:", err);
                 }
-            }, 3000);
+            }, 5000); // Polling every 5s for reliable status sync
         }
         return () => clearInterval(interval);
     }, [Object.keys(runningStrategies).length]);
@@ -985,11 +1051,11 @@ export const StrategyBuilder = () => {
                                             </div>
 
                                             {/* Running Legs */}
-                                            {strategyData.legs?.filter(l => !l.exited).length > 0 && (
+                                            {strategyData.legs?.filter(l => !l.exited || l.state === "WAITING_FOR_RECOST" || l.state === "WAITING_FOR_MNTM").length > 0 && (
                                                 <div className="space-y-2">
                                                     <span className="text-xs font-bold uppercase text-muted-foreground">Running Legs</span>
                                                     <div className="space-y-2">
-                                                        {strategyData.legs.map((l, idx) => !l.exited && (
+                                                        {strategyData.legs.map((l, idx) => (!l.exited || l.state === "WAITING_FOR_RECOST" || l.state === "WAITING_FOR_MNTM") && (
                                                             <div key={idx} className="flex items-center justify-between p-3 bg-white border border-border rounded-xl">
                                                                 <div className="flex flex-col">
                                                                     <span className="text-sm font-bold">{l.instrument?.symbol || "---"} ({l.leg?.side})</span>

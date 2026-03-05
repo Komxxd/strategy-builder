@@ -1,5 +1,6 @@
 const { getAuthorizedInstance } = require("../config/smartapi");
 const marketService = require("./market.service");
+const marketSocketService = require("./marketSocket.service");
 const prisma = require("../config/prisma");
 const fs = require("fs");
 const path = require("path");
@@ -9,57 +10,158 @@ let instruments = [];
 let activeStrategies = new Map();
 let globalLtpMap = {};
 
+function updateLtp(key, price) {
+    globalLtpMap[key] = price;
+}
+
 let isFetchingGlobalLtp = false;
 
 /**
  * Singleton background fetcher that aggregates all tokens from all active strategies
  * and fetches their LTP in chunks of 40 to stay within SmartAPI batch limits.
  */
-async function runGlobalPriceFetcher() {
-    if (isFetchingGlobalLtp || activeStrategies.size === 0) return;
-    isFetchingGlobalLtp = true;
+let pendingDbUpdates = new Map();
+let isWritingToDb = false;
+
+async function runGlobalDbWriter() {
+    if (isWritingToDb || pendingDbUpdates.size === 0) return;
+    isWritingToDb = true;
+
+    const updates = Array.from(pendingDbUpdates.entries());
+    pendingDbUpdates.clear();
 
     try {
-        const tasks = {}; // { connectionId: { exchange: Set(tokens) } }
-
-        for (const [id, strategy] of activeStrategies) {
-            if (strategy.status !== "IN_POSITION" || !strategy.legs) continue;
-            const connId = strategy.config.connectionId;
-            if (!tasks[connId]) tasks[connId] = {};
-
-            for (const leg of strategy.legs) {
-                if (leg.exited && leg.state !== "WAITING_FOR_RECOST") continue;
-                const exch = leg.instrument.exch_seg;
-                const token = leg.instrument.token;
-                if (!tasks[connId][exch]) tasks[connId][exch] = new Set();
-                tasks[connId][exch].add(token);
+        await Promise.all(updates.map(async ([executionId, updateData]) => {
+            try {
+                await prisma.strategy_executions.update({
+                    where: { id: executionId },
+                    data: updateData
+                });
+            } catch (err) {
+                console.error(`[DbWriter] Error updating execution ${executionId}:`, err.message);
+                // Re-add to queue if it's a transient error? For now, just log.
             }
+        }));
+    } catch (err) {
+        console.error("[DbWriter] Fatal error in bulk update:", err.message);
+    } finally {
+        isWritingToDb = false;
+    }
+}
+
+// Write to DB every 5 seconds
+setInterval(runGlobalDbWriter, 5000);
+
+async function runGlobalPriceFetcher() {
+    if (isFetchingGlobalLtp) {
+        if (!this.skipCount) this.skipCount = 0;
+        this.skipCount++;
+        if (this.skipCount % 5 === 0) {
+            console.warn(`[PriceFetcher] WARNING: Skip count is ${this.skipCount}. Previous fetch is taking too long! Overlapping executions prevented.`);
         }
+        return;
+    }
+    this.skipCount = 0;
+    // if (activeStrategies.size === 0) return; // This return is moved later
+
+    // --- STEP 0: Build Task Map ---
+    const tasks = {}; // { connectionId: { exchange: Set(tokens) } }
+    const unifiedTasks = {}; // { exchange: Set(tokens) }
+
+    for (const [id, strategy] of activeStrategies) {
+        if (strategy.status !== "IN_POSITION" || !strategy.legs) continue;
+        const connId = strategy.config.connectionId;
+        if (!tasks[connId]) tasks[connId] = {};
+
+        for (const leg of strategy.legs) {
+            if (leg.exited && leg.state !== "WAITING_FOR_RECOST") continue;
+            const exch = leg.instrument.exch_seg;
+            const token = leg.instrument.token;
+
+            if (!tasks[connId][exch]) tasks[connId][exch] = new Set();
+            tasks[connId][exch].add(token);
+
+            if (!unifiedTasks[exch]) unifiedTasks[exch] = new Set();
+            unifiedTasks[exch].add(token);
+        }
+    }
+
+    // --- STEP 1: WebSocket Sync (even if 0 active) ---
+    // If no active strategies, unifiedTasks will be empty {}
+    // syncSubscriptions will correctly unsubscribe from everything.
+    marketSocketService.syncSubscriptions(unifiedTasks);
+
+    if (activeStrategies.size === 0 || Object.keys(tasks).length === 0) return;
+
+    if (isFetchingGlobalLtp) return;
+
+    isFetchingGlobalLtp = true;
+    const startTime = Date.now();
+    let totalTokens = 0;
+    let totalChunks = 0;
+    let successfulChunks = 0;
+    let failedChunks = 0;
+
+    try {
+        const chunkTasks = [];
 
         for (const [connId, exchanges] of Object.entries(tasks)) {
+            // Handle stringified 'undefined' from Object.entries keys
+            const effectiveConnId = connId === "undefined" ? undefined : connId;
+
             for (const [exch, tokensSet] of Object.entries(exchanges)) {
                 const allTokens = Array.from(tokensSet);
+                totalTokens += allTokens.length;
+
                 for (let i = 0; i < allTokens.length; i += 40) {
                     const chunk = allTokens.slice(i, i + 40);
-                    try {
-                        const ltpRes = await marketService.getLTP({
-                            exchange: exch,
-                            symboltoken: chunk,
-                            connectionId: connId
-                        });
-                        if (ltpRes?.status && ltpRes?.data?.fetched) {
-                            for (const item of ltpRes.data.fetched) {
-                                const t = item.symbolToken || item.symboltoken;
-                                globalLtpMap[`${exch}_${t}`] = item.ltp;
+                    totalChunks++;
+
+                    // Create a promise for each chunk to execute in parallel
+                    chunkTasks.push((async () => {
+                        try {
+                            const ltpRes = await marketService.getLTP({
+                                exchange: exch,
+                                symboltoken: chunk,
+                                connectionId: effectiveConnId
+                            });
+
+                            if (ltpRes?.status && ltpRes?.data?.fetched) {
+                                successfulChunks++;
+                                for (const item of ltpRes.data.fetched) {
+                                    const t = item.symbolToken || item.symboltoken;
+                                    if (t && item.ltp) {
+                                        globalLtpMap[`${exch}_${t}`] = item.ltp;
+                                    }
+                                }
+                            } else {
+                                failedChunks++;
+                                const msg = ltpRes?.message || "Unknown error status";
+                                console.error(`[PriceFetcher] SmartAPI Error for ${exch} (Conn: ${effectiveConnId}). Resp: ${JSON.stringify(ltpRes)}`);
+                                if (msg && typeof msg === 'string' && msg.toLowerCase().includes("rate limit")) {
+                                    console.error("[PriceFetcher] CRITICAL: Rate limited by AngelOne!");
+                                }
                             }
+                        } catch (err) {
+                            failedChunks++;
+                            console.error(`[PriceFetcher] Exception fetching LTP for ${exch} (Conn: ${effectiveConnId}):`, err.message);
                         }
-                    } catch (err) {
-                        // Silently fail or log occasionally
-                    }
+                    })());
                 }
             }
         }
+
+        // Parallelize all chunk requests
+        if (chunkTasks.length > 0) {
+            await Promise.all(chunkTasks);
+        }
+    } catch (globalErr) {
+        console.error("[PriceFetcher] Fatal crash in global price fetcher:", globalErr);
     } finally {
+        const duration = Date.now() - startTime;
+        if (duration > 1000 || failedChunks > 0 || totalChunks > 2) {
+            console.log(`[PriceFetcher] Done: ${totalTokens} tokens, ${totalChunks} chunks. Success: ${successfulChunks}, Failed: ${failedChunks}. Duration: ${duration}ms`);
+        }
         isFetchingGlobalLtp = false;
     }
 }
@@ -86,29 +188,33 @@ function roundToTick(price, tick = 0.05) {
 }
 
 function updateStrategyInMemory(executionId, data) {
-    // Fire and forget update to Supabase execution_details/status
-    const updateData = {};
+    // Merge into pending updates instead of direct DB call
+    const existing = pendingDbUpdates.get(executionId) || { execution_details: {} };
+
+    const updateData = { ...existing };
     if (data.status) updateData.status = data.status;
     if (data.final_pnl_percent !== undefined) updateData.final_pnl_percent = data.final_pnl_percent;
     if (data.totalPnlRupees !== undefined) updateData.total_pnl_rupees = data.totalPnlRupees;
     if (data.exit_type) updateData.exit_type = data.exit_type;
 
-    updateData.execution_details = { ...(data.execution_details || {}), _latest: new Date().toISOString() };
+    updateData.execution_details = {
+        ...updateData.execution_details,
+        ...(data.execution_details || {}),
+        _latest: new Date().toISOString()
+    };
+
     for (const key of Object.keys(data)) {
-        if (['status', 'final_pnl_percent', 'totalPnlRupees', 'exit_type'].includes(key)) continue;
+        if (['status', 'final_pnl_percent', 'totalPnlRupees', 'exit_type', 'execution_details'].includes(key)) continue;
         updateData.execution_details[key] = data[key];
     }
 
     if (data.status === "COMPLETED" || data.status === "FAILED" || data.status === "TERMINATED") {
         updateData.completed_at = new Date().toISOString();
+        // For completions, we could potentially force an immediate write, 
+        // but for a single user, 5s delay is acceptable and safer for the event loop.
     }
 
-    prisma.strategy_executions.update({
-        where: { id: executionId },
-        data: updateData
-    }).catch(error => {
-        console.error(`Error updating execution ${executionId} in DB:`, error);
-    });
+    pendingDbUpdates.set(executionId, updateData);
 }
 
 function getATMStrike(indexName, spotPrice) {
@@ -1669,6 +1775,7 @@ module.exports = {
     squareOffLeg,
     stopStrategy,
     getStatus,
+    updateLtp,
     getUserStrategies,
     getActiveStrategies,
     getExecutionHistory,

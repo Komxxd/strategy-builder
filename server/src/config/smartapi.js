@@ -1,6 +1,9 @@
 const smartapi = require("smartapi-javascript");
 const sessionService = require("../services/session.service");
 
+// Singleton cache to reuse API instances per connection/user
+const instanceCache = new Map();
+
 /**
  * Gets a SmartAPI instance authorized for the given connection ID
  * @param {string} connectionId 
@@ -16,10 +19,18 @@ async function getAuthorizedInstance(connectionId) {
     return defaultSmartApi; // Fallback to global if active session for user not found
   }
 
-  const smartApi = new smartapi.SmartAPI({
-    api_key: session.api_key,
-  });
+  let smartApi = instanceCache.get(connectionId);
 
+  if (!smartApi) {
+    console.log(`[SmartAPI Config] Creating new singleton instance for connection: ${connectionId}`);
+    smartApi = new smartapi.SmartAPI({
+      api_key: session.api_key || process.env.SMARTAPI_API_KEY,
+    });
+    instanceCache.set(connectionId, smartApi);
+  }
+
+  // Always update the instance with the latest tokens from the session
+  // (In case of a re-login while the server is running)
   smartApi.setAccessToken(session.jwtToken);
   smartApi.feedToken = session.feedToken;
 
