@@ -532,6 +532,21 @@ async function placeStopLossExitOrder({ baseConfig, legSide, entryPrice, instrum
 
 async function placeExitOrder({ config, leg, instrument, exitType }) {
     if (leg.exited || leg.isExiting) return leg.exitOrderId;
+
+    // FIX: Do not place an exit order if the leg never actually entered (e.g. waiting for RTP/MTP)
+    if (!leg.entryPrice) {
+        console.log(`[Exit] Leg ${instrument.symbol} has no entry price (State: ${leg.state}). Skipping broker order.`);
+
+        // If there's a pending entry order on exchange, we should ideally cancel it here.
+        // But since we don't always know the exact variety used for entry in this context,
+        // we'll primarily rely on the strategy exit loop to clean up pending orders.
+        leg.exited = true;
+        leg.isExiting = false;
+        leg.exitType = exitType || "SKIPPED_NO_ENTRY";
+        leg.exitTime = getISTTime();
+        return null;
+    }
+
     leg.isExiting = true;
 
     const exitSide = leg.leg.side === "BUY" ? "SELL" : "BUY";
@@ -1386,25 +1401,38 @@ async function executeStrategy(strategyId) {
                             strategy.exitAttempted = true;
                             console.log(`[${new Date().toISOString()}] Exit time reached for ${strategyId}`);
 
-                            // 1. Cancel any pending SL orders first for active legs
-                            if (config.variety === "STOPLOSS" && !config.is_paper_trading) {
+                            // 1. Cancel any pending orders (Entry or SL) first for active legs
+                            if (!config.is_paper_trading) {
                                 await Promise.all(strategy.legs.map(async (leg) => {
-                                    if (!leg.exited && leg.slOrderId) {
-                                        try {
-                                            const api = await getAuthorizedInstance(config.connectionId);
-                                            await api.cancelOrder({
-                                                variety: "STOPLOSS",
-                                                orderid: leg.slOrderId
-                                            });
+                                    if (leg.exited) return;
+
+                                    try {
+                                        const api = await getAuthorizedInstance(config.connectionId);
+
+                                        // A. Cancel Exit Stop Loss if it exists
+                                        if (leg.slOrderId) {
+                                            await api.cancelOrder({ variety: "STOPLOSS", orderid: leg.slOrderId });
                                             console.log(`Cancelled pending SL order ${leg.slOrderId} for ${leg.instrument.symbol} at exit time`);
-                                        } catch (e) {
-                                            console.error(`Failed to cancel SL order ${leg.slOrderId}:`, e.message);
                                         }
+
+                                        // B. Cancel Entry Order if it's still waiting (entryPrice is null)
+                                        if (!leg.entryPrice && leg.orderId) {
+                                            // Entry variety could be STOPLOSS (re-cost) or config.variety (usually NORMAL)
+                                            try {
+                                                await api.cancelOrder({ variety: "NORMAL", orderid: leg.orderId });
+                                            } catch (e) {
+                                                await api.cancelOrder({ variety: "STOPLOSS", orderid: leg.orderId });
+                                            }
+                                            console.log(`Cancelled pending entry order ${leg.orderId} for ${leg.instrument.symbol} at exit time`);
+                                        }
+                                    } catch (e) {
+                                        console.error(`Cleanup failed for leg ${leg.instrument?.symbol}:`, e.message);
                                     }
                                 }));
                             }
 
                             // 2. Place Exit Orders for remaining active legs (respects LIMIT/MARKET config)
+                            // Note: placeExitOrder now handles entryPrice=null safety internally as well.
                             const exitOrders = await Promise.all(strategy.legs.map(async (leg) => {
                                 if (leg.exited) return leg.exitOrderId;
                                 return await placeExitOrder({
