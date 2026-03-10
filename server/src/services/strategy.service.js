@@ -1751,6 +1751,67 @@ async function executeStrategy(strategyId) {
                             return;
                         }
 
+                        // Check Overall Target
+                        const targetType = config.overall_target_type || "PERCENTAGE";
+                        const targetValue = parseFloat(config.overall_target_value || 0);
+
+                        let isOverallTargetHit = false;
+                        let targetReason = "";
+
+                        if (targetValue > 0) {
+                            if (targetType === "PERCENTAGE" && avgPnl >= targetValue) {
+                                isOverallTargetHit = true;
+                                targetReason = `Overall Target% (${targetValue}%) hit`;
+                            } else if (targetType === "AMOUNT" && totalPnlRupees >= targetValue) {
+                                isOverallTargetHit = true;
+                                targetReason = `Overall Target₹ (₹${targetValue}) hit`;
+                            }
+                        }
+
+                        if (isOverallTargetHit) {
+                            if (strategy.exitAttempted) return;
+                            strategy.exitAttempted = true;
+                            console.log(`[${new Date().toISOString()}] ${targetReason} for strategy ${strategyId}. Exiting remaining legs to book profits.`);
+
+                            // Cancel any pending SL orders on exchange for active legs
+                            if (config.variety === "STOPLOSS" && !config.is_paper_trading) {
+                                await Promise.all(strategy.legs.map(async (leg) => {
+                                    if (!leg.exited && leg.slOrderId) {
+                                        try {
+                                            const api = await getAuthorizedInstance(config.connectionId);
+                                            await api.cancelOrder({ variety: "STOPLOSS", orderid: leg.slOrderId });
+                                            console.log(`Cancelled SL order ${leg.slOrderId} for ${leg.instrument?.symbol || 'Unknown'} due to overall target hit`);
+                                        } catch (e) {
+                                            console.error(`Failed to cancel SL order ${leg.slOrderId}:`, e.message);
+                                        }
+                                    }
+                                }));
+                            }
+
+                            const exitOrders = await Promise.all(strategy.legs.map(async (leg) => {
+                                if (leg.exited) return leg.exitOrderId;
+                                return await placeExitOrder({
+                                    config,
+                                    leg,
+                                    instrument: leg.instrument,
+                                    exitType: "OVERALL_TARGET"
+                                });
+                            }));
+                            strategy.status = "COMPLETED";
+                            strategy.exitOrderId = exitOrders;
+                            strategy.exitType = "OVERALL_TARGET";
+                            addStrategyLog(strategyId, `SQUARING OFF due to Overall Target hit. Final PnL: ₹${totalPnlRupees.toFixed(2)} (${avgPnl.toFixed(2)}%).`, "SUCCESS");
+                            updateStrategyInMemory(strategyId, {
+                                status: "COMPLETED",
+                                exit_order_id: strategy.exitOrderId,
+                                exit_type: "OVERALL_TARGET",
+                                final_pnl_percent: avgPnl,
+                                totalPnlRupees: totalPnlRupees
+                            });
+                            clearInterval(interval);
+                            return;
+                        }
+
                         // Check Leg-wise Stop Loss (%) only if we didn't place SmartAPI SL orders (or if it's paper trading)
                         if (config.variety !== "STOPLOSS" || config.is_paper_trading === true) {
                             for (const leg of strategy.legs) {

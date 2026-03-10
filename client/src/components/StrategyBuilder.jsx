@@ -46,6 +46,8 @@ export const StrategyBuilder = () => {
         stoploss: '0',
         overall_sl_type: 'PERCENTAGE',
         overall_sl_value: 0,
+        overall_target_type: 'PERCENTAGE',
+        overall_target_value: 0,
         entry_limit_offset: 0,
         legs: [
             { strike_criteria: 'STRIKE_TYPE', option_type: 'CE', strike: 'ATM', premium: 0, side: 'BUY', lots: 1, sl_type: 'PERCENTAGE', stop_loss: 10, simple_mntm_enabled: false, simple_mntm_mode: 'SIMPLE_PLUS_PCT', simple_mntm_value: 0, recost_enabled: false, recost_mode: 'RECOST_PLUS_PCT', recost_value: 0, max_reentry: 1, reentry_sl_enabled: false, reentry_sl_type: 'PERCENTAGE', reentry_sl_value: 10, re_asap_enabled: false, re_asap_max_entries: 1 }
@@ -1110,6 +1112,41 @@ export const StrategyBuilder = () => {
                                     }}
                                     onBlur={(e) => {
                                         setConfig({ ...config, overall_sl_value: parseFloat(e.target.value) || 0 });
+                                    }}
+                                />
+                            </div>
+
+                            <div className="space-y-2">
+                                <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+                                    Overall Target Type
+                                </Label>
+                                <Select value={config.overall_target_type || 'PERCENTAGE'} onValueChange={(v) => setConfig({ ...config, overall_target_type: v })}>
+                                    <SelectTrigger className="h-11 rounded-xl">
+                                        <SelectValue placeholder="Target Type" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="PERCENTAGE">Percentage (%)</SelectItem>
+                                        <SelectItem value="AMOUNT">Amount (₹)</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </div>
+
+                            <div className="space-y-2">
+                                <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+                                    Overall Target {config.overall_target_type === 'AMOUNT' ? '(₹)' : '(%)'}
+                                </Label>
+                                <Input
+                                    className="h-11 rounded-xl"
+                                    type="text"
+                                    value={config.overall_target_value}
+                                    onChange={(e) => {
+                                        const val = e.target.value;
+                                        if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                                            setConfig({ ...config, overall_target_value: val });
+                                        }
+                                    }}
+                                    onBlur={(e) => {
+                                        setConfig({ ...config, overall_target_value: parseFloat(e.target.value) || 0 });
                                     }}
                                 />
                             </div>
