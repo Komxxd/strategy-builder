@@ -472,6 +472,47 @@ function computeStopLossExitPrices(entryPrice, side, slType, slValue, limitMargi
     };
 }
 
+function resolveUniversalOrderParams({ targetPrice, currentLtp, side, offset }) {
+    let variety = "NORMAL";
+    let ordertype = "LIMIT";
+    let price = targetPrice;
+    let triggerprice = "0";
+
+    const roundedTarget = roundToTick(targetPrice);
+    const roundedLtp = roundToTick(currentLtp);
+
+    if (side === "SELL") {
+        if (roundedTarget < roundedLtp) {
+            // Sell BELOW current LTP -> Stop Loss Limit (Breakout Down)
+            variety = "STOPLOSS";
+            ordertype = "STOPLOSS_LIMIT";
+            triggerprice = roundedTarget.toString();
+            price = roundToTick(roundedTarget - offset).toString();
+        } else {
+            // Sell ABOVE current LTP -> Regular Limit (Retracement Up)
+            variety = "NORMAL";
+            ordertype = "LIMIT";
+            price = roundToTick(roundedTarget - offset).toString();
+        }
+    } else {
+        // side === "BUY"
+        if (roundedTarget > roundedLtp) {
+            // Buy ABOVE current LTP -> Stop Loss Limit (Breakout Up)
+            variety = "STOPLOSS";
+            ordertype = "STOPLOSS_LIMIT";
+            triggerprice = roundedTarget.toString();
+            price = roundToTick(roundedTarget + offset).toString();
+        } else {
+            // Buy BELOW current LTP -> Regular Limit (Retracement Down)
+            variety = "NORMAL";
+            ordertype = "LIMIT";
+            price = roundToTick(roundedTarget + offset).toString();
+        }
+    }
+
+    return { variety, ordertype, price, triggerprice };
+}
+
 async function waitForOrderFillPrice(uniqueOrderId, connectionId, isPaperTrading = false, instrument = null, timeoutMs = 60000, pollMs = 2000, paperConfig = null) {
     if (isPaperTrading) {
         // If no specifically monitored target price is provided, fill instantly at LTP (Standard Entry)
@@ -1055,49 +1096,110 @@ async function executeStrategy(strategyId) {
 
                         const placedLegs = await Promise.all(resolvedLegs.map(async (item, idx) => {
                             let finalPrice = (config.price || "0").toString();
+                            let orderData = null;
+                            const isSimpleMntm = item.leg.simple_mntm_enabled === true;
+                            let legState = "ACTIVE";
+                            let instLtp = 0;
 
-                            if (config.ordertype === 'LIMIT') {
-                                try {
-                                    const instLtpRes = await marketService.getLTP({
-                                        exchange: item.instrument.exch_seg,
-                                        symboltoken: item.instrument.token,
-                                        connectionId: config.connectionId
-                                    });
-                                    if (instLtpRes.status && instLtpRes.data?.fetched?.[0]) {
-                                        const instLtp = instLtpRes.data.fetched[0].ltp;
-                                        const offset = parseFloat(config.entry_limit_offset || 0);
-                                        if (item.leg.side === "BUY") {
-                                            finalPrice = roundToTick(instLtp + offset).toString();
-                                        } else {
-                                            finalPrice = roundToTick(instLtp - offset).toString();
-                                        }
-                                        console.log(`[${new Date().toISOString()}] Limit Order Calc for ${item.instrument.symbol} (${item.leg.side}): LTP=${instLtp}, Offset=${offset}, FinalPrice=${finalPrice}`);
-                                    }
-                                } catch (err) {
-                                    console.error(`Error calculating limit price for ${item.instrument.symbol}:`, err);
+                            // 1. Fetch current price for either Limit calculation or Simple Mntm snapshot
+                            try {
+                                const instLtpRes = await marketService.getLTP({
+                                    exchange: item.instrument.exch_seg,
+                                    symboltoken: item.instrument.token,
+                                    connectionId: config.connectionId
+                                });
+                                if (instLtpRes.status && instLtpRes.data?.fetched?.[0]) {
+                                    instLtp = instLtpRes.data.fetched[0].ltp;
                                 }
+                            } catch (err) {
+                                console.error(`Error fetching LTP for ${item.instrument.symbol}:`, err);
                             }
 
-                            const orderData = await placeOrder(
-                                {
-                                    ...config,
-                                    variety: config.variety === "STOPLOSS" ? "NORMAL" : config.variety,
-                                    side: item.leg.side,
-                                    lots: item.leg.lots,
-                                    price: finalPrice
-                                },
-                                item.instrument,
-                                config.connectionId
-                            );
+                            if (isSimpleMntm) {
+                                // SIMPLE MOMENTUM ENTRY LOGIC
+                                const mntmMode = item.leg.simple_mntm_mode || "SIMPLE_PLUS_PCT";
+                                const mntmVal = parseFloat(item.leg.simple_mntm_value || 0);
+                                let mntmTarget = instLtp;
 
-                            addStrategyLog(strategyId, `Placed ${item.leg.side} order for ${item.instrument.symbol} (Qty: ${item.leg.lots * (parseInt(item.instrument.lotsize) || 1)}).`, "INFO");
+                                if (mntmMode === "SIMPLE_PLUS_PCT") mntmTarget = instLtp + (instLtp * mntmVal / 100);
+                                else if (mntmMode === "SIMPLE_PLUS_PTS") mntmTarget = instLtp + mntmVal;
+                                else if (mntmMode === "SIMPLE_MINUS_PCT") mntmTarget = instLtp - (instLtp * mntmVal / 100);
+                                else if (mntmMode === "SIMPLE_MINUS_PTS") mntmTarget = instLtp - mntmVal;
+
+                                const roundedMntmTarget = roundToTick(mntmTarget);
+                                const offset = parseFloat(config.entry_limit_offset || 0);
+
+                                if (config.is_paper_trading) {
+                                    // Paper: We wait in our code loop
+                                    legState = "WAITING_FOR_SIMPLE_MNTM";
+                                    addStrategyLog(strategyId, `[PAPER] Simple Mntm enabled for ${item.instrument.symbol}. Snapshot: ₹${instLtp}. Waiting for Target: ₹${roundedMntmTarget}...`, "INFO");
+                                    orderData = {
+                                        orderid: `V-SIMPLE-${Date.now()}`,
+                                        uniqueorderid: `VU-SIMPLE-${Date.now()}`,
+                                        mntmTargetPrice: roundedMntmTarget,
+                                        baseOtp: instLtp
+                                    };
+                                } else {
+                                    // Live: Send the "Universal Rule" resolved order to Broker
+                                    const { variety, ordertype, price, triggerprice } = resolveUniversalOrderParams({
+                                        targetPrice: roundedMntmTarget,
+                                        currentLtp: instLtp,
+                                        side: item.leg.side,
+                                        offset
+                                    });
+
+                                    addStrategyLog(strategyId, `[LIVE] Simple Mntm: Snapshot ₹${instLtp}. Target ₹${roundedMntmTarget}. Placing ${variety} ${ordertype} at ${price}...`, "INFO");
+
+                                    orderData = await placeOrder(
+                                        {
+                                            ...config,
+                                            variety,
+                                            ordertype,
+                                            side: item.leg.side,
+                                            lots: item.leg.lots,
+                                            price,
+                                            triggerprice
+                                        },
+                                        item.instrument,
+                                        config.connectionId
+                                    );
+                                    legState = "WAITING_FOR_FILL"; // Wait for broker fill notification
+                                }
+                            } else {
+                                // STANDARD ENTRY LOGIC
+                                if (config.ordertype === 'LIMIT') {
+                                    const offset = parseFloat(config.entry_limit_offset || 0);
+                                    if (item.leg.side === "BUY") {
+                                        finalPrice = roundToTick(instLtp + offset).toString();
+                                    } else {
+                                        finalPrice = roundToTick(instLtp - offset).toString();
+                                    }
+                                }
+
+                                orderData = await placeOrder(
+                                    {
+                                        ...config,
+                                        variety: config.variety === "STOPLOSS" ? "NORMAL" : config.variety,
+                                        side: item.leg.side,
+                                        lots: item.leg.lots,
+                                        price: finalPrice
+                                    },
+                                    item.instrument,
+                                    config.connectionId
+                                );
+                                addStrategyLog(strategyId, `Placed ${item.leg.side} order for ${item.instrument.symbol} (Qty: ${item.leg.lots * (parseInt(item.instrument.lotsize) || 1)}).`, "INFO");
+                                legState = "ACTIVE";
+                            }
 
                             const leg = {
                                 ...item,
                                 orderId: orderData.orderid,
                                 uniqueOrderId: orderData.uniqueorderid,
+                                mntmTargetPrice: orderData.mntmTargetPrice,
+                                baseOtp: orderData.baseOtp || instLtp,
+                                simpleMntmEnabled: isSimpleMntm,
                                 legIndex: idx,
-                                state: "ACTIVE",
+                                state: legState,
                                 original_traded_price: parseFloat(finalPrice) || 0,
                                 base_otp: parseFloat(finalPrice) || 0,
                                 recost_trigger_price: null,
@@ -1126,6 +1228,9 @@ async function executeStrategy(strategyId) {
                         // Fetch entry fill prices and place stoploss exit orders parallelly
                         await Promise.all(placedLegs.map(async (leg) => {
                             if (leg.uniqueOrderId) {
+                                // Skip fill price detection if waiting for Simple Mntm crossing in Paper
+                                if (leg.state === "WAITING_FOR_SIMPLE_MNTM") return;
+
                                 const fillPrice = await waitForOrderFillPrice(
                                     leg.uniqueOrderId,
                                     config.connectionId,
@@ -1241,7 +1346,55 @@ async function executeStrategy(strategyId) {
                             if (tickPrice !== undefined) {
                                 leg.currentLtp = tickPrice;
 
-                                // RE-COST Engines: Crossing Logic
+                                // 0. SIMPLE MOMENTUM ENTRY CROSSING logic (Paper Only)
+                                if (leg.state === "WAITING_FOR_SIMPLE_MNTM" && leg.last_tick_price !== null) {
+                                    const currentTick = leg.currentLtp;
+                                    const prevTick = leg.last_tick_price;
+                                    const target = leg.mntmTargetPrice;
+                                    const mode = leg.leg.simple_mntm_mode || "SIMPLE_PLUS_PCT";
+
+                                    let mntmHit = false;
+                                    if (mode.includes("PLUS")) {
+                                        if (prevTick <= target && currentTick >= target) mntmHit = true;
+                                    } else {
+                                        if (prevTick >= target && currentTick <= target) mntmHit = true;
+                                    }
+
+                                    if (mntmHit) {
+                                        console.log(`[SIMPLE MNTM HIT] Target ₹${target} reached for ${leg.instrument.symbol}. Simulating Entry...`);
+                                        addStrategyLog(strategyId, `Simple Momentum Target Reached: ₹${target} for ${leg.instrument.symbol}. Entry triggered.`, "INFO");
+
+                                        leg.entryPrice = target;
+                                        leg.entryTime = getISTTime();
+                                        leg.original_traded_price = target;
+                                        leg.state = "ACTIVE";
+
+                                        // Now place SL if needed
+                                        if (config.variety === "STOPLOSS" && leg.entryPrice) {
+                                            const slOrder = await placeStopLossWithRetry({
+                                                baseConfig: config,
+                                                legSide: leg.leg.side,
+                                                entryPrice: leg.entryPrice,
+                                                instrument: leg.instrument,
+                                                lots: leg.leg.lots,
+                                                slType: leg.leg.sl_type || "PERCENTAGE",
+                                                slValue: leg.leg.stop_loss,
+                                                slLimitMargin: config.entry_limit_offset,
+                                                connectionId: config.connectionId,
+                                                strategyId: strategyId
+                                            });
+                                            if (slOrder?.orderid) {
+                                                const prices = computeStopLossExitPrices(leg.entryPrice, leg.leg.side, leg.leg.sl_type || "PERCENTAGE", leg.leg.stop_loss, config.entry_limit_offset);
+                                                leg.slOrderId = slOrder.orderid;
+                                                leg.slUniqueOrderId = slOrder.uniqueorderid;
+                                                leg.slTriggerPrice = prices?.trigger || null;
+                                                leg.slLimitPrice = prices?.limit || null;
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // 1. RE-COST Engines: Crossing Logic
                                 if (leg.state === "WAITING_FOR_MNTM" && leg.last_tick_price !== null) {
                                     const currentTick = leg.currentLtp;
                                     const prevTick = leg.last_tick_price;

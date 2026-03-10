@@ -48,7 +48,7 @@ export const StrategyBuilder = () => {
         overall_sl_value: 0,
         entry_limit_offset: 0,
         legs: [
-            { strike_criteria: 'STRIKE_TYPE', option_type: 'CE', strike: 'ATM', premium: 0, side: 'BUY', lots: 1, sl_type: 'PERCENTAGE', stop_loss: 10 }
+            { strike_criteria: 'STRIKE_TYPE', option_type: 'CE', strike: 'ATM', premium: 0, side: 'BUY', lots: 1, sl_type: 'PERCENTAGE', stop_loss: 10, simple_mntm_enabled: false, simple_mntm_mode: 'SIMPLE_PLUS_PCT', simple_mntm_value: 0, recost_enabled: false, recost_mode: 'RECOST_PLUS_PCT', recost_value: 0, max_reentry: 1, reentry_sl_enabled: false, reentry_sl_type: 'PERCENTAGE', reentry_sl_value: 10 }
         ]
     });
 
@@ -409,7 +409,7 @@ export const StrategyBuilder = () => {
                                 variant="outline"
                                 className="h-9 gap-2 rounded-xl"
                                 onClick={() => {
-                                    const next = [...config.legs, { strike_criteria: 'STRIKE_TYPE', option_type: 'CE', strike: 'ATM', premium: 0, side: 'BUY', lots: 1, sl_type: 'PERCENTAGE', stop_loss: 10, recost_enabled: false, recost_mode: 'RECOST_PLUS_PCT', recost_value: 0, max_reentry: 1, reentry_sl_enabled: false, reentry_sl_type: 'PERCENTAGE', reentry_sl_value: 10 }];
+                                    const next = [...config.legs, { strike_criteria: 'STRIKE_TYPE', option_type: 'CE', strike: 'ATM', premium: 0, side: 'BUY', lots: 1, sl_type: 'PERCENTAGE', stop_loss: 10, simple_mntm_enabled: false, simple_mntm_mode: 'SIMPLE_PLUS_PCT', simple_mntm_value: 0, recost_enabled: false, recost_mode: 'RECOST_PLUS_PCT', recost_value: 0, max_reentry: 1, reentry_sl_enabled: false, reentry_sl_type: 'PERCENTAGE', reentry_sl_value: 10 }];
                                     setConfig({ ...config, legs: next });
                                 }}
                             >
@@ -626,7 +626,81 @@ export const StrategyBuilder = () => {
                                             {/* SL Margin removed - now using global entry_limit_offset */}
 
                                             <div className="md:col-span-2 space-y-4 pt-4 border-t border-dashed mt-2">
+                                                {/* Simple Momentum Entry Section */}
                                                 <div className="flex items-center gap-2">
+                                                    <input
+                                                        type="checkbox"
+                                                        id={`simple-mntm-${legIndex}`}
+                                                        className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                                        checked={leg.simple_mntm_enabled || false}
+                                                        onChange={(e) => {
+                                                            const next = [...config.legs];
+                                                            next[legIndex] = {
+                                                                ...next[legIndex],
+                                                                simple_mntm_enabled: e.target.checked,
+                                                                simple_mntm_mode: leg.simple_mntm_mode || 'SIMPLE_PLUS_PCT',
+                                                                simple_mntm_value: leg.simple_mntm_value || 0
+                                                            };
+                                                            setConfig({ ...config, legs: next });
+                                                        }}
+                                                    />
+                                                    <Label htmlFor={`simple-mntm-${legIndex}`} className="text-sm font-bold tracking-wide text-foreground cursor-pointer flex items-center gap-1.5">
+                                                        <Zap className="h-3.5 w-3.5 text-amber-500" /> Enable Simple Momentum (Mntm) Entry
+                                                    </Label>
+                                                </div>
+
+                                                {leg.simple_mntm_enabled && (
+                                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pl-6 animate-in slide-in-from-top-2">
+                                                        <div className="space-y-2">
+                                                            <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Simple Mntm Mode</Label>
+                                                            <Select
+                                                                value={leg.simple_mntm_mode || 'SIMPLE_PLUS_PCT'}
+                                                                onValueChange={(v) => {
+                                                                    const next = [...config.legs];
+                                                                    next[legIndex] = { ...next[legIndex], simple_mntm_mode: v };
+                                                                    setConfig({ ...config, legs: next });
+                                                                }}
+                                                            >
+                                                                <SelectTrigger className="h-11 rounded-xl">
+                                                                    <SelectValue placeholder="Mode" />
+                                                                </SelectTrigger>
+                                                                <SelectContent>
+                                                                    <SelectItem value="SIMPLE_PLUS_PCT">SIMPLE + %</SelectItem>
+                                                                    <SelectItem value="SIMPLE_PLUS_PTS">SIMPLE + Pts</SelectItem>
+                                                                    <SelectItem value="SIMPLE_MINUS_PCT">SIMPLE - %</SelectItem>
+                                                                    <SelectItem value="SIMPLE_MINUS_PTS">SIMPLE - Pts</SelectItem>
+                                                                </SelectContent>
+                                                            </Select>
+                                                        </div>
+                                                        <div className="space-y-2">
+                                                            <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                                                                Mntm Value {leg.simple_mntm_mode && leg.simple_mntm_mode.includes('PCT') ? '(%)' : '(Pts)'}
+                                                            </Label>
+                                                            <Input
+                                                                className="h-11 rounded-xl"
+                                                                type="text"
+                                                                value={leg.simple_mntm_value === undefined ? '' : leg.simple_mntm_value}
+                                                                onChange={(e) => {
+                                                                    const val = e.target.value;
+                                                                    if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                                                                        const next = [...config.legs];
+                                                                        next[legIndex] = { ...next[legIndex], simple_mntm_value: val };
+                                                                        setConfig({ ...config, legs: next });
+                                                                    }
+                                                                }}
+                                                                onBlur={(e) => {
+                                                                    const next = [...config.legs];
+                                                                    next[legIndex] = { ...next[legIndex], simple_mntm_value: parseFloat(e.target.value) || 0 };
+                                                                    setConfig({ ...config, legs: next });
+                                                                }}
+                                                            />
+                                                        </div>
+                                                    </div>
+                                                )}
+
+                                                <div className="h-4"></div>
+
+                                                <div className="flex items-center gap-2 border-t pt-4">
                                                     <input
                                                         type="checkbox"
                                                         id={`recost-${legIndex}`}
@@ -1177,6 +1251,12 @@ export const StrategyBuilder = () => {
                                                                             <>
                                                                                 <span>|</span>
                                                                                 <span className="text-purple-500 font-bold">MTP: {l.mtp.toFixed(2)}</span>
+                                                                            </>
+                                                                        )}
+                                                                        {l.mntmTargetPrice != null && l.state === "WAITING_FOR_SIMPLE_MNTM" && (
+                                                                            <>
+                                                                                <span>|</span>
+                                                                                <span className="text-blue-500 font-bold animate-pulse">Wait Target: ₹{l.mntmTargetPrice.toFixed(2)}</span>
                                                                             </>
                                                                         )}
                                                                         {l.state === "WAITING_FOR_RECOST" && (
