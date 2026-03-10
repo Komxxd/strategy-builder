@@ -48,7 +48,7 @@ export const StrategyBuilder = () => {
         overall_sl_value: 0,
         entry_limit_offset: 0,
         legs: [
-            { strike_criteria: 'STRIKE_TYPE', option_type: 'CE', strike: 'ATM', premium: 0, side: 'BUY', lots: 1, sl_type: 'PERCENTAGE', stop_loss: 10, simple_mntm_enabled: false, simple_mntm_mode: 'SIMPLE_PLUS_PCT', simple_mntm_value: 0, recost_enabled: false, recost_mode: 'RECOST_PLUS_PCT', recost_value: 0, max_reentry: 1, reentry_sl_enabled: false, reentry_sl_type: 'PERCENTAGE', reentry_sl_value: 10 }
+            { strike_criteria: 'STRIKE_TYPE', option_type: 'CE', strike: 'ATM', premium: 0, side: 'BUY', lots: 1, sl_type: 'PERCENTAGE', stop_loss: 10, simple_mntm_enabled: false, simple_mntm_mode: 'SIMPLE_PLUS_PCT', simple_mntm_value: 0, recost_enabled: false, recost_mode: 'RECOST_PLUS_PCT', recost_value: 0, max_reentry: 1, reentry_sl_enabled: false, reentry_sl_type: 'PERCENTAGE', reentry_sl_value: 10, re_asap_enabled: false, re_asap_max_entries: 1 }
         ]
     });
 
@@ -409,7 +409,7 @@ export const StrategyBuilder = () => {
                                 variant="outline"
                                 className="h-9 gap-2 rounded-xl"
                                 onClick={() => {
-                                    const next = [...config.legs, { strike_criteria: 'STRIKE_TYPE', option_type: 'CE', strike: 'ATM', premium: 0, side: 'BUY', lots: 1, sl_type: 'PERCENTAGE', stop_loss: 10, simple_mntm_enabled: false, simple_mntm_mode: 'SIMPLE_PLUS_PCT', simple_mntm_value: 0, recost_enabled: false, recost_mode: 'RECOST_PLUS_PCT', recost_value: 0, max_reentry: 1, reentry_sl_enabled: false, reentry_sl_type: 'PERCENTAGE', reentry_sl_value: 10 }];
+                                    const next = [...config.legs, { strike_criteria: 'STRIKE_TYPE', option_type: 'CE', strike: 'ATM', premium: 0, side: 'BUY', lots: 1, sl_type: 'PERCENTAGE', stop_loss: 10, simple_mntm_enabled: false, simple_mntm_mode: 'SIMPLE_PLUS_PCT', simple_mntm_value: 0, recost_enabled: false, recost_mode: 'RECOST_PLUS_PCT', recost_value: 0, max_reentry: 1, reentry_sl_enabled: false, reentry_sl_type: 'PERCENTAGE', reentry_sl_value: 10, re_asap_enabled: false, re_asap_max_entries: 1 }];
                                     setConfig({ ...config, legs: next });
                                 }}
                             >
@@ -645,7 +645,7 @@ export const StrategyBuilder = () => {
                                                         }}
                                                     />
                                                     <Label htmlFor={`simple-mntm-${legIndex}`} className="text-sm font-bold tracking-wide text-foreground cursor-pointer flex items-center gap-1.5">
-                                                        <Zap className="h-3.5 w-3.5 text-amber-500" /> Enable Simple Momentum (Mntm) Entry
+                                                        Simple Momentum
                                                     </Label>
                                                 </div>
 
@@ -700,17 +700,69 @@ export const StrategyBuilder = () => {
 
                                                 <div className="h-4"></div>
 
-                                                <div className="flex items-center gap-2 border-t pt-4">
+                                                <div className={`flex items-center gap-2 border-t pt-4 transition-all duration-300 ${leg.recost_enabled ? 'opacity-40 grayscale pointer-events-none' : ''}`}>
+                                                    <input
+                                                        type="checkbox"
+                                                        id={`re-asap-${legIndex}`}
+                                                        className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                                        checked={leg.re_asap_enabled || false}
+                                                        disabled={leg.recost_enabled}
+                                                        onChange={(e) => {
+                                                            const next = [...config.legs];
+                                                            next[legIndex] = {
+                                                                ...next[legIndex],
+                                                                re_asap_enabled: e.target.checked,
+                                                                re_asap_max_entries: leg.re_asap_max_entries || 1,
+                                                                recost_enabled: e.target.checked ? false : leg.recost_enabled
+                                                            };
+                                                            setConfig({ ...config, legs: next });
+                                                        }}
+                                                    />
+                                                    <Label htmlFor={`re-asap-${legIndex}`} className={`text-sm font-bold tracking-wide text-foreground flex items-center gap-1.5 ${leg.recost_enabled ? 'cursor-not-allowed' : 'cursor-pointer'}`}>
+                                                        RE-ASAP
+                                                    </Label>
+                                                </div>
+
+                                                {leg.re_asap_enabled && (
+                                                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pl-6 animate-in slide-in-from-top-2">
+                                                        <div className="space-y-2">
+                                                            <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Max Entries</Label>
+                                                            <Select
+                                                                value={(leg.re_asap_max_entries || 1).toString()}
+                                                                onValueChange={(v) => {
+                                                                    const next = [...config.legs];
+                                                                    next[legIndex] = { ...next[legIndex], re_asap_max_entries: parseInt(v) };
+                                                                    setConfig({ ...config, legs: next });
+                                                                }}
+                                                            >
+                                                                <SelectTrigger className="h-11 rounded-xl">
+                                                                    <SelectValue placeholder="Entries" />
+                                                                </SelectTrigger>
+                                                                <SelectContent className="max-h-[250px]">
+                                                                    {Array.from({ length: 20 }, (_, i) => i + 1).map(num => (
+                                                                        <SelectItem key={`max-re-asap-${legIndex}-${num}`} value={num.toString()}>
+                                                                            {num} {num === 1 ? 'Entry' : 'Entries'}
+                                                                        </SelectItem>
+                                                                    ))}
+                                                                </SelectContent>
+                                                            </Select>
+                                                        </div>
+                                                    </div>
+                                                )}
+
+                                                <div className={`flex items-center gap-2 border-t pt-4 transition-all duration-300 ${leg.re_asap_enabled ? 'opacity-40 grayscale pointer-events-none' : ''}`}>
                                                     <input
                                                         type="checkbox"
                                                         id={`recost-${legIndex}`}
                                                         className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
                                                         checked={leg.recost_enabled || false}
+                                                        disabled={leg.re_asap_enabled}
                                                         onChange={(e) => {
                                                             const next = [...config.legs];
                                                             next[legIndex] = {
                                                                 ...next[legIndex],
                                                                 recost_enabled: e.target.checked,
+                                                                re_asap_enabled: e.target.checked ? false : leg.re_asap_enabled,
                                                                 recost_mode: leg.recost_mode || 'RECOST_PLUS_PCT',
                                                                 recost_value: leg.recost_value || 0,
                                                                 max_reentry: leg.max_reentry || 1,
@@ -721,8 +773,8 @@ export const StrategyBuilder = () => {
                                                             setConfig({ ...config, legs: next });
                                                         }}
                                                     />
-                                                    <Label htmlFor={`recost-${legIndex}`} className="text-sm font-bold tracking-wide text-foreground cursor-pointer">
-                                                        Enable Re-Entry on SL (RE-COST)
+                                                    <Label htmlFor={`recost-${legIndex}`} className={`text-sm font-bold tracking-wide text-foreground ${leg.re_asap_enabled ? 'cursor-not-allowed' : 'cursor-pointer'}`}>
+                                                        RE-COST
                                                     </Label>
                                                 </div>
 

@@ -74,7 +74,7 @@ async function runGlobalPriceFetcher() {
         if (!tasks[connId]) tasks[connId] = {};
 
         for (const leg of strategy.legs) {
-            if (leg.exited && leg.state !== "WAITING_FOR_RECOST") continue;
+            if ((leg.exited && leg.state !== "WAITING_FOR_RECOST") || !leg.instrument) continue;
             const exch = leg.instrument.exch_seg;
             const token = leg.instrument.token;
 
@@ -669,6 +669,15 @@ async function placeStopLossWithRetry({ baseConfig, legSide, entryPrice, instrum
 async function placeExitOrder({ config, leg, instrument, exitType }) {
     if (leg.exited || leg.isExiting) return leg.exitOrderId;
 
+    if (!instrument) {
+        console.log(`[Exit] Leg has no instrument (State: ${leg.state}). Marking as exited.`);
+        leg.exited = true;
+        leg.isExiting = false;
+        leg.exitType = exitType || "SKIPPED_NO_INSTRUMENT";
+        leg.exitTime = getISTTime();
+        return null;
+    }
+
     // FIX: Do not place an exit order if the leg never actually entered (e.g. waiting for RTP/MTP)
     if (!leg.entryPrice) {
         if (leg.orderId && !config.is_paper_trading) {
@@ -813,6 +822,43 @@ async function handleLegStopOut(leg, exitType, strategy) {
     leg.exchangeSlProcessed = true;
 
     addStrategyLog(strategy.id, `Leg stopped out: ${leg.instrument.symbol}. Reason: ${exitType}. PnL: ₹${leg.pnlRupees.toFixed(2)}`, exitType.includes("ERROR") ? "ERROR" : "INFO");
+
+    // RE ASAP (Re-Entry As Soon As Possible)
+    if (leg.leg.re_asap_enabled && (leg.reentry_count < (leg.leg.re_asap_max_entries || 1))) {
+        addStrategyLog(strategy.id, `RE ASAP triggered for ${leg.instrument.symbol}. Re-calculating entry for reentry #${leg.reentry_count + 1}`, "INFO");
+
+        const newLeg = {
+            leg: { ...leg.leg },
+            instrument: null, // To be re-selected on next tick
+            orderId: `VU-ASAP-${Date.now()}`,
+            uniqueOrderId: `VU-ASAP-${Date.now()}`,
+            state: "WAITING_FOR_RE_ASAP",
+            legIndex: leg.legIndex,
+            exited: false,
+            exitType: null,
+            isExiting: false,
+            entryPrice: null,
+            currentLtp: leg.currentLtp,
+            last_tick_price: leg.currentLtp,
+            reentry_count: leg.reentry_count + 1,
+            original_traded_price: 0,
+            base_otp: leg.base_otp || leg.original_traded_price,
+            bookedPnlPoints: (leg.bookedPnlPoints || 0) + (leg.currentActivePnlPoints || 0),
+            bookedPnlRupees: (leg.bookedPnlRupees || 0) + (leg.currentActivePnlRupees || 0),
+            currentActivePnlPoints: 0,
+            currentActivePnlRupees: 0,
+            pnlPercent: leg.pnlPercent || 0,
+            pnlPoints: leg.pnlPoints || 0,
+            pnlRupees: leg.pnlRupees || 0,
+            slOrderId: null,
+            slUniqueOrderId: null,
+            slTriggerPrice: null,
+            slLimitPrice: null,
+            exchangeSlProcessed: false
+        };
+        strategy.legs.push(newLeg);
+        return;
+    }
 
     if (leg.leg.recost_enabled && (leg.reentry_count < (leg.leg.max_reentry || 1))) {
         const otp = leg.base_otp || leg.original_traded_price;
@@ -1332,13 +1378,84 @@ async function executeStrategy(strategyId) {
             // Monitoring for Stop Loss or Exit Time
             if (strategy.status === "IN_POSITION" && strategy.legs?.length) {
                 try {
-                    const activeLegs = strategy.legs.filter(leg => !(leg.exited && leg.state !== "WAITING_FOR_RECOST"));
+                    const activeLegs = strategy.legs.filter(leg => !(leg.exited && !["WAITING_FOR_RECOST", "WAITING_FOR_RE_ASAP"].includes(leg.state)));
 
                     if (activeLegs.length > 0) {
                         // Using centralized globalLtpMap updated by the singleton fetcher
                         const ltpMap = globalLtpMap;
 
                         for (const leg of activeLegs) {
+                            // 0. RE-ASAP Logic: Re-select strike and entry price ASAP
+                            if (leg.state === "WAITING_FOR_RE_ASAP") {
+                                try {
+                                    let indexToken = "99926000", indexExchange = "NSE";
+                                    if (config.index === "BANKNIFTY") indexToken = "99926009";
+                                    else if (config.index === "FINNIFTY") indexToken = "99926037";
+                                    else if (config.index === "SENSEX") { indexToken = "99919000"; indexExchange = "BSE"; }
+
+                                    const spotRes = await marketService.getLTP({ exchange: indexExchange, symboltoken: indexToken, connectionId: config.connectionId });
+                                    if (!spotRes.status || !spotRes.data?.fetched?.[0]) continue;
+                                    const spotPrice = spotRes.data.fetched[0].ltp;
+
+                                    let targetInstrument = null;
+                                    if (leg.leg.strike_criteria === 'CLOSEST_PREMIUM') {
+                                        targetInstrument = await findClosestPremiumInstrument(config.index, leg.leg.option_type, leg.leg.premium, config.connectionId);
+                                    } else {
+                                        const { targetStrike } = getLegStrikeSelection({ index: config.index, option_type: leg.leg.option_type, strike: leg.leg.strike, spotPrice });
+                                        targetInstrument = findOptionInstrument(config.index, leg.leg.option_type, targetStrike);
+                                    }
+
+                                    if (!targetInstrument) {
+                                        addStrategyLog(strategyId, `RE-ASAP: Could not find instrument for ${leg.leg.option_type}. Retrying...`, "ERROR");
+                                        continue;
+                                    }
+
+                                    leg.instrument = targetInstrument;
+                                    const instLtpRes = await marketService.getLTP({ exchange: targetInstrument.exch_seg, symboltoken: targetInstrument.token, connectionId: config.connectionId });
+                                    const instLtp = instLtpRes.data?.fetched?.[0]?.ltp || 0;
+
+                                    if (leg.leg.simple_mntm_enabled) {
+                                        const mntmMode = leg.leg.simple_mntm_mode || "SIMPLE_PLUS_PCT";
+                                        const mntmVal = parseFloat(leg.leg.simple_mntm_value || 0);
+                                        let target = instLtp;
+                                        if (mntmMode === "SIMPLE_PLUS_PCT") target = instLtp + (instLtp * mntmVal / 100);
+                                        else if (mntmMode === "SIMPLE_PLUS_PTS") target = instLtp + mntmVal;
+                                        else if (mntmMode === "SIMPLE_MINUS_PCT") target = instLtp - (instLtp * mntmVal / 100);
+                                        else if (mntmMode === "SIMPLE_MINUS_PTS") target = instLtp - mntmVal;
+
+                                        leg.mntmTargetPrice = roundToTick(target);
+                                        leg.baseOtp = instLtp;
+                                        leg.state = "WAITING_FOR_SIMPLE_MNTM";
+                                        addStrategyLog(strategyId, `[RE-ASAP] ${targetInstrument.symbol} re-entry #${leg.reentry_count} waiting for Momentum @ ₹${leg.mntmTargetPrice}`, "INFO");
+                                    } else {
+                                        if (config.is_paper_trading) {
+                                            leg.entryPrice = instLtp;
+                                            leg.entryTime = getISTTime();
+                                            leg.original_traded_price = instLtp;
+                                            leg.state = "ACTIVE";
+                                            addStrategyLog(strategyId, `[RE-ASAP PAPER] ${targetInstrument.symbol} re-entered at ₹${instLtp}`, "INFO");
+                                            if (config.variety === "STOPLOSS") {
+                                                const slType = leg.leg.reentry_sl_enabled ? leg.leg.reentry_sl_type : (leg.leg.sl_type || "PERCENTAGE");
+                                                const slVal = leg.leg.reentry_sl_enabled ? leg.leg.reentry_sl_value : (leg.leg.stop_loss || 0);
+                                                const prices = computeStopLossExitPrices(leg.entryPrice, leg.leg.side, slType, slVal, config.entry_limit_offset);
+                                                leg.slTriggerPrice = prices?.trigger;
+                                                leg.slLimitPrice = prices?.limit;
+                                            }
+                                        } else {
+                                            const offset = parseFloat(config.entry_limit_offset || 0);
+                                            const params = resolveUniversalOrderParams({ targetPrice: instLtp, currentLtp: instLtp, side: leg.leg.side, offset });
+                                            const orderRes = await placeOrder({ ...config, ...params, side: leg.leg.side, lots: leg.leg.lots }, targetInstrument, config.connectionId);
+                                            leg.orderId = orderRes.orderid;
+                                            leg.uniqueOrderId = orderRes.uniqueorderid;
+                                            leg.state = "WAITING_FOR_FILL";
+                                            addStrategyLog(strategyId, `[RE-ASAP LIVE] ${targetInstrument.symbol} re-entry #${leg.reentry_count} placed: ${params.ordertype} @ ${params.price}`, "INFO");
+                                        }
+                                    }
+                                } catch (e) {
+                                    console.error("RE-ASAP Tick Error", e);
+                                }
+                                continue;
+                            }
                             const exch = leg.instrument.exch_seg;
                             const token = leg.instrument.token;
                             const tickPrice = ltpMap[`${exch}_${token}`];
@@ -1602,7 +1719,7 @@ async function executeStrategy(strategyId) {
                                         try {
                                             const api = await getAuthorizedInstance(config.connectionId);
                                             await api.cancelOrder({ variety: "STOPLOSS", orderid: leg.slOrderId });
-                                            console.log(`Cancelled SL order ${leg.slOrderId} for ${leg.instrument.symbol} due to overall SL`);
+                                            console.log(`Cancelled SL order ${leg.slOrderId} for ${leg.instrument?.symbol || 'Unknown'} due to overall SL`);
                                         } catch (e) {
                                             console.error(`Failed to cancel SL order ${leg.slOrderId}:`, e.message);
                                         }
@@ -1876,7 +1993,7 @@ async function squareOffStrategy(strategyId) {
                 try {
                     const api = await getAuthorizedInstance(config.connectionId);
                     await api.cancelOrder({ variety: "STOPLOSS", orderid: leg.slOrderId });
-                    console.log(`Cancelled SL order ${leg.slOrderId} for ${leg.instrument.symbol} due to manual square off`);
+                    console.log(`Cancelled SL order ${leg.slOrderId} for ${leg.instrument?.symbol || 'Unknown'} due to manual square off`);
                 } catch (e) {
                     console.error(`Failed to cancel SL order ${leg.slOrderId}:`, e.message);
                 }
