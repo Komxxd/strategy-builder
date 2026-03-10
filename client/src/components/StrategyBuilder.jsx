@@ -171,6 +171,57 @@ export const StrategyBuilder = () => {
         }
     };
 
+    // Helper to keep frontend PnL snappy with WebSocket updates
+    const recalculateStrategyPnL = (strategy) => {
+        if (!strategy || !strategy.legs) return strategy;
+
+        const updatedLegs = strategy.legs.map(l => {
+            // We only recalculate for legs that have an entry price and haven't fully exited yet in the UI
+            if (l.entryPrice && !l.exited) {
+                const curLtp = l.currentLtp || 0;
+                const entry = l.entryPrice || 1;
+                const side = l.leg?.side || "SELL";
+                const pnlPoints = side === "BUY" ? (curLtp - entry) : (entry - curLtp);
+                const quantity = (l.leg?.lots || 0) * (parseInt(l.instrument?.lotsize) || 1);
+
+                const curActiveRupees = pnlPoints * quantity;
+                const curActivePercent = (pnlPoints / entry) * 100;
+
+                const totalPoints = (l.bookedPnlPoints || 0) + pnlPoints;
+                const totalRupees = (l.bookedPnlRupees || 0) + curActiveRupees;
+                const totalPercent = l.original_traded_price > 0 ? (totalPoints / l.original_traded_price * 100) : 0;
+
+                return {
+                    ...l,
+                    currentActivePnlPoints: pnlPoints,
+                    currentActivePnlRupees: curActiveRupees,
+                    currentActivePnlPercent: curActivePercent,
+                    pnlPoints: totalPoints,
+                    pnlRupees: totalRupees,
+                    pnlPercent: totalPercent
+                };
+            }
+            return l;
+        });
+
+        const totalPnlRupees = updatedLegs.reduce((sum, l) => sum + (l.pnlRupees || 0), 0);
+        const totalOriginalValue = updatedLegs.reduce((sum, l) => {
+            if (!l.original_traded_price) return sum;
+            const quantity = (l.leg?.lots || 0) * (parseInt(l.instrument?.lotsize) || 1);
+            return sum + (l.original_traded_price * quantity);
+        }, 0);
+
+        const avgPnl = totalOriginalValue > 0 ? (totalPnlRupees / totalOriginalValue) * 100 : 0;
+
+        return {
+            ...strategy,
+            legs: updatedLegs,
+            totalPnlRupees,
+            totalOriginalValue,
+            pnlPercent: avgPnl
+        };
+    };
+
     // Tier 1 - Live Streaming: WebSocket initialization
     useEffect(() => {
         console.log("[Socket] Connecting to:", SOCKET_URL);
@@ -200,7 +251,8 @@ export const StrategyBuilder = () => {
                         });
 
                         if (strategyLegsChanged) {
-                            next = { ...next, [id]: { ...strategy, legs: updatedLegs } };
+                            // Immediate recalculation of overall PnL on every tick
+                            next[id] = recalculateStrategyPnL({ ...strategy, legs: updatedLegs });
                             overallHasChanges = true;
                         }
                     }
@@ -265,8 +317,9 @@ export const StrategyBuilder = () => {
                                 } else {
                                     // Periodic refresh of non-price data (pnl, etc)
                                     // We merge u.data (latest DB state) with our local memory (carrying LTPs)
+                                    // and then perform a local PnL recalculation to keep it snappy.
                                     const latestLegs = u.data.legs || [];
-                                    next[u.id] = {
+                                    const mergedStrategy = {
                                         ...u.data,
                                         legs: latestLegs.map(newLeg => {
                                             // Try to find matching leg in our current memory to preserve its fast price
@@ -277,6 +330,7 @@ export const StrategyBuilder = () => {
                                             };
                                         })
                                     };
+                                    next[u.id] = recalculateStrategyPnL(mergedStrategy);
                                     hasChanges = true;
                                 }
                             }
@@ -1069,13 +1123,13 @@ export const StrategyBuilder = () => {
                                             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                                                 <div className={`p-4 rounded-xl flex flex-col justify-center items-center ${(strategyData.pnlPercent || 0) >= 0 ? 'bg-emerald-50' : 'bg-red-50'}`}>
                                                     <span className="text-xs font-bold uppercase text-muted-foreground mb-1">Overall Return (%)</span>
-                                                    <span className={`text-2xl font-mono font-bold ${(strategyData.pnlPercent || 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                                                        {(strategyData.pnlPercent || 0) > 0 ? '+' : ''}{(strategyData.pnlPercent || 0).toFixed(2)}%
+                                                    <span className={`text-2xl font-mono font-bold transition-all duration-300 ${(strategyData.pnlPercent || 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                                                        {(strategyData.pnlPercent || 0) > 0 ? '+' : ''}{(strategyData.pnlPercent || 0).toFixed(3)}%
                                                     </span>
                                                 </div>
                                                 <div className={`p-4 rounded-xl flex flex-col justify-center items-center ${(strategyData.totalPnlRupees || 0) >= 0 ? 'bg-emerald-50' : 'bg-red-50'}`}>
                                                     <span className="text-xs font-bold uppercase text-muted-foreground mb-1">Overall PnL (₹)</span>
-                                                    <span className={`text-2xl font-mono font-bold ${(strategyData.totalPnlRupees || 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                                                    <span className={`text-2xl font-mono font-bold transition-all duration-300 ${(strategyData.totalPnlRupees || 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
                                                         {(strategyData.totalPnlRupees || 0) > 0 ? '+' : ''}{(strategyData.totalPnlRupees || 0).toFixed(2)}
                                                     </span>
                                                 </div>
@@ -1095,7 +1149,12 @@ export const StrategyBuilder = () => {
                                                         {strategyData.legs.map((l, idx) => (!l.exited || l.state === "WAITING_FOR_RECOST" || l.state === "WAITING_FOR_MNTM") && (
                                                             <div key={idx} className="flex items-center justify-between p-3 bg-white border border-border rounded-xl">
                                                                 <div className="flex flex-col">
-                                                                    <span className="text-sm font-bold">{l.instrument?.symbol || "---"} ({l.leg?.side})</span>
+                                                                    <div className="flex items-center gap-2">
+                                                                        <span className="text-sm font-bold">{l.instrument?.symbol || "---"} ({l.leg?.side})</span>
+                                                                        <span className="px-2 py-0.5 bg-slate-100 text-[10px] font-bold text-slate-600 rounded">
+                                                                            {l.leg?.lots} {l.leg?.lots > 1 ? 'Lots' : 'Lot'}
+                                                                        </span>
+                                                                    </div>
                                                                     <div className="flex items-center gap-2 mt-1 text-xs font-mono text-muted-foreground flex-wrap">
                                                                         <span className="text-primary font-bold">{l.entryTime || "---"}</span>
                                                                         <span>|</span>
@@ -1159,7 +1218,12 @@ export const StrategyBuilder = () => {
                                                             <div key={idx} className="flex items-center justify-between p-3 bg-muted/50 border border-border/50 rounded-xl opacity-90">
                                                                 <div className="flex flex-col w-full">
                                                                     <div className="flex items-center justify-between mb-2">
-                                                                        <span className="text-sm font-bold text-muted-foreground">{l.instrument?.symbol || "---"} ({l.leg?.side})</span>
+                                                                        <div className="flex items-center gap-2">
+                                                                            <span className="text-sm font-bold text-muted-foreground">{l.instrument?.symbol || "---"} ({l.leg?.side})</span>
+                                                                            <span className="px-2 py-0.5 bg-slate-100 text-[10px] font-bold text-slate-400 rounded">
+                                                                                {l.leg?.lots} {l.leg?.lots > 1 ? 'Lots' : 'Lot'}
+                                                                            </span>
+                                                                        </div>
                                                                         <div className="flex items-center gap-3">
                                                                             <span className={`text-sm font-mono font-bold ${(l.pnlPercent || 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
                                                                                 {(l.pnlPercent || 0) > 0 ? '+' : ''}{(l.pnlPercent || 0).toFixed(2)}%
@@ -1242,7 +1306,7 @@ export const StrategyBuilder = () => {
                                                         <td className="px-4 py-4 font-bold">{s.config?.index}</td>
                                                         <td className="px-4 py-4">
                                                             <span className="px-2 py-1 rounded text-[10px] font-bold bg-slate-100 text-slate-700">
-                                                                {s.config?.legs?.map((l) => `${l.side} ${l.option_type}`).join(' | ') || '---'}
+                                                                {s.config?.legs?.map((l) => `${l.side} ${l.option_type} (${l.lots} ${l.lots > 1 ? 'Lots' : 'Lot'})`).join(' | ') || '---'}
                                                             </span>
                                                         </td>
                                                         <td className="px-4 py-4 text-right">
