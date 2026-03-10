@@ -5,9 +5,10 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { StopCircle, Loader2, TrendingUp, Timer, LayoutDashboard, Target, Save, Play, Plus, Trash2, ShieldCheck, Zap, Copy } from 'lucide-react';
+import { StopCircle, Loader2, TrendingUp, Timer, LayoutDashboard, Target, Save, Play, Plus, Trash2, ShieldCheck, Zap, Copy, MessageSquare } from 'lucide-react';
 import axios from 'axios';
 import { io } from 'socket.io-client';
+import { StrategyLogs } from './StrategyLogs';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:5001/api";
 const SOCKET_URL = API_BASE_URL.replace(/\/api\/?$/, "");
@@ -27,6 +28,8 @@ export const StrategyBuilder = () => {
     const [savedStrategies, setSavedStrategies] = useState([]);
     const [editingId, setEditingId] = useState(null);
     const [activeTab, setActiveTab] = useState('paper');
+    const [logWindowOpen, setLogWindowOpen] = useState(false);
+    const [logStrategyId, setLogStrategyId] = useState(null);
 
     const [config, setConfig] = useState({
         name: '',
@@ -204,6 +207,18 @@ export const StrategyBuilder = () => {
                 });
 
                 return overallHasChanges ? next : prev;
+            });
+        });
+
+        socket.on('strategy_log', (data) => {
+            setRunningStrategies(prev => {
+                if (!prev[data.strategyId]) return prev;
+                const strategy = prev[data.strategyId];
+                const updatedLogs = [...(strategy.logs || []), data.log];
+                return {
+                    ...prev,
+                    [data.strategyId]: { ...strategy, logs: updatedLogs }
+                };
             });
         });
 
@@ -1015,13 +1030,35 @@ export const StrategyBuilder = () => {
                                             </div>
                                         </div>
                                         <div className="flex items-center gap-2">
+                                            <Button
+                                                size="sm"
+                                                variant="outline"
+                                                className="h-8 px-4 gap-1.5 rounded-lg text-xs font-bold border-blue-500 hover:bg-blue-50 text-blue-600 shadow-sm"
+                                                onClick={() => {
+                                                    setLogStrategyId(id);
+                                                    setLogWindowOpen(true);
+                                                }}
+                                            >
+                                                <MessageSquare className="h-3.5 w-3.5" />
+                                                Logs
+                                            </Button>
                                             {strategyData?.status === "IN_POSITION" && (
-                                                <Button variant="outline" className="rounded-xl border-orange-500 hover:bg-orange-50 text-orange-600 font-bold" onClick={() => handleSquareOff(id)}>
+                                                <Button
+                                                    size="sm"
+                                                    variant="outline"
+                                                    className="h-8 px-4 gap-1.5 rounded-lg text-xs font-bold border-orange-500 hover:bg-orange-50 text-orange-600 shadow-sm"
+                                                    onClick={() => handleSquareOff(id)}
+                                                >
                                                     Square Off
                                                 </Button>
                                             )}
-                                            <Button variant="outline" className="rounded-xl border-destructive hover:bg-red-50 text-destructive" onClick={() => handleStop(id)}>
-                                                <StopCircle className="h-4 w-4 mr-2" /> Terminate
+                                            <Button
+                                                size="sm"
+                                                variant="outline"
+                                                className="h-8 px-4 gap-1.5 rounded-lg text-xs font-bold border-destructive hover:bg-red-50 text-destructive shadow-sm"
+                                                onClick={() => handleStop(id)}
+                                            >
+                                                <StopCircle className="h-3.5 w-3.5" /> Terminate
                                             </Button>
                                         </div>
                                     </div>
@@ -1243,6 +1280,12 @@ export const StrategyBuilder = () => {
                             </CardContent>
                         </Card>
                     )}
+                <StrategyLogs
+                    isOpen={logWindowOpen}
+                    onClose={() => setLogWindowOpen(false)}
+                    logs={logStrategyId ? runningStrategies[logStrategyId]?.logs : []}
+                    strategyName={logStrategyId ? (runningStrategies[logStrategyId]?.name || runningStrategies[logStrategyId]?.config?.name || 'Strategy') : ''}
+                />
             </Tabs>
         </div >
     );

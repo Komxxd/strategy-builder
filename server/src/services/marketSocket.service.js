@@ -212,10 +212,34 @@ function disconnectMarketSocket() {
     }
 }
 
+/**
+ * Broadcasts an alert message to all connected frontend clients.
+ * @param {string} message 
+ * @param {string} type - 'error' | 'success' | 'info'
+ */
+function sendAlert(message, type = "error") {
+    if (io) {
+        io.emit("strategy_alert", { message, type });
+    }
+}
+
+/**
+ * Broadcasts a strategy-specific log to connected clients.
+ * @param {string} strategyId 
+ * @param {Object} log - { time, message, levelBody }
+ */
+function sendStrategyLog(strategyId, log) {
+    if (io) {
+        io.emit("strategy_log", { strategyId, log });
+    }
+}
+
 module.exports = {
     initMarketSocket,
     setIo,
     subscribeTokens,
     syncSubscriptions,
-    disconnectMarketSocket
+    disconnectMarketSocket,
+    sendAlert,
+    sendStrategyLog
 };

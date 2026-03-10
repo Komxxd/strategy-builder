@@ -73,10 +73,20 @@ function App() {
         }
       };
 
+      const handleStrategyAlert = (data) => {
+        if (data.type === 'success') {
+          setSuccess(data.message);
+        } else {
+          setError(data.message);
+        }
+      };
+
       socket.on('broker_status', handleBrokerStatus);
+      socket.on('strategy_alert', handleStrategyAlert);
 
       return () => {
         socket.off('broker_status', handleBrokerStatus);
+        socket.off('strategy_alert', handleStrategyAlert);
       };
     });
   }, []);

@@ -236,6 +236,64 @@ function getISTTime() {
     }).format(new Date());
 }
 
+/**
+ * Gets current formatted time for log window: "Mar 10, 2026 at 09:45:03 AM"
+ */
+function getISTFullDate() {
+    const options = {
+        timeZone: 'Asia/Kolkata',
+        month: 'short',
+        day: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: true
+    };
+    const formatter = new Intl.DateTimeFormat('en-US', options);
+    const parts = formatter.formatToParts(new Date());
+
+    const month = parts.find(p => p.type === 'month').value;
+    const day = parts.find(p => p.type === 'day').value;
+    const year = parts.find(p => p.type === 'year').value;
+    const hour = parts.find(p => p.type === 'hour').value;
+    const minute = parts.find(p => p.type === 'minute').value;
+    const second = parts.find(p => p.type === 'second').value;
+    const dayPeriod = parts.find(p => p.type === 'dayPeriod').value;
+
+    return `${month} ${day}, ${year} at ${hour}:${minute}:${second} ${dayPeriod}`;
+}
+
+/**
+ * Adds a log entry to a strategy and broadcasts it to the frontend.
+ * @param {string} strategyId 
+ * @param {string} message 
+ * @param {string} level - "INFO" | "CRITICAL" | "ERROR"
+ */
+function addStrategyLog(strategyId, message, level = "INFO") {
+    const strategy = activeStrategies.get(strategyId);
+    if (!strategy) return;
+
+    const logEntry = {
+        time: getISTFullDate(),
+        message,
+        level: level.toUpperCase()
+    };
+
+    if (!strategy.logs) strategy.logs = [];
+    strategy.logs.push(logEntry);
+
+    // Persist to DB queue (keep only last 100 logs in RAM to avoid memory leaks, 
+    // but DB will have them all if we update strategically)
+    // Actually for execution_details, we overwrite, so we should keep them all for the session.
+    updateStrategyInMemory(strategyId, { logs: strategy.logs });
+
+    // Live broadcast
+    marketSocketService.sendStrategyLog(strategyId, logEntry);
+
+    console.log(`[Log][${strategyId}] ${message}`);
+}
+
 function findOptionInstrument(indexName, optionType, strike) {
     loadInstruments();
 
@@ -530,21 +588,72 @@ async function placeStopLossExitOrder({ baseConfig, legSide, entryPrice, instrum
     return await placeOrder(slConfig, instrument, connectionId);
 }
 
+async function placeStopLossWithRetry({ baseConfig, legSide, entryPrice, instrument, lots, slType, slValue, slLimitMargin, connectionId, strategyId }) {
+    let attempts = 3;
+    let slOrder = null;
+    let lastError = "";
+
+    while (attempts > 0) {
+        try {
+            slOrder = await placeStopLossExitOrder({
+                baseConfig, legSide, entryPrice, instrument, lots, slType, slValue, slLimitMargin, connectionId
+            });
+            if (slOrder?.orderid) {
+                if (attempts < 3) {
+                    marketSocketService.sendAlert(`SL order for ${instrument.symbol} successfully placed on attempt ${4 - attempts}.`, "success");
+                    if (strategyId) addStrategyLog(strategyId, `SL order for ${instrument.symbol} placed on attempt ${4 - attempts}.`, "INFO");
+                } else {
+                    if (strategyId) addStrategyLog(strategyId, `SL order for ${instrument.symbol} placed at trigger ₹${slOrder.triggerprice || '---'}.`, "INFO");
+                }
+                return slOrder;
+            }
+        } catch (err) {
+            lastError = err.message;
+            console.error(`[SL Retry] Attempt ${4 - attempts} for ${instrument.symbol} failed:`, lastError);
+            marketSocketService.sendAlert(`SL placement failed for ${instrument.symbol} (Attempt ${4 - attempts}): ${lastError}`, "error");
+            if (strategyId) addStrategyLog(strategyId, `SL placement FAILED for ${instrument.symbol} (Attempt ${4 - attempts}): ${lastError}`, "ERROR");
+        }
+
+        attempts--;
+        if (attempts > 0 && (!slOrder || !slOrder.orderid)) {
+            await new Promise(r => setTimeout(r, 2000));
+        }
+    }
+
+    marketSocketService.sendAlert(`CRITICAL: Stop Loss order for ${instrument.symbol} FAILED after all attempts. Position is UNPROTECTED!`, "error");
+    if (strategyId) addStrategyLog(strategyId, `CRITICAL: Stop Loss order for ${instrument.symbol} FAILED after all attempts. Position is UNPROTECTED!`, "CRITICAL");
+    return null;
+}
+
 async function placeExitOrder({ config, leg, instrument, exitType }) {
     if (leg.exited || leg.isExiting) return leg.exitOrderId;
 
     // FIX: Do not place an exit order if the leg never actually entered (e.g. waiting for RTP/MTP)
     if (!leg.entryPrice) {
-        console.log(`[Exit] Leg ${instrument.symbol} has no entry price (State: ${leg.state}). Skipping broker order.`);
-
-        // If there's a pending entry order on exchange, we should ideally cancel it here.
-        // But since we don't always know the exact variety used for entry in this context,
-        // we'll primarily rely on the strategy exit loop to clean up pending orders.
-        leg.exited = true;
-        leg.isExiting = false;
-        leg.exitType = exitType || "SKIPPED_NO_ENTRY";
-        leg.exitTime = getISTTime();
-        return null;
+        if (leg.orderId && !config.is_paper_trading) {
+            console.log(`[Exit] Leg ${instrument.symbol} has orderId ${leg.orderId} but no entry price. Attempting cancellation...`);
+            try {
+                const api = await getAuthorizedInstance(config.connectionId);
+                // Variety for entry is usually NORMAL (see executeStrategy)
+                await api.cancelOrder({ variety: "NORMAL", orderid: leg.orderId });
+                console.log(`[Exit] Successfully cancelled pending entry order ${leg.orderId}`);
+                leg.exited = true;
+                leg.isExiting = false;
+                leg.exitType = exitType || "CANCELLED_NO_ENTRY";
+                leg.exitTime = getISTTime();
+                return null;
+            } catch (e) {
+                console.warn(`[Exit] Cancellation failed for ${leg.orderId}: ${e.message}. It may have filled. Proceeding with MARKET exit.`);
+                // If it fails to cancel, it might have filled. Fall through to place a market exit order.
+            }
+        } else {
+            console.log(`[Exit] Leg ${instrument.symbol} has no entry price (State: ${leg.state}). Skipping broker order.`);
+            leg.exited = true;
+            leg.isExiting = false;
+            leg.exitType = exitType || "SKIPPED_NO_ENTRY";
+            leg.exitTime = getISTTime();
+            return null;
+        }
     }
 
     leg.isExiting = true;
@@ -661,6 +770,8 @@ async function handleLegStopOut(leg, exitType, strategy) {
     leg.slLimitPrice = null;
     leg.slTriggerPrice = null;
     leg.exchangeSlProcessed = true;
+
+    addStrategyLog(strategy.id, `Leg stopped out: ${leg.instrument.symbol}. Reason: ${exitType}. PnL: ₹${leg.pnlRupees.toFixed(2)}`, exitType.includes("ERROR") ? "ERROR" : "INFO");
 
     if (leg.leg.recost_enabled && (leg.reentry_count < (leg.leg.max_reentry || 1))) {
         const otp = leg.base_otp || leg.original_traded_price;
@@ -833,7 +944,7 @@ async function handleLegStopOut(leg, exitType, strategy) {
                     const activeSlType = newLeg.leg.reentry_sl_enabled ? newLeg.leg.reentry_sl_type : (newLeg.leg.sl_type || "PERCENTAGE");
                     const activeSlValue = newLeg.leg.reentry_sl_enabled ? newLeg.leg.reentry_sl_value : newLeg.leg.stop_loss;
 
-                    const slOrder = await placeStopLossExitOrder({
+                    const slOrder = await placeStopLossWithRetry({
                         baseConfig: config,
                         legSide: newLeg.leg.side,
                         entryPrice: newLeg.entryPrice,
@@ -842,7 +953,8 @@ async function handleLegStopOut(leg, exitType, strategy) {
                         slType: activeSlType,
                         slValue: activeSlValue,
                         slLimitMargin: config.entry_limit_offset,
-                        connectionId: config.connectionId
+                        connectionId: config.connectionId,
+                        strategyId: strategyId
                     });
                     if (slOrder?.orderid) {
                         const prices = computeStopLossExitPrices(newLeg.entryPrice, newLeg.leg.side, activeSlType, activeSlValue, config.entry_limit_offset);
@@ -869,6 +981,7 @@ async function executeStrategy(strategyId) {
     if (!strategy) return;
 
     const { config } = strategy;
+    addStrategyLog(strategyId, `Strategy Execution started. Waiting for Entry Time ${config.entry_time}...`, "INFO");
 
     // Check loop
     const interval = setInterval(async () => {
@@ -914,6 +1027,7 @@ async function executeStrategy(strategyId) {
                     if (ltpRes.status && ltpRes.data && ltpRes.data.fetched && ltpRes.data.fetched.length > 0) {
                         const spotPrice = ltpRes.data.fetched[0].ltp;
                         console.log(`Spot Price for ${config.index}: ${spotPrice}`);
+                        addStrategyLog(strategyId, `Entry condition met. Spot Price for ${config.index}: ₹${spotPrice}. Identifying strikes...`, "INFO");
                         const legs = config.legs || [];
                         const resolvedLegs = [];
                         for (const leg of legs) {
@@ -929,6 +1043,7 @@ async function executeStrategy(strategyId) {
                                     spotPrice
                                 });
                                 console.log(`Execution Search: Index=${config.index}, Spot=${spotPrice}, ATM=${atmStrike}, Selected=${strikeLabel}, TargetStrike=${targetStrike}, Type=${leg.option_type}`);
+                                addStrategyLog(strategyId, `Leg ${resolvedLegs.length + 1}: Selecting ${strikeLabel} (${leg.option_type}) at Strike ${targetStrike}.`, "INFO");
                                 targetInstrument = findOptionInstrument(config.index, leg.option_type, targetStrike);
                                 if (!targetInstrument) {
                                     throw new Error(`Could not find ${leg.option_type} instrument for ${strikeLabel}`);
@@ -936,7 +1051,7 @@ async function executeStrategy(strategyId) {
                             }
                             resolvedLegs.push({ leg, instrument: targetInstrument });
                         }
-                        console.log(`Resolved ${resolvedLegs.length} legs. Placing orders...`);
+                        strategy.legs = []; // Initialize for rollback visibility
 
                         const placedLegs = await Promise.all(resolvedLegs.map(async (item, idx) => {
                             let finalPrice = (config.price || "0").toString();
@@ -974,7 +1089,10 @@ async function executeStrategy(strategyId) {
                                 item.instrument,
                                 config.connectionId
                             );
-                            return {
+
+                            addStrategyLog(strategyId, `Placed ${item.leg.side} order for ${item.instrument.symbol} (Qty: ${item.leg.lots * (parseInt(item.instrument.lotsize) || 1)}).`, "INFO");
+
+                            const leg = {
                                 ...item,
                                 orderId: orderData.orderid,
                                 uniqueOrderId: orderData.uniqueorderid,
@@ -999,6 +1117,10 @@ async function executeStrategy(strategyId) {
                                 slTriggerPrice: null,
                                 slLimitPrice: null
                             };
+
+                            // RECORD IT IMMEDIATELY for rollback visibility if another leg fails placement
+                            strategy.legs.push(leg);
+                            return leg;
                         }));
 
                         // Fetch entry fill prices and place stoploss exit orders parallelly
@@ -1015,6 +1137,7 @@ async function executeStrategy(strategyId) {
                                     leg.entryTime = getISTTime();
                                     leg.original_traded_price = fillPrice;
                                     leg.base_otp = fillPrice;
+                                    addStrategyLog(strategyId, `${leg.instrument.symbol} order filled at ₹${fillPrice}.`, "INFO");
                                 } else {
                                     const optLtpRes = await marketService.getLTP({
                                         exchange: leg.instrument.exch_seg,
@@ -1026,12 +1149,13 @@ async function executeStrategy(strategyId) {
                                         leg.entryTime = getISTTime();
                                         leg.original_traded_price = leg.entryPrice;
                                         leg.base_otp = leg.entryPrice;
+                                        addStrategyLog(strategyId, `Warning: Could not detect fill price for ${leg.instrument.symbol}. Using current LTP: ₹${leg.entryPrice}.`, "ERROR");
                                     }
                                 }
                             }
 
                             if (config.variety === "STOPLOSS" && leg.entryPrice) {
-                                const slOrder = await placeStopLossExitOrder({
+                                const slOrder = await placeStopLossWithRetry({
                                     baseConfig: config,
                                     legSide: leg.leg.side,
                                     entryPrice: leg.entryPrice,
@@ -1059,22 +1183,40 @@ async function executeStrategy(strategyId) {
                         }));
 
                         strategy.status = "IN_POSITION";
-                        strategy.legs = placedLegs;
+                        // strategy.legs is already populated via push() in the placement loop
 
                         updateStrategyInMemory(strategyId, {
                             status: "IN_POSITION",
-                            order_id: placedLegs.map(l => l.orderId),
-                            entry_price: placedLegs.map(l => l.entryPrice),
-                            instrument: placedLegs.map(l => l.instrument)
+                            order_id: strategy.legs.map(l => l.orderId),
+                            entry_price: strategy.legs.map(l => l.entryPrice),
+                            instrument: strategy.legs.map(l => l.instrument)
                         });
 
-                        console.log(`Strategy ${strategyId} in position: ${placedLegs.map(l => l.instrument.symbol).join(", ")}`);
+                        console.log(`Strategy ${strategyId} in position: ${strategy.legs.map(l => l.instrument.symbol).join(", ")}`);
                     } else {
                         console.error(`[${strategyId}] Failed to fetch Spot Price for entry. API Response:`, JSON.stringify(ltpRes));
                         strategy.entryAttempted = false; // allow retry next tick
                     }
                 } catch (err) {
                     console.error(`[${strategyId}] Execution failed:`, err.message);
+
+                    // ROLLBACK: If any legs were partially placed, exit them immediately for safety
+                    if (strategy.legs && strategy.legs.length > 0) {
+                        console.warn(`[${strategyId}] Partial entry detected (${strategy.legs.length} legs). Initiating emergency rollback...`);
+                        try {
+                            // Prepare state for squareOff call
+                            strategy.status = "IN_POSITION";
+                            strategy.exitAttempted = false;
+
+                            // squareOffStrategy will handle SL cancellation and exit orders 
+                            // (robust placeExitOrder will handle cancellation of pending entry orders)
+                            await squareOffStrategy(strategyId);
+                            console.log(`[${strategyId}] Safely rolled back partial entries.`);
+                        } catch (rollbackErr) {
+                            console.error(`[${strategyId}] Emergency rollback failed:`, rollbackErr.message);
+                        }
+                    }
+
                     strategy.status = "FAILED";
                     strategy.error = err.message;
                     updateStrategyInMemory(strategyId, { status: "FAILED", error: err.message });
@@ -1116,6 +1258,7 @@ async function executeStrategy(strategyId) {
 
                                     if (triggerReEntry) {
                                         console.log(`[RE-COST MNTM] Condition met for ${leg.instrument.symbol} at ${currentTick}! Target RTP (${rtp}) Reached. Calculating MTP...`);
+                                        addStrategyLog(strategyId, `Momentum Hit for ${leg.instrument.symbol}: Price ₹${currentTick} crossed RTP ₹${rtp}. Re-entering...`, "INFO");
                                         leg.reentry_count++;
                                         leg.state = "ACTIVE";
 
@@ -1213,7 +1356,7 @@ async function executeStrategy(strategyId) {
                                                     const activeSlType = leg.leg.reentry_sl_enabled ? leg.leg.reentry_sl_type : (leg.leg.sl_type || "PERCENTAGE");
                                                     const activeSlValue = leg.leg.reentry_sl_enabled ? leg.leg.reentry_sl_value : leg.leg.stop_loss;
 
-                                                    const slOrder = await placeStopLossExitOrder({
+                                                    const slOrder = await placeStopLossWithRetry({
                                                         baseConfig: config,
                                                         legSide: leg.leg.side,
                                                         entryPrice: leg.entryPrice,
@@ -1222,7 +1365,8 @@ async function executeStrategy(strategyId) {
                                                         slType: activeSlType,
                                                         slValue: activeSlValue,
                                                         slLimitMargin: config.entry_limit_offset,
-                                                        connectionId: config.connectionId
+                                                        connectionId: config.connectionId,
+                                                        strategyId: strategyId
                                                     });
                                                     if (slOrder?.orderid) {
                                                         const prices = computeStopLossExitPrices(leg.entryPrice, leg.leg.side, activeSlType, activeSlValue, config.entry_limit_offset);
@@ -1325,6 +1469,7 @@ async function executeStrategy(strategyId) {
                             strategy.status = "COMPLETED";
                             strategy.exitOrderId = exitOrders;
                             strategy.exitType = "OVERALL_STOP_LOSS";
+                            addStrategyLog(strategyId, `SQUARING OFF due to Overall Stop Loss hit. Final PnL: ₹${totalPnlRupees.toFixed(2)} (${avgPnl.toFixed(2)}%).`, "CRITICAL");
                             updateStrategyInMemory(strategyId, {
                                 status: "COMPLETED",
                                 exit_order_id: strategy.exitOrderId,
@@ -1400,6 +1545,7 @@ async function executeStrategy(strategyId) {
                             if (strategy.exitAttempted) return;
                             strategy.exitAttempted = true;
                             console.log(`[${new Date().toISOString()}] Exit time reached for ${strategyId}`);
+                            addStrategyLog(strategyId, `Exit Time ${config.exit_time} reached. Squaring off all legs.`, "INFO");
 
                             // 1. Cancel any pending orders (Entry or SL) first for active legs
                             if (!config.is_paper_trading) {
@@ -1567,6 +1713,7 @@ async function squareOffStrategy(strategyId) {
     const { config } = strategy;
     if (strategy.exitAttempted) throw new Error('Exit already in progress');
     strategy.exitAttempted = true;
+    addStrategyLog(strategyId, "MANUAL SQUARE OFF triggered. Closing all positions...", "CRITICAL");
     console.log(`[${new Date().toISOString()}] Manual Square Off triggered for ${strategyId}`);
 
     // 1. Cancel any pending SL orders on exchange
@@ -1690,6 +1837,7 @@ async function getStatus(strategyId) {
             exitOrderId: s.exitOrderId,
             exitType: s.exitType,
             instrument: s.instrument,
+            logs: s.logs || [],
             name: s.config?.name || "Deployed Strategy"
         };
     }
@@ -1709,6 +1857,7 @@ async function getStatus(strategyId) {
         name: dbExec.strategy?.name || "Deployed Strategy",
         error: dbExec.execution_details?.error,
         legs: dbExec.execution_details?.legs || [],
+        logs: dbExec.execution_details?.logs || [],
         pnlPercent: dbExec.final_pnl_percent || 0,
         totalPnlPercent: dbExec.total_pnl_percent || 0,
         exitType: dbExec.exit_type
