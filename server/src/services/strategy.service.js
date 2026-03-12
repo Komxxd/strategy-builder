@@ -1041,7 +1041,7 @@ async function handleLegStopOut(leg, exitType, strategy) {
                         slValue: activeSlValue,
                         slLimitMargin: config.entry_limit_offset,
                         connectionId: config.connectionId,
-                        strategyId: strategyId
+                        strategyId: strategy.id
                     });
                     if (slOrder?.orderid) {
                         const prices = computeStopLossExitPrices(newLeg.entryPrice, newLeg.leg.side, activeSlType, activeSlValue, config.entry_limit_offset);
@@ -1058,8 +1058,41 @@ async function handleLegStopOut(leg, exitType, strategy) {
             newLeg.state = "COMPLETED";
             newLeg.exited = true;
         }
+    } else if (leg.leg.lazy_leg_enabled && leg.leg.lazy_leg) {
+        addStrategyLog(strategy.id, `Lazy Leg triggered after ${leg.instrument?.symbol || "leg"} stop-out. Initializing lazy leg...`, "INFO");
+
+        const newLeg = {
+            leg: { ...leg.leg.lazy_leg }, // The nested configuration
+            instrument: null,
+            orderId: null,
+            uniqueOrderId: null,
+            state: "WAITING_FOR_LAZY",
+            legIndex: leg.legIndex,
+            exited: false,
+            exitType: null,
+            isExiting: false,
+            entryPrice: null,
+            currentLtp: null,
+            last_tick_price: null,
+            reentry_count: 0,
+            original_traded_price: 0,
+            base_otp: 0,
+            bookedPnlPoints: 0,
+            bookedPnlRupees: 0,
+            currentActivePnlPoints: 0,
+            currentActivePnlRupees: 0,
+            pnlPercent: 0,
+            pnlPoints: 0,
+            pnlRupees: 0,
+            slOrderId: null,
+            slUniqueOrderId: null,
+            slTriggerPrice: null,
+            slLimitPrice: null,
+            exchangeSlProcessed: false
+        };
+        strategy.legs.push(newLeg);
     } else {
-        console.log(`[RE-COST] Leg ${leg.instrument.symbol} fully stopped out and completed. Re-entry disabled or count exhausted.`);
+        console.log(`[RE-COST/LAZY] Leg ${leg.instrument?.symbol} fully stopped out and completed.`);
     }
 }
 
@@ -1378,7 +1411,7 @@ async function executeStrategy(strategyId) {
             // Monitoring for Stop Loss or Exit Time
             if (strategy.status === "IN_POSITION" && strategy.legs?.length) {
                 try {
-                    const activeLegs = strategy.legs.filter(leg => !(leg.exited && !["WAITING_FOR_RECOST", "WAITING_FOR_RE_ASAP"].includes(leg.state)));
+                    const activeLegs = strategy.legs.filter(leg => !(leg.exited && !["WAITING_FOR_RECOST", "WAITING_FOR_RE_ASAP", "WAITING_FOR_LAZY"].includes(leg.state)));
 
                     if (activeLegs.length > 0) {
                         // Using centralized globalLtpMap updated by the singleton fetcher
@@ -1453,6 +1486,76 @@ async function executeStrategy(strategyId) {
                                     }
                                 } catch (e) {
                                     console.error("RE-ASAP Tick Error", e);
+                                }
+                                continue;
+                            }
+
+                            // 0b. Lazy Leg Logic: Resolve and place the next nested leg
+                            if (leg.state === "WAITING_FOR_LAZY") {
+                                try {
+                                    let indexToken = "99926000", indexExchange = "NSE";
+                                    if (config.index === "BANKNIFTY") indexToken = "99926009";
+                                    else if (config.index === "FINNIFTY") indexToken = "99926037";
+                                    else if (config.index === "SENSEX") { indexToken = "99919000"; indexExchange = "BSE"; }
+
+                                    const spotRes = await marketService.getLTP({ exchange: indexExchange, symboltoken: indexToken, connectionId: config.connectionId });
+                                    if (!spotRes.status || !spotRes.data?.fetched?.[0]) continue;
+                                    const spotPrice = spotRes.data.fetched[0].ltp;
+
+                                    let targetInstrument = null;
+                                    if (leg.leg.strike_criteria === 'CLOSEST_PREMIUM') {
+                                        targetInstrument = await findClosestPremiumInstrument(config.index, leg.leg.option_type, leg.leg.premium, config.connectionId);
+                                    } else {
+                                        const { targetStrike } = getLegStrikeSelection({ index: config.index, option_type: leg.leg.option_type, strike: leg.leg.strike, spotPrice });
+                                        targetInstrument = findOptionInstrument(config.index, leg.leg.option_type, targetStrike);
+                                    }
+
+                                    if (!targetInstrument) {
+                                        addStrategyLog(strategyId, `Lazy Leg: Could not find instrument for ${leg.leg.option_type}. Retrying...`, "ERROR");
+                                        continue;
+                                    }
+
+                                    leg.instrument = targetInstrument;
+                                    const instLtpRes = await marketService.getLTP({ exchange: targetInstrument.exch_seg, symboltoken: targetInstrument.token, connectionId: config.connectionId });
+                                    const instLtp = instLtpRes.data?.fetched?.[0]?.ltp || 0;
+
+                                    if (leg.leg.simple_mntm_enabled) {
+                                        const mntmMode = leg.leg.simple_mntm_mode || "SIMPLE_PLUS_PCT";
+                                        const mntmVal = parseFloat(leg.leg.simple_mntm_value || 0);
+                                        let target = instLtp;
+                                        if (mntmMode === "SIMPLE_PLUS_PCT") target = instLtp + (instLtp * mntmVal / 100);
+                                        else if (mntmMode === "SIMPLE_PLUS_PTS") target = instLtp + mntmVal;
+                                        else if (mntmMode === "SIMPLE_MINUS_PCT") target = instLtp - (instLtp * mntmVal / 100);
+                                        else if (mntmMode === "SIMPLE_MINUS_PTS") target = instLtp - mntmVal;
+
+                                        leg.mntmTargetPrice = roundToTick(target);
+                                        leg.baseOtp = instLtp;
+                                        leg.state = "WAITING_FOR_SIMPLE_MNTM";
+                                        addStrategyLog(strategyId, `[LAZY LEG] ${targetInstrument.symbol} waiting for Momentum @ ₹${leg.mntmTargetPrice}`, "INFO");
+                                    } else {
+                                        if (config.is_paper_trading) {
+                                            leg.entryPrice = instLtp;
+                                            leg.entryTime = getISTTime();
+                                            leg.original_traded_price = instLtp;
+                                            leg.state = "ACTIVE";
+                                            addStrategyLog(strategyId, `[LAZY LEG PAPER] ${targetInstrument.symbol} entered at ₹${instLtp}`, "INFO");
+                                            if (config.variety === "STOPLOSS") {
+                                                const prices = computeStopLossExitPrices(leg.entryPrice, leg.leg.side, leg.leg.sl_type || "PERCENTAGE", leg.leg.stop_loss || 0, config.entry_limit_offset);
+                                                leg.slTriggerPrice = prices?.trigger;
+                                                leg.slLimitPrice = prices?.limit;
+                                            }
+                                        } else {
+                                            const offset = parseFloat(config.entry_limit_offset || 0);
+                                            const params = resolveUniversalOrderParams({ targetPrice: instLtp, currentLtp: instLtp, side: leg.leg.side, offset });
+                                            const orderRes = await placeOrder({ ...config, ...params, side: leg.leg.side, lots: leg.leg.lots }, targetInstrument, config.connectionId);
+                                            leg.orderId = orderRes.orderid;
+                                            leg.uniqueOrderId = orderRes.uniqueorderid;
+                                            leg.state = "WAITING_FOR_FILL";
+                                            addStrategyLog(strategyId, `[LAZY LEG LIVE] ${targetInstrument.symbol} placed: ${params.ordertype} @ ${params.price}`, "INFO");
+                                        }
+                                    }
+                                } catch (e) {
+                                    console.error("Lazy Leg Tick Error", e);
                                 }
                                 continue;
                             }
@@ -2106,11 +2209,11 @@ async function squareOffLeg(strategyId, legIndex) {
     const { config } = strategy;
     console.log(`[${new Date().toISOString()}] Manual Square Off triggered for leg index ${legIndex} of strategy ${strategyId}`);
 
-    // Fast-path: If the leg is just waiting for Re-Cost, it holds no position. Just cancel the Recost.
-    if (leg.state === "WAITING_FOR_RECOST") {
+    // Fast-path: If the leg is waiting for some condition (Recost, Mntm, ASAP, Lazy), it holds no position. Just cancel it.
+    if (["WAITING_FOR_RECOST", "WAITING_FOR_MNTM", "WAITING_FOR_RE_ASAP", "WAITING_FOR_LAZY"].includes(leg.state)) {
         leg.state = "COMPLETED";
         leg.exited = true;
-        leg.exitType = "MANUAL_CANCELLED_RECOST";
+        leg.exitType = "MANUAL_CANCELLED_PENDING_ENTRY";
         leg.exitTime = getISTTime();
         return true;
     }

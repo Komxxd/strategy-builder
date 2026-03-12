@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { StopCircle, Loader2, TrendingUp, Timer, LayoutDashboard, Target, Save, Play, Plus, Trash2, ShieldCheck, Zap, Copy, MessageSquare } from 'lucide-react';
+import { StopCircle, Loader2, TrendingUp, Timer, LayoutDashboard, Target, Save, Play, Plus, Trash2, ShieldCheck, Zap, Copy, MessageSquare, Ghost, X, Settings2 } from 'lucide-react';
 import axios from 'axios';
 import { io } from 'socket.io-client';
 import { StrategyLogs } from './StrategyLogs';
@@ -21,6 +22,661 @@ axios.interceptors.request.use((config) => {
     }
     return config;
 });
+
+const DEFAULT_LEG = {
+    strike_criteria: 'STRIKE_TYPE',
+    option_type: 'CE',
+    strike: 'ATM',
+    premium: 0,
+    side: 'BUY',
+    lots: 1,
+    sl_type: 'PERCENTAGE',
+    stop_loss: 10,
+    simple_mntm_enabled: false,
+    simple_mntm_mode: 'SIMPLE_PLUS_PCT',
+    simple_mntm_value: 0,
+    recost_enabled: false,
+    recost_mode: 'RECOST_PLUS_PCT',
+    recost_value: 0,
+    max_reentry: 1,
+    reentry_sl_enabled: false,
+    reentry_sl_type: 'PERCENTAGE',
+    reentry_sl_value: 10,
+    re_asap_enabled: false,
+    re_asap_max_entries: 1,
+    lazy_leg_enabled: false,
+    lazy_leg: null
+};
+
+
+const getLegSummary = (leg) => {
+    if (!leg) return 'Not configured';
+    const strike = leg.strike_criteria === 'CLOSEST_PREMIUM' ? `₹${leg.premium || 0}` : (leg.strike || 'ATM');
+    return `${leg.side || 'BUY'} ${leg.option_type || 'CE'} ${strike} (SL ${leg.stop_loss || 0}${leg.sl_type === 'POINTS' ? 'pts' : '%'})`;
+};
+
+const LazyLegModal = ({ isOpen, onClose, leg, onChange, legIndex, level }) => {
+    useEffect(() => {
+        if (isOpen) {
+            document.body.style.overflow = 'hidden';
+        } else {
+            document.body.style.overflow = 'unset';
+        }
+        return () => { document.body.style.overflow = 'unset'; };
+    }, [isOpen]);
+
+    if (!isOpen) return null;
+
+    const modalContent = (
+        <div
+            className="fixed inset-0 z-[40] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md transition-all duration-500 animate-in fade-in"
+            onClick={(e) => e.target === e.currentTarget && onClose()}
+        >
+            <div className="bg-white w-full max-w-4xl max-h-[90vh] flex flex-col rounded-[2.5rem] shadow-[0_32px_64px_-12px_rgba(0,0,0,0.4)] border border-slate-200 overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-10 duration-500 ease-out">
+                {/* Header */}
+                <div className="px-8 py-6 border-b border-slate-100 flex items-center justify-between bg-white shrink-0">
+                    <div className="flex items-center gap-4">
+                        <div className="h-12 w-12 bg-orange-500 rounded-2xl flex items-center justify-center shadow-lg shadow-orange-200">
+                            <Ghost className="h-6 w-6 text-white" />
+                        </div>
+                        <div>
+                            <h3 className="text-xl font-bold text-slate-900 tracking-tight">Configure Lazy Leg</h3>
+                            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mt-1 opacity-70">
+                                Level {level} • Initial Leg Index {legIndex + 1}
+                            </p>
+                        </div>
+                    </div>
+                    <button
+                        onClick={onClose}
+                        className="p-2 rounded-2xl hover:bg-slate-100 transition-all text-slate-400 hover:text-slate-900 border border-transparent hover:border-slate-200"
+                    >
+                        <X className="h-6 w-6" />
+                    </button>
+                </div>
+
+                {/* Content */}
+                <div className="flex-1 overflow-y-auto p-8 bg-slate-50/30">
+                    <div className="max-w-3xl mx-auto">
+                        <LegConfiguration
+                            leg={leg}
+                            legIndex={legIndex}
+                            isRecursive={true}
+                            level={level}
+                            onChange={onChange}
+                            onRemove={onClose}
+                            canRemove={false}
+                        />
+                    </div>
+                </div>
+
+                {/* Footer */}
+                <div className="px-8 py-5 bg-white border-t border-slate-100 flex items-center justify-end shrink-0 gap-3">
+                    <Button variant="outline" onClick={onClose} className="rounded-xl px-6 font-bold h-12">
+                        Cancel
+                    </Button>
+                    <Button onClick={onClose} className="rounded-xl px-8 font-bold h-12 shadow-lg shadow-primary/20">
+                        Confirm Configuration
+                    </Button>
+                </div>
+            </div>
+            <style dangerouslySetInnerHTML={{
+                __html: `
+                @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+                @keyframes zoom-in-95 { from { transform: scale(0.95); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+                @keyframes slide-in-bottom-10 { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+                .animate-in { animation-duration: 400ms; animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1); animation-fill-mode: forwards; }
+                .fade-in { animation-name: fade-in; }
+                .zoom-in-95 { animation-name: zoom-in-95; }
+                .slide-in-from-bottom-10 { animation-name: slide-in-bottom-10; }
+            `}} />
+        </div>
+    );
+
+    return createPortal(modalContent, document.body);
+};
+
+
+const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove, isRecursive = false, level = 0 }) => {
+    const idPrefix = isRecursive ? `lazy-${level}-${legIndex}` : `leg-${legIndex}`;
+    const [isLazyModalOpen, setIsLazyModalOpen] = useState(false);
+
+    return (
+        <div className={`p-6 rounded-2xl border-2 transition-all duration-300 ${isRecursive ? 'bg-muted/30 border-dashed mt-4 ml-4 md:ml-8 border-primary/20' : 'bg-card border-primary/10 hover:border-primary/30 shadow-sm'}`}>
+            <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center gap-3">
+                    <div className={`h-10 w-10 ${isRecursive ? 'bg-orange-500/10 text-orange-600' : 'bg-primary/10 text-primary'} rounded-xl flex items-center justify-center font-bold`}>
+                        {isRecursive ? <Ghost className="h-5 w-5" /> : legIndex + 1}
+                    </div>
+                    <div>
+                        <h3 className="font-bold text-lg tracking-tight">
+                            {isRecursive ? `Lazy Leg (Level ${level})` : `Strategy Leg ${legIndex + 1}`}
+                        </h3>
+                        <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider">
+                            {isRecursive ? 'Placed after parent SL hits' : 'Initial Entry Leg'}
+                        </p>
+                    </div>
+                </div>
+                {!isRecursive && (
+                    <div className="flex items-center gap-1">
+                        <Button
+                            type="button"
+                            variant="ghost"
+                            className="h-8 px-2 text-primary hover:text-primary/80"
+                            onClick={onCopy}
+                            title="Copy leg"
+                        >
+                            <Copy className="h-4 w-4" />
+                        </Button>
+                        <Button
+                            type="button"
+                            variant="ghost"
+                            className="h-8 px-2 text-destructive"
+                            onClick={onRemove}
+                            disabled={!canRemove}
+                            title={!canRemove ? "At least one leg is required" : "Remove leg"}
+                        >
+                            <Trash2 className="h-4 w-4" />
+                        </Button>
+                    </div>
+                )}
+                {isRecursive && (
+                    <Button
+                        type="button"
+                        variant="ghost"
+                        className="h-8 px-2 text-destructive"
+                        onClick={onRemove}
+                        title="Remove Lazy Leg"
+                    >
+                        <Trash2 className="h-4 w-4" />
+                    </Button>
+                )}
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                    <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+                        <TrendingUp className="h-3 w-3" /> Option Type
+                    </Label>
+                    <Select
+                        value={leg.option_type}
+                        onValueChange={(v) => onChange({ ...leg, option_type: v })}
+                    >
+                        <SelectTrigger className="h-11 rounded-xl">
+                            <SelectValue placeholder="Type" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="CE">CE (Call)</SelectItem>
+                            <SelectItem value="PE">PE (Put)</SelectItem>
+                        </SelectContent>
+                    </Select>
+                </div>
+
+                <div className="space-y-2">
+                    <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+                        <Target className="h-3 w-3" /> Strike Criteria
+                    </Label>
+                    <Select
+                        value={leg.strike_criteria || 'STRIKE_TYPE'}
+                        onValueChange={(v) => onChange({ ...leg, strike_criteria: v })}
+                    >
+                        <SelectTrigger className="h-11 rounded-xl">
+                            <SelectValue placeholder="Criteria" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="STRIKE_TYPE">Strike Type</SelectItem>
+                            <SelectItem value="CLOSEST_PREMIUM">Closest Premium</SelectItem>
+                        </SelectContent>
+                    </Select>
+                </div>
+
+                {leg.strike_criteria === 'CLOSEST_PREMIUM' ? (
+                    <div className="space-y-2">
+                        <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+                            Premium (₹)
+                        </Label>
+                        <Input
+                            className="h-11 rounded-xl"
+                            type="text"
+                            value={leg.premium === undefined ? '' : leg.premium}
+                            onChange={(e) => {
+                                const val = e.target.value;
+                                if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                                    onChange({ ...leg, premium: val });
+                                }
+                            }}
+                            onBlur={(e) => onChange({ ...leg, premium: parseFloat(e.target.value) || 0 })}
+                        />
+                    </div>
+                ) : (
+                    <div className="space-y-2">
+                        <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+                            <Target className="h-3 w-3" /> Strike
+                        </Label>
+                        <Select
+                            value={leg.strike}
+                            onValueChange={(v) => onChange({ ...leg, strike: v })}
+                        >
+                            <SelectTrigger className="h-11 rounded-xl">
+                                <SelectValue placeholder="Select Strike" />
+                            </SelectTrigger>
+                            <SelectContent className="max-h-[300px]">
+                                <SelectItem value="ATM">ATM (At the Money)</SelectItem>
+                                {Array.from({ length: 40 }, (_, i) => i + 1).map(n => (
+                                    <SelectItem key={`${idPrefix}-otm-${n}`} value={`OTM${n}`}>OTM {n} strike{n > 1 ? 's' : ''} away</SelectItem>
+                                ))}
+                                {Array.from({ length: 40 }, (_, i) => i + 1).map(n => (
+                                    <SelectItem key={`${idPrefix}-itm-${n}`} value={`ITM${n}`}>ITM {n} strike{n > 1 ? 's' : ''} away</SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                    </div>
+                )}
+
+                <div className="space-y-2">
+                    <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Side</Label>
+                    <Select
+                        value={leg.side}
+                        onValueChange={(v) => onChange({ ...leg, side: v })}
+                    >
+                        <SelectTrigger className="h-11 rounded-xl">
+                            <SelectValue placeholder="Side" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="BUY">BUY</SelectItem>
+                            <SelectItem value="SELL">SELL</SelectItem>
+                        </SelectContent>
+                    </Select>
+                </div>
+
+                <div className="space-y-2">
+                    <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Lots</Label>
+                    <Input
+                        className="h-11 rounded-xl"
+                        type="number"
+                        value={leg.lots}
+                        onChange={(e) => onChange({ ...leg, lots: parseInt(e.target.value) })}
+                    />
+                </div>
+
+                <div className="space-y-2">
+                    <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">SL Type</Label>
+                    <Select
+                        value={leg.sl_type || 'PERCENTAGE'}
+                        onValueChange={(v) => onChange({ ...leg, sl_type: v })}
+                    >
+                        <SelectTrigger className="h-11 rounded-xl">
+                            <SelectValue placeholder="SL Type" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="PERCENTAGE">Percentage (%)</SelectItem>
+                            <SelectItem value="POINTS">Points (Pts)</SelectItem>
+                        </SelectContent>
+                    </Select>
+                </div>
+
+                <div className="space-y-2">
+                    <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                        Stop Loss {leg.sl_type === 'POINTS' ? '(Pts)' : '(%)'}
+                    </Label>
+                    <Input
+                        className="h-11 rounded-xl"
+                        type="number"
+                        value={leg.stop_loss}
+                        onChange={(e) => onChange({ ...leg, stop_loss: parseFloat(e.target.value) })}
+                    />
+                </div>
+
+                <div className="md:col-span-2 space-y-4 pt-4 border-t border-dashed mt-2">
+                    <div className="flex items-center gap-2">
+                        <input
+                            type="checkbox"
+                            id={`simple-mntm-${idPrefix}`}
+                            className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
+                            checked={leg.simple_mntm_enabled || false}
+                            onChange={(e) => onChange({
+                                ...leg,
+                                simple_mntm_enabled: e.target.checked,
+                                simple_mntm_mode: leg.simple_mntm_mode || 'SIMPLE_PLUS_PCT',
+                                simple_mntm_value: leg.simple_mntm_value || 0
+                            })}
+                        />
+                        <Label htmlFor={`simple-mntm-${idPrefix}`} className="text-sm font-bold tracking-wide text-foreground cursor-pointer flex items-center gap-1.5">
+                            Simple Momentum
+                        </Label>
+                    </div>
+
+                    {leg.simple_mntm_enabled && (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pl-6 animate-in slide-in-from-top-2">
+                            <div className="space-y-2">
+                                <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Simple Mntm Mode</Label>
+                                <Select
+                                    value={leg.simple_mntm_mode || 'SIMPLE_PLUS_PCT'}
+                                    onValueChange={(v) => onChange({ ...leg, simple_mntm_mode: v })}
+                                >
+                                    <SelectTrigger className="h-11 rounded-xl">
+                                        <SelectValue placeholder="Mode" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="SIMPLE_PLUS_PCT">SIMPLE + %</SelectItem>
+                                        <SelectItem value="SIMPLE_PLUS_PTS">SIMPLE + Pts</SelectItem>
+                                        <SelectItem value="SIMPLE_MINUS_PCT">SIMPLE - %</SelectItem>
+                                        <SelectItem value="SIMPLE_MINUS_PTS">SIMPLE - Pts</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                            <div className="space-y-2">
+                                <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                                    Mntm Value {leg.simple_mntm_mode && leg.simple_mntm_mode.includes('PCT') ? '(%)' : '(Pts)'}
+                                </Label>
+                                <Input
+                                    className="h-11 rounded-xl"
+                                    type="text"
+                                    value={leg.simple_mntm_value === undefined ? '' : leg.simple_mntm_value}
+                                    onChange={(e) => {
+                                        const val = e.target.value;
+                                        if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                                            onChange({ ...leg, simple_mntm_value: val });
+                                        }
+                                    }}
+                                    onBlur={(e) => onChange({ ...leg, simple_mntm_value: parseFloat(e.target.value) || 0 })}
+                                />
+                            </div>
+                        </div>
+                    )}
+
+                    <div className="h-4"></div>
+
+                    {/* Exclusivity: RE-ASAP, RE-COST, LAZY LEG */}
+                    <div className="grid grid-cols-1 gap-4">
+                        {/* RE-ASAP */}
+                        <div className={`space-y-4 pt-4 border-t transition-all duration-300 ${(leg.recost_enabled || leg.lazy_leg_enabled) ? 'opacity-40 grayscale pointer-events-none' : ''}`}>
+                            <div className="flex items-center gap-2">
+                                <input
+                                    type="checkbox"
+                                    id={`re-asap-${idPrefix}`}
+                                    className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                    checked={leg.re_asap_enabled || false}
+                                    disabled={leg.recost_enabled || leg.lazy_leg_enabled}
+                                    onChange={(e) => onChange({
+                                        ...leg,
+                                        re_asap_enabled: e.target.checked,
+                                        re_asap_max_entries: leg.re_asap_max_entries || 1,
+                                        recost_enabled: false,
+                                        lazy_leg_enabled: false
+                                    })}
+                                />
+                                <Label htmlFor={`re-asap-${idPrefix}`} className={`text-sm font-bold tracking-wide text-foreground flex items-center gap-1.5 ${(leg.recost_enabled || leg.lazy_leg_enabled) ? 'cursor-not-allowed' : 'cursor-pointer'}`}>
+                                    RE-ASAP
+                                </Label>
+                            </div>
+                            {leg.re_asap_enabled && (
+                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pl-6 animate-in slide-in-from-top-2">
+                                    <div className="space-y-2">
+                                        <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Max Entries</Label>
+                                        <Select
+                                            value={(leg.re_asap_max_entries || 1).toString()}
+                                            onValueChange={(v) => onChange({ ...leg, re_asap_max_entries: parseInt(v) })}
+                                        >
+                                            <SelectTrigger className="h-11 rounded-xl">
+                                                <SelectValue placeholder="Entries" />
+                                            </SelectTrigger>
+                                            <SelectContent className="max-h-[250px]">
+                                                {Array.from({ length: 20 }, (_, i) => i + 1).map(num => (
+                                                    <SelectItem key={`${idPrefix}-max-re-asap-${num}`} value={num.toString()}>
+                                                        {num} {num === 1 ? 'Entry' : 'Entries'}
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* RE-COST */}
+                        <div className={`space-y-4 pt-4 border-t transition-all duration-300 ${(leg.re_asap_enabled || leg.lazy_leg_enabled) ? 'opacity-40 grayscale pointer-events-none' : ''}`}>
+                            <div className="flex items-center gap-2">
+                                <input
+                                    type="checkbox"
+                                    id={`recost-${idPrefix}`}
+                                    className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                    checked={leg.recost_enabled || false}
+                                    disabled={leg.re_asap_enabled || leg.lazy_leg_enabled}
+                                    onChange={(e) => onChange({
+                                        ...leg,
+                                        recost_enabled: e.target.checked,
+                                        re_asap_enabled: false,
+                                        lazy_leg_enabled: false,
+                                        recost_mode: leg.recost_mode || 'RECOST_PLUS_PCT',
+                                        recost_value: leg.recost_value || 0,
+                                        max_reentry: leg.max_reentry || 1,
+                                        reentry_sl_enabled: leg.reentry_sl_enabled || false,
+                                        reentry_sl_type: leg.reentry_sl_type || 'PERCENTAGE',
+                                        reentry_sl_value: leg.reentry_sl_value || leg.stop_loss || 0
+                                    })}
+                                />
+                                <Label htmlFor={`recost-${idPrefix}`} className={`text-sm font-bold tracking-wide text-foreground ${(leg.re_asap_enabled || leg.lazy_leg_enabled) ? 'cursor-not-allowed' : 'cursor-pointer'}`}>
+                                    RE-COST
+                                </Label>
+                            </div>
+                            {leg.recost_enabled && (
+                                <div className="space-y-4 pl-6 animate-in slide-in-from-top-2">
+                                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                                        <div className="space-y-2">
+                                            <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Re-Cost Mode</Label>
+                                            <Select
+                                                value={leg.recost_mode || 'RECOST_PLUS_PCT'}
+                                                onValueChange={(v) => onChange({ ...leg, recost_mode: v })}
+                                            >
+                                                <SelectTrigger className="h-11 rounded-xl">
+                                                    <SelectValue placeholder="Mode" />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="RECOST_PLUS_PCT">RECOST + %</SelectItem>
+                                                    <SelectItem value="RECOST_PLUS_PTS">RECOST + Pts</SelectItem>
+                                                    <SelectItem value="RECOST_MINUS_PCT">RECOST - %</SelectItem>
+                                                    <SelectItem value="RECOST_MINUS_PTS">RECOST - Pts</SelectItem>
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+                                        <div className="space-y-2">
+                                            <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+                                                Value {leg.recost_mode && leg.recost_mode.includes('PCT') ? '(%)' : '(Pts)'}
+                                            </Label>
+                                            <Input
+                                                className="h-11 rounded-xl"
+                                                type="text"
+                                                value={leg.recost_value === undefined ? '' : leg.recost_value}
+                                                onChange={(e) => {
+                                                    const val = e.target.value;
+                                                    if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                                                        onChange({ ...leg, recost_value: val });
+                                                    }
+                                                }}
+                                                onBlur={(e) => onChange({ ...leg, recost_value: parseFloat(e.target.value) || 0 })}
+                                            />
+                                        </div>
+                                        <div className="space-y-2">
+                                            <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Max Entries</Label>
+                                            <Select
+                                                value={(leg.max_reentry || 1).toString()}
+                                                onValueChange={(v) => onChange({ ...leg, max_reentry: parseInt(v) })}
+                                            >
+                                                <SelectTrigger className="h-11 rounded-xl">
+                                                    <SelectValue placeholder="Entries" />
+                                                </SelectTrigger>
+                                                <SelectContent className="max-h-[250px]">
+                                                    {Array.from({ length: 20 }, (_, i) => i + 1).map(num => (
+                                                        <SelectItem key={`${idPrefix}-max-recost-${num}`} value={num.toString()}>
+                                                            {num} {num === 1 ? 'Entry' : 'Entries'}
+                                                        </SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+                                    </div>
+
+                                    <div className="space-y-4">
+                                        <div className="flex items-center gap-2">
+                                            <input
+                                                type="checkbox"
+                                                id={`reentry-mntm-${idPrefix}`}
+                                                className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                                checked={leg.recost_mntm_enabled || false}
+                                                onChange={(e) => onChange({
+                                                    ...leg,
+                                                    recost_mntm_enabled: e.target.checked,
+                                                    recost_mntm_mode: leg.recost_mntm_mode || 'RECOST_PLUS_PCT',
+                                                    recost_mntm_value: leg.recost_mntm_value || 0
+                                                })}
+                                            />
+                                            <Label htmlFor={`reentry-mntm-${idPrefix}`} className="text-xs font-bold tracking-wide text-foreground cursor-pointer">
+                                                Re Entry Mntm
+                                            </Label>
+                                        </div>
+                                        {leg.recost_mntm_enabled && (
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pl-6 animate-in slide-in-from-top-2 border-l-2 border-primary/20">
+                                                <div className="space-y-2">
+                                                    <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Mntm Mode</Label>
+                                                    <Select
+                                                        value={leg.recost_mntm_mode || 'RECOST_PLUS_PCT'}
+                                                        onValueChange={(v) => onChange({ ...leg, recost_mntm_mode: v })}
+                                                    >
+                                                        <SelectTrigger className="h-11 rounded-xl">
+                                                            <SelectValue placeholder="Mode" />
+                                                        </SelectTrigger>
+                                                        <SelectContent>
+                                                            <SelectItem value="RECOST_PLUS_PCT">RTP + %</SelectItem>
+                                                            <SelectItem value="RECOST_PLUS_PTS">RTP + Pts</SelectItem>
+                                                            <SelectItem value="RECOST_MINUS_PCT">RTP - %</SelectItem>
+                                                            <SelectItem value="RECOST_MINUS_PTS">RTP - Pts</SelectItem>
+                                                        </SelectContent>
+                                                    </Select>
+                                                </div>
+                                                <div className="space-y-2">
+                                                    <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                                                        Value {leg.recost_mntm_mode && leg.recost_mntm_mode.includes('PCT') ? '(%)' : '(Pts)'}
+                                                    </Label>
+                                                    <Input
+                                                        className="h-11 rounded-xl"
+                                                        type="text"
+                                                        value={leg.recost_mntm_value === undefined ? '' : leg.recost_mntm_value}
+                                                        onChange={(e) => {
+                                                            const val = e.target.value;
+                                                            if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                                                                onChange({ ...leg, recost_mntm_value: val });
+                                                            }
+                                                        }}
+                                                        onBlur={(e) => onChange({ ...leg, recost_mntm_value: parseFloat(e.target.value) || 0 })}
+                                                    />
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        <div className="flex items-center gap-2">
+                                            <input
+                                                type="checkbox"
+                                                id={`reentry-sl-${idPrefix}`}
+                                                className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                                checked={leg.reentry_sl_enabled || false}
+                                                onChange={(e) => onChange({ ...leg, reentry_sl_enabled: e.target.checked })}
+                                            />
+                                            <Label htmlFor={`reentry-sl-${idPrefix}`} className="text-xs font-bold tracking-wide text-foreground cursor-pointer">
+                                                Override Stop Loss on Re-Entry
+                                            </Label>
+                                        </div>
+                                        {leg.reentry_sl_enabled && (
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pl-6 animate-in slide-in-from-top-2 border-l-2 border-primary/20">
+                                                <div className="space-y-2">
+                                                    <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">New SL Type</Label>
+                                                    <Select
+                                                        value={leg.reentry_sl_type || 'PERCENTAGE'}
+                                                        onValueChange={(v) => onChange({ ...leg, reentry_sl_type: v })}
+                                                    >
+                                                        <SelectTrigger className="h-11 rounded-xl">
+                                                            <SelectValue placeholder="SL Type" />
+                                                        </SelectTrigger>
+                                                        <SelectContent>
+                                                            <SelectItem value="PERCENTAGE">Percentage (%)</SelectItem>
+                                                            <SelectItem value="POINTS">Points (Pts)</SelectItem>
+                                                        </SelectContent>
+                                                    </Select>
+                                                </div>
+                                                <div className="space-y-2">
+                                                    <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+                                                        New SL Value {leg.reentry_sl_type === 'POINTS' ? '(Pts)' : '(%)'}
+                                                    </Label>
+                                                    <Input
+                                                        className="h-11 rounded-xl"
+                                                        type="number"
+                                                        value={leg.reentry_sl_value !== undefined ? leg.reentry_sl_value : (leg.stop_loss || 0)}
+                                                        onChange={(e) => onChange({ ...leg, reentry_sl_value: parseFloat(e.target.value) })}
+                                                    />
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* LAZY LEG */}
+                        <div className={`space-y-4 pt-4 border-t transition-all duration-300 ${(leg.re_asap_enabled || leg.recost_enabled) ? 'opacity-40 grayscale pointer-events-none' : ''}`}>
+                            <div className="flex items-center gap-2">
+                                <input
+                                    type="checkbox"
+                                    id={`lazy-leg-${idPrefix}`}
+                                    className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                    checked={leg.lazy_leg_enabled || false}
+                                    disabled={leg.re_asap_enabled || leg.recost_enabled}
+                                    onChange={(e) => onChange({
+                                        ...leg,
+                                        lazy_leg_enabled: e.target.checked,
+                                        re_asap_enabled: false,
+                                        recost_enabled: false,
+                                        lazy_leg: e.target.checked ? (leg.lazy_leg || { ...DEFAULT_LEG }) : leg.lazy_leg
+                                    })}
+                                />
+                                <Label htmlFor={`lazy-leg-${idPrefix}`} className={`text-sm font-bold tracking-wide text-foreground flex items-center gap-1.5 ${(leg.re_asap_enabled || leg.recost_enabled) ? 'cursor-not-allowed' : 'cursor-pointer'}`}>
+                                    LAZY LEG
+                                </Label>
+                            </div>
+
+                            {leg.lazy_leg_enabled && leg.lazy_leg && (
+                                <div className="animate-in slide-in-from-top-2">
+                                    <div className="flex items-center justify-between p-4 bg-orange-50/50 border border-orange-200 rounded-2xl group hover:border-orange-300 transition-all cursor-pointer" onClick={() => setIsLazyModalOpen(true)}>
+                                        <div className="flex items-center gap-3">
+                                            <div className="h-10 w-10 bg-orange-500/10 text-orange-600 rounded-xl flex items-center justify-center">
+                                                <Ghost className="h-5 w-5" />
+                                            </div>
+                                            <div>
+                                                <p className="text-xs font-bold text-orange-600 uppercase tracking-widest">Lazy Leg Level {level + 1}</p>
+                                                <p className="text-sm font-bold text-slate-700">{getLegSummary(leg.lazy_leg)}</p>
+                                            </div>
+                                        </div>
+                                        <Button variant="ghost" size="sm" className="rounded-xl group-hover:bg-orange-100/50">
+                                            <Settings2 className="h-4 w-4 mr-2" /> Configure
+                                        </Button>
+                                    </div>
+                                    <LazyLegModal
+                                        isOpen={isLazyModalOpen}
+                                        onClose={() => setIsLazyModalOpen(false)}
+                                        leg={leg.lazy_leg}
+                                        onChange={(newLazyLeg) => onChange({ ...leg, lazy_leg: newLazyLeg })}
+                                        legIndex={legIndex}
+                                        level={level + 1}
+                                    />
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+// Tier 1 - Rule 1 & Phase 2: Interceptor to ensuring session key is always sent
 
 export const StrategyBuilder = () => {
     const [loading, setLoading] = useState(false);
@@ -50,7 +706,7 @@ export const StrategyBuilder = () => {
         overall_target_value: 0,
         entry_limit_offset: 0,
         legs: [
-            { strike_criteria: 'STRIKE_TYPE', option_type: 'CE', strike: 'ATM', premium: 0, side: 'BUY', lots: 1, sl_type: 'PERCENTAGE', stop_loss: 10, simple_mntm_enabled: false, simple_mntm_mode: 'SIMPLE_PLUS_PCT', simple_mntm_value: 0, recost_enabled: false, recost_mode: 'RECOST_PLUS_PCT', recost_value: 0, max_reentry: 1, reentry_sl_enabled: false, reentry_sl_type: 'PERCENTAGE', reentry_sl_value: 10, re_asap_enabled: false, re_asap_max_entries: 1 }
+            { strike_criteria: 'STRIKE_TYPE', option_type: 'CE', strike: 'ATM', premium: 0, side: 'BUY', lots: 1, sl_type: 'PERCENTAGE', stop_loss: 10, simple_mntm_enabled: false, simple_mntm_mode: 'SIMPLE_PLUS_PCT', simple_mntm_value: 0, recost_enabled: false, recost_mode: 'RECOST_PLUS_PCT', recost_value: 0, max_reentry: 1, reentry_sl_enabled: false, reentry_sl_type: 'PERCENTAGE', reentry_sl_value: 10, re_asap_enabled: false, re_asap_max_entries: 1, lazy_leg_enabled: false, lazy_leg: null }
         ]
     });
 
@@ -420,579 +1076,28 @@ export const StrategyBuilder = () => {
                         </div>
 
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4">
-                            {config.legs.map((leg, legIndex) => {
-                                return (
-                                    <div key={`leg-${legIndex}`} className="border rounded-2xl p-4 bg-muted/30">
-                                        <div className="flex items-center justify-between mb-4">
-                                            <div className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                                                Leg {legIndex + 1}
-                                            </div>
-                                            <div className="flex items-center gap-1">
-                                                <Button
-                                                    type="button"
-                                                    variant="ghost"
-                                                    className="h-8 px-2 text-primary hover:text-primary/80"
-                                                    onClick={() => {
-                                                        const next = [...config.legs];
-                                                        next.splice(legIndex + 1, 0, { ...config.legs[legIndex] });
-                                                        setConfig({ ...config, legs: next });
-                                                    }}
-                                                    title="Copy leg"
-                                                >
-                                                    <Copy className="h-4 w-4" />
-                                                </Button>
-                                                <Button
-                                                    type="button"
-                                                    variant="ghost"
-                                                    className="h-8 px-2 text-destructive"
-                                                    onClick={() => {
-                                                        if (config.legs.length === 1) return;
-                                                        const next = config.legs.filter((_, i) => i !== legIndex);
-                                                        setConfig({ ...config, legs: next });
-                                                    }}
-                                                    disabled={config.legs.length === 1}
-                                                    title={config.legs.length === 1 ? "At least one leg is required" : "Remove leg"}
-                                                >
-                                                    <Trash2 className="h-4 w-4" />
-                                                </Button>
-                                            </div>
-                                        </div>
-                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                            <div className="space-y-2">
-                                                <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
-                                                    <TrendingUp className="h-3 w-3" /> Option Type
-                                                </Label>
-                                                <Select
-                                                    value={leg.option_type}
-                                                    onValueChange={(v) => {
-                                                        const next = [...config.legs];
-                                                        next[legIndex] = { ...next[legIndex], option_type: v };
-                                                        setConfig({ ...config, legs: next });
-                                                    }}
-                                                >
-                                                    <SelectTrigger className="h-11 rounded-xl">
-                                                        <SelectValue placeholder="Type" />
-                                                    </SelectTrigger>
-                                                    <SelectContent>
-                                                        <SelectItem value="CE">CE (Call)</SelectItem>
-                                                        <SelectItem value="PE">PE (Put)</SelectItem>
-                                                    </SelectContent>
-                                                </Select>
-                                            </div>
-
-                                            <div className="space-y-2">
-                                                <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
-                                                    <Target className="h-3 w-3" /> Strike Criteria
-                                                </Label>
-                                                <Select
-                                                    value={leg.strike_criteria || 'STRIKE_TYPE'}
-                                                    onValueChange={(v) => {
-                                                        const next = [...config.legs];
-                                                        next[legIndex] = { ...next[legIndex], strike_criteria: v };
-                                                        setConfig({ ...config, legs: next });
-                                                    }}
-                                                >
-                                                    <SelectTrigger className="h-11 rounded-xl">
-                                                        <SelectValue placeholder="Criteria" />
-                                                    </SelectTrigger>
-                                                    <SelectContent>
-                                                        <SelectItem value="STRIKE_TYPE">Strike Type</SelectItem>
-                                                        <SelectItem value="CLOSEST_PREMIUM">Closest Premium</SelectItem>
-                                                    </SelectContent>
-                                                </Select>
-                                            </div>
-
-                                            {leg.strike_criteria === 'CLOSEST_PREMIUM' ? (
-                                                <div className="space-y-2">
-                                                    <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
-                                                        Premium (₹)
-                                                    </Label>
-                                                    <Input
-                                                        className="h-11 rounded-xl"
-                                                        type="text"
-                                                        value={leg.premium === undefined ? '' : leg.premium}
-                                                        onChange={(e) => {
-                                                            const val = e.target.value;
-                                                            if (val === '' || /^\d*\.?\d*$/.test(val)) {
-                                                                const next = [...config.legs];
-                                                                next[legIndex] = { ...next[legIndex], premium: val };
-                                                                setConfig({ ...config, legs: next });
-                                                            }
-                                                        }}
-                                                        onBlur={(e) => {
-                                                            const next = [...config.legs];
-                                                            next[legIndex] = { ...next[legIndex], premium: parseFloat(e.target.value) || 0 };
-                                                            setConfig({ ...config, legs: next });
-                                                        }}
-                                                    />
-                                                </div>
-                                            ) : (
-                                                <div className="space-y-2">
-                                                    <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
-                                                        <Target className="h-3 w-3" /> Strike
-                                                    </Label>
-                                                    <Select
-                                                        value={leg.strike}
-                                                        onValueChange={(v) => {
-                                                            const next = [...config.legs];
-                                                            next[legIndex] = { ...next[legIndex], strike: v };
-                                                            setConfig({ ...config, legs: next });
-                                                        }}
-                                                    >
-                                                        <SelectTrigger className="h-11 rounded-xl">
-                                                            <SelectValue placeholder="Select Strike" />
-                                                        </SelectTrigger>
-                                                        <SelectContent className="max-h-[300px]">
-                                                            <SelectItem value="ATM">ATM (At the Money)</SelectItem>
-                                                            {Array.from({ length: 40 }, (_, i) => i + 1).map(n => (
-                                                                <SelectItem key={`otm${legIndex}-${n}`} value={`OTM${n}`}>OTM {n} strike{n > 1 ? 's' : ''} away</SelectItem>
-                                                            ))}
-                                                            {Array.from({ length: 40 }, (_, i) => i + 1).map(n => (
-                                                                <SelectItem key={`itm${legIndex}-${n}`} value={`ITM${n}`}>ITM {n} strike{n > 1 ? 's' : ''} away</SelectItem>
-                                                            ))}
-                                                        </SelectContent>
-                                                    </Select>
-                                                </div>
-                                            )}
-
-                                            <div className="space-y-2">
-                                                <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Side</Label>
-                                                <Select
-                                                    value={leg.side}
-                                                    onValueChange={(v) => {
-                                                        const next = [...config.legs];
-                                                        next[legIndex] = { ...next[legIndex], side: v };
-                                                        setConfig({ ...config, legs: next });
-                                                    }}
-                                                >
-                                                    <SelectTrigger className="h-11 rounded-xl">
-                                                        <SelectValue placeholder="Side" />
-                                                    </SelectTrigger>
-                                                    <SelectContent>
-                                                        <SelectItem value="BUY">BUY</SelectItem>
-                                                        <SelectItem value="SELL">SELL</SelectItem>
-                                                    </SelectContent>
-                                                </Select>
-                                            </div>
-
-                                            <div className="space-y-2">
-                                                <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Lots</Label>
-                                                <Input
-                                                    className="h-11 rounded-xl"
-                                                    type="number"
-                                                    value={leg.lots}
-                                                    onChange={(e) => {
-                                                        const next = [...config.legs];
-                                                        next[legIndex] = { ...next[legIndex], lots: parseInt(e.target.value) };
-                                                        setConfig({ ...config, legs: next });
-                                                    }}
-                                                />
-                                            </div>
-
-                                            <div className="space-y-2">
-                                                <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">SL Type</Label>
-                                                <Select
-                                                    value={leg.sl_type || 'PERCENTAGE'}
-                                                    onValueChange={(v) => {
-                                                        const next = [...config.legs];
-                                                        next[legIndex] = { ...next[legIndex], sl_type: v };
-                                                        setConfig({ ...config, legs: next });
-                                                    }}
-                                                >
-                                                    <SelectTrigger className="h-11 rounded-xl">
-                                                        <SelectValue placeholder="SL Type" />
-                                                    </SelectTrigger>
-                                                    <SelectContent>
-                                                        <SelectItem value="PERCENTAGE">Percentage (%)</SelectItem>
-                                                        <SelectItem value="POINTS">Points (Pts)</SelectItem>
-                                                    </SelectContent>
-                                                </Select>
-                                            </div>
-
-                                            <div className="space-y-2">
-                                                <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                                                    Stop Loss {leg.sl_type === 'POINTS' ? '(Pts)' : '(%)'}
-                                                </Label>
-                                                <Input
-                                                    className="h-11 rounded-xl"
-                                                    type="number"
-                                                    value={leg.stop_loss}
-                                                    onChange={(e) => {
-                                                        const next = [...config.legs];
-                                                        next[legIndex] = { ...next[legIndex], stop_loss: parseFloat(e.target.value) };
-                                                        setConfig({ ...config, legs: next });
-                                                    }}
-                                                />
-                                            </div>
-
-                                            {/* SL Margin removed - now using global entry_limit_offset */}
-
-                                            <div className="md:col-span-2 space-y-4 pt-4 border-t border-dashed mt-2">
-                                                {/* Simple Momentum Entry Section */}
-                                                <div className="flex items-center gap-2">
-                                                    <input
-                                                        type="checkbox"
-                                                        id={`simple-mntm-${legIndex}`}
-                                                        className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
-                                                        checked={leg.simple_mntm_enabled || false}
-                                                        onChange={(e) => {
-                                                            const next = [...config.legs];
-                                                            next[legIndex] = {
-                                                                ...next[legIndex],
-                                                                simple_mntm_enabled: e.target.checked,
-                                                                simple_mntm_mode: leg.simple_mntm_mode || 'SIMPLE_PLUS_PCT',
-                                                                simple_mntm_value: leg.simple_mntm_value || 0
-                                                            };
-                                                            setConfig({ ...config, legs: next });
-                                                        }}
-                                                    />
-                                                    <Label htmlFor={`simple-mntm-${legIndex}`} className="text-sm font-bold tracking-wide text-foreground cursor-pointer flex items-center gap-1.5">
-                                                        Simple Momentum
-                                                    </Label>
-                                                </div>
-
-                                                {leg.simple_mntm_enabled && (
-                                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pl-6 animate-in slide-in-from-top-2">
-                                                        <div className="space-y-2">
-                                                            <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Simple Mntm Mode</Label>
-                                                            <Select
-                                                                value={leg.simple_mntm_mode || 'SIMPLE_PLUS_PCT'}
-                                                                onValueChange={(v) => {
-                                                                    const next = [...config.legs];
-                                                                    next[legIndex] = { ...next[legIndex], simple_mntm_mode: v };
-                                                                    setConfig({ ...config, legs: next });
-                                                                }}
-                                                            >
-                                                                <SelectTrigger className="h-11 rounded-xl">
-                                                                    <SelectValue placeholder="Mode" />
-                                                                </SelectTrigger>
-                                                                <SelectContent>
-                                                                    <SelectItem value="SIMPLE_PLUS_PCT">SIMPLE + %</SelectItem>
-                                                                    <SelectItem value="SIMPLE_PLUS_PTS">SIMPLE + Pts</SelectItem>
-                                                                    <SelectItem value="SIMPLE_MINUS_PCT">SIMPLE - %</SelectItem>
-                                                                    <SelectItem value="SIMPLE_MINUS_PTS">SIMPLE - Pts</SelectItem>
-                                                                </SelectContent>
-                                                            </Select>
-                                                        </div>
-                                                        <div className="space-y-2">
-                                                            <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                                                                Mntm Value {leg.simple_mntm_mode && leg.simple_mntm_mode.includes('PCT') ? '(%)' : '(Pts)'}
-                                                            </Label>
-                                                            <Input
-                                                                className="h-11 rounded-xl"
-                                                                type="text"
-                                                                value={leg.simple_mntm_value === undefined ? '' : leg.simple_mntm_value}
-                                                                onChange={(e) => {
-                                                                    const val = e.target.value;
-                                                                    if (val === '' || /^\d*\.?\d*$/.test(val)) {
-                                                                        const next = [...config.legs];
-                                                                        next[legIndex] = { ...next[legIndex], simple_mntm_value: val };
-                                                                        setConfig({ ...config, legs: next });
-                                                                    }
-                                                                }}
-                                                                onBlur={(e) => {
-                                                                    const next = [...config.legs];
-                                                                    next[legIndex] = { ...next[legIndex], simple_mntm_value: parseFloat(e.target.value) || 0 };
-                                                                    setConfig({ ...config, legs: next });
-                                                                }}
-                                                            />
-                                                        </div>
-                                                    </div>
-                                                )}
-
-                                                <div className="h-4"></div>
-
-                                                <div className={`flex items-center gap-2 border-t pt-4 transition-all duration-300 ${leg.recost_enabled ? 'opacity-40 grayscale pointer-events-none' : ''}`}>
-                                                    <input
-                                                        type="checkbox"
-                                                        id={`re-asap-${legIndex}`}
-                                                        className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
-                                                        checked={leg.re_asap_enabled || false}
-                                                        disabled={leg.recost_enabled}
-                                                        onChange={(e) => {
-                                                            const next = [...config.legs];
-                                                            next[legIndex] = {
-                                                                ...next[legIndex],
-                                                                re_asap_enabled: e.target.checked,
-                                                                re_asap_max_entries: leg.re_asap_max_entries || 1,
-                                                                recost_enabled: e.target.checked ? false : leg.recost_enabled
-                                                            };
-                                                            setConfig({ ...config, legs: next });
-                                                        }}
-                                                    />
-                                                    <Label htmlFor={`re-asap-${legIndex}`} className={`text-sm font-bold tracking-wide text-foreground flex items-center gap-1.5 ${leg.recost_enabled ? 'cursor-not-allowed' : 'cursor-pointer'}`}>
-                                                        RE-ASAP
-                                                    </Label>
-                                                </div>
-
-                                                {leg.re_asap_enabled && (
-                                                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pl-6 animate-in slide-in-from-top-2">
-                                                        <div className="space-y-2">
-                                                            <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Max Entries</Label>
-                                                            <Select
-                                                                value={(leg.re_asap_max_entries || 1).toString()}
-                                                                onValueChange={(v) => {
-                                                                    const next = [...config.legs];
-                                                                    next[legIndex] = { ...next[legIndex], re_asap_max_entries: parseInt(v) };
-                                                                    setConfig({ ...config, legs: next });
-                                                                }}
-                                                            >
-                                                                <SelectTrigger className="h-11 rounded-xl">
-                                                                    <SelectValue placeholder="Entries" />
-                                                                </SelectTrigger>
-                                                                <SelectContent className="max-h-[250px]">
-                                                                    {Array.from({ length: 20 }, (_, i) => i + 1).map(num => (
-                                                                        <SelectItem key={`max-re-asap-${legIndex}-${num}`} value={num.toString()}>
-                                                                            {num} {num === 1 ? 'Entry' : 'Entries'}
-                                                                        </SelectItem>
-                                                                    ))}
-                                                                </SelectContent>
-                                                            </Select>
-                                                        </div>
-                                                    </div>
-                                                )}
-
-                                                <div className={`flex items-center gap-2 border-t pt-4 transition-all duration-300 ${leg.re_asap_enabled ? 'opacity-40 grayscale pointer-events-none' : ''}`}>
-                                                    <input
-                                                        type="checkbox"
-                                                        id={`recost-${legIndex}`}
-                                                        className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
-                                                        checked={leg.recost_enabled || false}
-                                                        disabled={leg.re_asap_enabled}
-                                                        onChange={(e) => {
-                                                            const next = [...config.legs];
-                                                            next[legIndex] = {
-                                                                ...next[legIndex],
-                                                                recost_enabled: e.target.checked,
-                                                                re_asap_enabled: e.target.checked ? false : leg.re_asap_enabled,
-                                                                recost_mode: leg.recost_mode || 'RECOST_PLUS_PCT',
-                                                                recost_value: leg.recost_value || 0,
-                                                                max_reentry: leg.max_reentry || 1,
-                                                                reentry_sl_enabled: leg.reentry_sl_enabled || false,
-                                                                reentry_sl_type: leg.reentry_sl_type || 'PERCENTAGE',
-                                                                reentry_sl_value: leg.reentry_sl_value || leg.stop_loss || 0
-                                                            };
-                                                            setConfig({ ...config, legs: next });
-                                                        }}
-                                                    />
-                                                    <Label htmlFor={`recost-${legIndex}`} className={`text-sm font-bold tracking-wide text-foreground ${leg.re_asap_enabled ? 'cursor-not-allowed' : 'cursor-pointer'}`}>
-                                                        RE-COST
-                                                    </Label>
-                                                </div>
-
-                                                {leg.recost_enabled && (
-                                                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pl-6 animate-in slide-in-from-top-2">
-                                                        <div className="space-y-2">
-                                                            <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Re-Cost Mode</Label>
-                                                            <Select
-                                                                value={leg.recost_mode || 'RECOST_PLUS_PCT'}
-                                                                onValueChange={(v) => {
-                                                                    const next = [...config.legs];
-                                                                    next[legIndex] = { ...next[legIndex], recost_mode: v };
-                                                                    setConfig({ ...config, legs: next });
-                                                                }}
-                                                            >
-                                                                <SelectTrigger className="h-11 rounded-xl">
-                                                                    <SelectValue placeholder="Mode" />
-                                                                </SelectTrigger>
-                                                                <SelectContent>
-                                                                    <SelectItem value="RECOST_PLUS_PCT">RECOST + %</SelectItem>
-                                                                    <SelectItem value="RECOST_PLUS_PTS">RECOST + Pts</SelectItem>
-                                                                    <SelectItem value="RECOST_MINUS_PCT">RECOST - %</SelectItem>
-                                                                    <SelectItem value="RECOST_MINUS_PTS">RECOST - Pts</SelectItem>
-                                                                </SelectContent>
-                                                            </Select>
-                                                        </div>
-
-                                                        <div className="space-y-2">
-                                                            <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
-                                                                Value {leg.recost_mode && leg.recost_mode.includes('PCT') ? '(%)' : '(Pts)'}
-                                                            </Label>
-                                                            <Input
-                                                                className="h-11 rounded-xl"
-                                                                type="text"
-                                                                value={leg.recost_value === undefined ? '' : leg.recost_value}
-                                                                onChange={(e) => {
-                                                                    const val = e.target.value;
-                                                                    if (val === '' || /^\d*\.?\d*$/.test(val)) {
-                                                                        const next = [...config.legs];
-                                                                        next[legIndex] = { ...next[legIndex], recost_value: val };
-                                                                        setConfig({ ...config, legs: next });
-                                                                    }
-                                                                }}
-                                                                onBlur={(e) => {
-                                                                    const next = [...config.legs];
-                                                                    next[legIndex] = { ...next[legIndex], recost_value: parseFloat(e.target.value) || 0 };
-                                                                    setConfig({ ...config, legs: next });
-                                                                }}
-                                                            />
-                                                        </div>
-
-                                                        <div className="space-y-2">
-                                                            <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Max Entries</Label>
-                                                            <Select
-                                                                value={(leg.max_reentry || 1).toString()}
-                                                                onValueChange={(v) => {
-                                                                    const next = [...config.legs];
-                                                                    next[legIndex] = { ...next[legIndex], max_reentry: parseInt(v) };
-                                                                    setConfig({ ...config, legs: next });
-                                                                }}
-                                                            >
-                                                                <SelectTrigger className="h-11 rounded-xl">
-                                                                    <SelectValue placeholder="Entries" />
-                                                                </SelectTrigger>
-                                                                <SelectContent className="max-h-[250px]">
-                                                                    {Array.from({ length: 20 }, (_, i) => i + 1).map(num => (
-                                                                        <SelectItem key={`max-recost-${legIndex}-${num}`} value={num.toString()}>
-                                                                            {num} {num === 1 ? 'Entry' : 'Entries'}
-                                                                        </SelectItem>
-                                                                    ))}
-                                                                </SelectContent>
-                                                            </Select>
-                                                        </div>
-                                                    </div>
-                                                )}
-
-                                                {leg.recost_enabled && (
-                                                    <div className="pt-2 animate-in slide-in-from-top-2 space-y-4">
-                                                        <div>
-                                                            <div className="flex items-center gap-2 mb-4">
-                                                                <input
-                                                                    type="checkbox"
-                                                                    id={`reentry-mntm-${legIndex}`}
-                                                                    className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
-                                                                    checked={leg.recost_mntm_enabled || false}
-                                                                    onChange={(e) => {
-                                                                        const next = [...config.legs];
-                                                                        next[legIndex] = {
-                                                                            ...next[legIndex],
-                                                                            recost_mntm_enabled: e.target.checked,
-                                                                            recost_mntm_mode: leg.recost_mntm_mode || 'RECOST_PLUS_PCT',
-                                                                            recost_mntm_value: leg.recost_mntm_value || 0
-                                                                        };
-                                                                        setConfig({ ...config, legs: next });
-                                                                    }}
-                                                                />
-                                                                <Label htmlFor={`reentry-mntm-${legIndex}`} className="text-xs font-bold tracking-wide text-foreground cursor-pointer">
-                                                                    Re Entry Mntm
-                                                                </Label>
-                                                            </div>
-
-                                                            {leg.recost_mntm_enabled && (
-                                                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pl-6 mb-4 animate-in slide-in-from-top-2 border-l-2 border-primary/20">
-                                                                    <div className="space-y-2">
-                                                                        <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Mntm Mode</Label>
-                                                                        <Select
-                                                                            value={leg.recost_mntm_mode || 'RECOST_PLUS_PCT'}
-                                                                            onValueChange={(v) => {
-                                                                                const next = [...config.legs];
-                                                                                next[legIndex] = { ...next[legIndex], recost_mntm_mode: v };
-                                                                                setConfig({ ...config, legs: next });
-                                                                            }}
-                                                                        >
-                                                                            <SelectTrigger className="h-11 rounded-xl">
-                                                                                <SelectValue placeholder="Mode" />
-                                                                            </SelectTrigger>
-                                                                            <SelectContent>
-                                                                                <SelectItem value="RECOST_PLUS_PCT">RTP + %</SelectItem>
-                                                                                <SelectItem value="RECOST_PLUS_PTS">RTP + Pts</SelectItem>
-                                                                                <SelectItem value="RECOST_MINUS_PCT">RTP - %</SelectItem>
-                                                                                <SelectItem value="RECOST_MINUS_PTS">RTP - Pts</SelectItem>
-                                                                            </SelectContent>
-                                                                        </Select>
-                                                                    </div>
-                                                                    <div className="space-y-2">
-                                                                        <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                                                                            Value {leg.recost_mntm_mode && leg.recost_mntm_mode.includes('PCT') ? '(%)' : '(Pts)'}
-                                                                        </Label>
-                                                                        <Input
-                                                                            className="h-11 rounded-xl"
-                                                                            type="text"
-                                                                            value={leg.recost_mntm_value === undefined ? '' : leg.recost_mntm_value}
-                                                                            onChange={(e) => {
-                                                                                const val = e.target.value;
-                                                                                if (val === '' || /^\d*\.?\d*$/.test(val)) {
-                                                                                    const next = [...config.legs];
-                                                                                    next[legIndex] = { ...next[legIndex], recost_mntm_value: val };
-                                                                                    setConfig({ ...config, legs: next });
-                                                                                }
-                                                                            }}
-                                                                            onBlur={(e) => {
-                                                                                const next = [...config.legs];
-                                                                                next[legIndex] = { ...next[legIndex], recost_mntm_value: parseFloat(e.target.value) || 0 };
-                                                                                setConfig({ ...config, legs: next });
-                                                                            }}
-                                                                        />
-                                                                    </div>
-                                                                </div>
-                                                            )}
-                                                        </div>
-
-                                                        <div>
-                                                            <div className="flex items-center gap-2 mb-4">
-                                                                <input
-                                                                    type="checkbox"
-                                                                    id={`reentry-sl-${legIndex}`}
-                                                                    className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
-                                                                    checked={leg.reentry_sl_enabled || false}
-                                                                    onChange={(e) => {
-                                                                        const next = [...config.legs];
-                                                                        next[legIndex] = { ...next[legIndex], reentry_sl_enabled: e.target.checked };
-                                                                        setConfig({ ...config, legs: next });
-                                                                    }}
-                                                                />
-                                                                <Label htmlFor={`reentry-sl-${legIndex}`} className="text-xs font-bold tracking-wide text-foreground cursor-pointer">
-                                                                    Override Stop Loss on Re-Entry
-                                                                </Label>
-                                                            </div>
-
-                                                            {leg.reentry_sl_enabled && (
-                                                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pl-6 animate-in slide-in-from-top-2 border-l-2 border-primary/20">
-                                                                    <div className="space-y-2">
-                                                                        <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">New SL Type</Label>
-                                                                        <Select
-                                                                            value={leg.reentry_sl_type || 'PERCENTAGE'}
-                                                                            onValueChange={(v) => {
-                                                                                const next = [...config.legs];
-                                                                                next[legIndex] = { ...next[legIndex], reentry_sl_type: v };
-                                                                                setConfig({ ...config, legs: next });
-                                                                            }}
-                                                                        >
-                                                                            <SelectTrigger className="h-11 rounded-xl">
-                                                                                <SelectValue placeholder="SL Type" />
-                                                                            </SelectTrigger>
-                                                                            <SelectContent>
-                                                                                <SelectItem value="PERCENTAGE">Percentage (%)</SelectItem>
-                                                                                <SelectItem value="POINTS">Points (Pts)</SelectItem>
-                                                                            </SelectContent>
-                                                                        </Select>
-                                                                    </div>
-
-                                                                    <div className="space-y-2">
-                                                                        <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
-                                                                            New SL Value {leg.reentry_sl_type === 'POINTS' ? '(Pts)' : '(%)'}
-                                                                        </Label>
-                                                                        <Input
-                                                                            className="h-11 rounded-xl"
-                                                                            type="number"
-                                                                            value={leg.reentry_sl_value !== undefined ? leg.reentry_sl_value : (leg.stop_loss || 0)}
-                                                                            onChange={(e) => {
-                                                                                const next = [...config.legs];
-                                                                                next[legIndex] = { ...next[legIndex], reentry_sl_value: parseFloat(e.target.value) };
-                                                                                setConfig({ ...config, legs: next });
-                                                                            }}
-                                                                        />
-                                                                    </div>
-                                                                </div>
-                                                            )}
-                                                        </div>
-                                                    </div>
-                                                )}
-                                            </div>
-                                        </div>
-                                    </div>
-                                );
-                            })}
+                            {config.legs.map((leg, legIndex) => (
+                                <LegConfiguration
+                                    key={`leg-config-${legIndex}`}
+                                    leg={leg}
+                                    legIndex={legIndex}
+                                    canRemove={config.legs.length > 1}
+                                    onChange={(updatedLeg) => {
+                                        const next = [...config.legs];
+                                        next[legIndex] = updatedLeg;
+                                        setConfig({ ...config, legs: next });
+                                    }}
+                                    onRemove={() => {
+                                        const next = config.legs.filter((_, i) => i !== legIndex);
+                                        setConfig({ ...config, legs: next });
+                                    }}
+                                    onCopy={() => {
+                                        const next = [...config.legs];
+                                        next.splice(legIndex + 1, 0, JSON.parse(JSON.stringify(leg)));
+                                        setConfig({ ...config, legs: next });
+                                    }}
+                                />
+                            ))}
                         </div>
 
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 pt-6">
@@ -1305,11 +1410,11 @@ export const StrategyBuilder = () => {
                                             </div>
 
                                             {/* Running Legs */}
-                                            {strategyData.legs?.filter(l => !l.exited || l.state === "WAITING_FOR_RECOST" || l.state === "WAITING_FOR_MNTM").length > 0 && (
+                                            {strategyData.legs?.filter(l => !l.exited || ["WAITING_FOR_RECOST", "WAITING_FOR_MNTM", "WAITING_FOR_RE_ASAP", "WAITING_FOR_LAZY"].includes(l.state)).length > 0 && (
                                                 <div className="space-y-2">
                                                     <span className="text-xs font-bold uppercase text-muted-foreground">Running Legs</span>
                                                     <div className="space-y-2">
-                                                        {strategyData.legs.map((l, idx) => (!l.exited || l.state === "WAITING_FOR_RECOST" || l.state === "WAITING_FOR_MNTM") && (
+                                                        {strategyData.legs.map((l, idx) => (!l.exited || ["WAITING_FOR_RECOST", "WAITING_FOR_MNTM", "WAITING_FOR_RE_ASAP", "WAITING_FOR_LAZY"].includes(l.state)) && (
                                                             <div key={idx} className="flex items-center justify-between p-3 bg-white border border-border rounded-xl">
                                                                 <div className="flex flex-col">
                                                                     <div className="flex items-center gap-2">
@@ -1349,7 +1454,13 @@ export const StrategyBuilder = () => {
                                                                             </>
                                                                         )}
                                                                         {l.state === "WAITING_FOR_RECOST" && (
-                                                                            <span className="px-2 py-0.5 ml-2 bg-yellow-100 text-yellow-700 font-bold rounded">Waiting Re-Entry</span>
+                                                                            <span className="px-2 py-0.5 ml-2 bg-yellow-100 text-yellow-700 font-bold rounded">Waiting Re-Entry (Price)</span>
+                                                                        )}
+                                                                        {l.state === "WAITING_FOR_RE_ASAP" && (
+                                                                            <span className="px-2 py-0.5 ml-2 bg-blue-100 text-blue-700 font-bold rounded">Waiting Re-Entry (ASAP)</span>
+                                                                        )}
+                                                                        {l.state === "WAITING_FOR_LAZY" && (
+                                                                            <span className="px-2 py-0.5 ml-2 bg-purple-100 text-purple-700 font-bold rounded">Initializing Lazy Leg</span>
                                                                         )}
                                                                     </div>
                                                                 </div>
@@ -1369,7 +1480,11 @@ export const StrategyBuilder = () => {
                                                                         onClick={() => handleSquareOffLeg(id, idx)}
                                                                         disabled={l.isExiting}
                                                                     >
-                                                                        {l.isExiting ? "Exiting..." : (l.state === "WAITING_FOR_RECOST" ? "Cancel Re-Cost" : "Square Off")}
+                                                                        {l.isExiting ? "Exiting..." :
+                                                                            (l.state === "WAITING_FOR_RECOST" || l.state === "WAITING_FOR_MNTM") ? "Cancel Re-Cost" :
+                                                                                (l.state === "WAITING_FOR_RE_ASAP") ? "Cancel Re-Entry" :
+                                                                                    (l.state === "WAITING_FOR_LAZY") ? "Cancel Lazy Leg" :
+                                                                                        "Square Off"}
                                                                     </Button>
                                                                 </div>
                                                             </div>
