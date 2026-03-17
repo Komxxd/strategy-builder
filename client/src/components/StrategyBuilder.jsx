@@ -45,14 +45,22 @@ const DEFAULT_LEG = {
     re_asap_enabled: false,
     re_asap_max_entries: 1,
     lazy_leg_enabled: false,
-    lazy_leg: null
+    lazy_leg: null,
+    tsl_enabled: false,
+    tsl_type: 'PERCENTAGE',
+    tsl_value: 0,
+    tsl_trail: 0
 };
 
 
 const getLegSummary = (leg) => {
     if (!leg) return 'Not configured';
     const strike = leg.strike_criteria === 'CLOSEST_PREMIUM' ? `₹${leg.premium || 0}` : (leg.strike || 'ATM');
-    return `${leg.side || 'BUY'} ${leg.option_type || 'CE'} ${strike} (SL ${leg.stop_loss || 0}${leg.sl_type === 'POINTS' ? 'pts' : '%'})`;
+    let summary = `${leg.side || 'BUY'} ${leg.option_type || 'CE'} ${strike} (SL ${leg.stop_loss || 0}${leg.sl_type === 'POINTS' ? 'pts' : '%'})`;
+    if (leg.tsl_enabled) {
+        summary += ` [TSL ${leg.tsl_value || 0}${leg.tsl_type === 'POINTS' ? 'pts' : '%'} | Trl: ${leg.tsl_trail || 0}]`;
+    }
+    return summary;
 };
 
 const LazyLegModal = ({ isOpen, onClose, leg, onChange, legIndex, level }) => {
@@ -324,6 +332,69 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
                         value={leg.stop_loss}
                         onChange={(e) => onChange({ ...leg, stop_loss: parseFloat(e.target.value) })}
                     />
+                </div>
+
+                <div className="space-y-2 md:col-span-2 lg:col-span-2">
+                    <div className="flex items-center justify-between mb-1.5">
+                        <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Trailing Stop Loss</Label>
+                        <div className="flex items-center gap-1.5">
+                            <input
+                                type="checkbox"
+                                id={`tsl-enabled-${idPrefix}`}
+                                className="w-3 h-3 rounded text-blue-600 cursor-pointer"
+                                checked={leg.tsl_enabled || false}
+                                onChange={(e) => onChange({ ...leg, tsl_enabled: e.target.checked })}
+                            />
+                            <Label htmlFor={`tsl-enabled-${idPrefix}`} className="text-[10px] font-bold tracking-wide cursor-pointer uppercase">
+                                Enable
+                            </Label>
+                        </div>
+                    </div>
+                    <div className="flex gap-2">
+                        <Select
+                            value={leg.tsl_type || 'PERCENTAGE'}
+                            onValueChange={(v) => onChange({ ...leg, tsl_type: v })}
+                            disabled={!leg.tsl_enabled}
+                        >
+                            <SelectTrigger className="h-11 rounded-md w-[30%]">
+                                <SelectValue placeholder="Type" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="PERCENTAGE">Percentage (%)</SelectItem>
+                                <SelectItem value="POINTS">Points</SelectItem>
+                            </SelectContent>
+                        </Select>
+                        
+                        <div className="flex-1 relative">
+                            <Input
+                                className="h-11 rounded-md w-full"
+                                type="number"
+                                placeholder="Move"
+                                value={leg.tsl_value === 0 ? '' : (leg.tsl_value !== undefined ? leg.tsl_value : '')}
+                                onChange={(e) => {
+                                    const val = e.target.value;
+                                    onChange({ ...leg, tsl_value: val === '' ? 0 : parseFloat(val) });
+                                }}
+                                disabled={!leg.tsl_enabled}
+                                title={`TSL Move (${leg.tsl_type === 'POINTS' ? 'Pts' : '%'})`}
+                            />
+                        </div>
+
+                        <div className="flex-1 relative">
+                            <Input
+                                className="h-11 rounded-md w-full"
+                                type="number"
+                                placeholder="Trail"
+                                value={leg.tsl_trail === 0 ? '' : (leg.tsl_trail !== undefined ? leg.tsl_trail : '')}
+                                onChange={(e) => {
+                                    const val = e.target.value;
+                                    onChange({ ...leg, tsl_trail: val === '' ? 0 : parseFloat(val) });
+                                }}
+                                disabled={!leg.tsl_enabled}
+                                title={`TSL Trail (${leg.tsl_type === 'POINTS' ? 'Pts' : '%'})`}
+                            />
+                        </div>
+                    </div>
                 </div>
 
                 <div className="md:col-span-2 space-y-4 pt-4 border-t border-dashed mt-2">
@@ -706,7 +777,7 @@ export const StrategyBuilder = () => {
         overall_target_value: 0,
         entry_limit_offset: 0,
         legs: [
-            { strike_criteria: 'STRIKE_TYPE', option_type: 'CE', strike: 'ATM', premium: 0, side: 'BUY', lots: 1, sl_type: 'PERCENTAGE', stop_loss: 10, simple_mntm_enabled: false, simple_mntm_mode: 'SIMPLE_PLUS_PCT', simple_mntm_value: 0, recost_enabled: false, recost_mode: 'RECOST_PLUS_PCT', recost_value: 0, max_reentry: 1, reentry_sl_enabled: false, reentry_sl_type: 'PERCENTAGE', reentry_sl_value: 10, re_asap_enabled: false, re_asap_max_entries: 1, lazy_leg_enabled: false, lazy_leg: null }
+            { strike_criteria: 'STRIKE_TYPE', option_type: 'CE', strike: 'ATM', premium: 0, side: 'BUY', lots: 1, sl_type: 'PERCENTAGE', stop_loss: 10, simple_mntm_enabled: false, simple_mntm_mode: 'SIMPLE_PLUS_PCT', simple_mntm_value: 0, recost_enabled: false, recost_mode: 'RECOST_PLUS_PCT', recost_value: 0, max_reentry: 1, reentry_sl_enabled: false, reentry_sl_type: 'PERCENTAGE', reentry_sl_value: 10, re_asap_enabled: false, re_asap_max_entries: 1, lazy_leg_enabled: false, lazy_leg: null, tsl_enabled: false, tsl_type: 'PERCENTAGE', tsl_value: 0 }
         ]
     });
 
@@ -1067,7 +1138,7 @@ export const StrategyBuilder = () => {
                                 variant="outline"
                                 className="h-9 gap-2 rounded-xl"
                                 onClick={() => {
-                                    const next = [...config.legs, { strike_criteria: 'STRIKE_TYPE', option_type: 'CE', strike: 'ATM', premium: 0, side: 'BUY', lots: 1, sl_type: 'PERCENTAGE', stop_loss: 10, simple_mntm_enabled: false, simple_mntm_mode: 'SIMPLE_PLUS_PCT', simple_mntm_value: 0, recost_enabled: false, recost_mode: 'RECOST_PLUS_PCT', recost_value: 0, max_reentry: 1, reentry_sl_enabled: false, reentry_sl_type: 'PERCENTAGE', reentry_sl_value: 10, re_asap_enabled: false, re_asap_max_entries: 1 }];
+                                    const next = [...config.legs, { ...DEFAULT_LEG }];
                                     setConfig({ ...config, legs: next });
                                 }}
                             >

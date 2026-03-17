@@ -1321,6 +1321,8 @@ async function executeStrategy(strategyId) {
                                     leg.entryTime = getISTTime();
                                     leg.original_traded_price = fillPrice;
                                     leg.base_otp = fillPrice;
+                                    leg.peakPrice = fillPrice; // Initialize old TSL Peak
+                                    leg.tslReferencePrice = fillPrice; // Initialize step-based TSL anchor
                                     addStrategyLog(strategyId, `${leg.instrument.symbol} order filled at ₹${fillPrice}.`, "INFO");
                                 } else {
                                     const optLtpRes = await marketService.getLTP({
@@ -1333,6 +1335,8 @@ async function executeStrategy(strategyId) {
                                         leg.entryTime = getISTTime();
                                         leg.original_traded_price = leg.entryPrice;
                                         leg.base_otp = leg.entryPrice;
+                                        leg.peakPrice = leg.entryPrice; // Initialize old TSL Peak
+                                        leg.tslReferencePrice = leg.entryPrice; // Initialize step-based TSL anchor
                                         addStrategyLog(strategyId, `Warning: Could not detect fill price for ${leg.instrument.symbol}. Using current LTP: ₹${leg.entryPrice}.`, "ERROR");
                                     }
                                 }
@@ -1466,6 +1470,8 @@ async function executeStrategy(strategyId) {
                                             leg.entryTime = getISTTime();
                                             leg.original_traded_price = instLtp;
                                             leg.state = "ACTIVE";
+                                            leg.peakPrice = instLtp; // Initialize TSL Peak
+                                            leg.tslReferencePrice = instLtp; // Initialize step-based TSL anchor
                                             addStrategyLog(strategyId, `[RE-ASAP PAPER] ${targetInstrument.symbol} re-entered at ₹${instLtp}`, "INFO");
                                             if (config.variety === "STOPLOSS") {
                                                 const slType = leg.leg.reentry_sl_enabled ? leg.leg.reentry_sl_type : (leg.leg.sl_type || "PERCENTAGE");
@@ -1538,6 +1544,8 @@ async function executeStrategy(strategyId) {
                                             leg.entryTime = getISTTime();
                                             leg.original_traded_price = instLtp;
                                             leg.state = "ACTIVE";
+                                            leg.peakPrice = instLtp; // Initialize old TSL Peak
+                                            leg.tslReferencePrice = instLtp; // Initialize step-based TSL anchor
                                             addStrategyLog(strategyId, `[LAZY LEG PAPER] ${targetInstrument.symbol} entered at ₹${instLtp}`, "INFO");
                                             if (config.variety === "STOPLOSS") {
                                                 const prices = computeStopLossExitPrices(leg.entryPrice, leg.leg.side, leg.leg.sl_type || "PERCENTAGE", leg.leg.stop_loss || 0, config.entry_limit_offset);
@@ -1718,10 +1726,12 @@ async function executeStrategy(strategyId) {
                                                     leg.entryPrice = fill || currentTick;
                                                     leg.entryTime = getISTTime();
                                                     leg.original_traded_price = leg.entryPrice;
+                                                    leg.peakPrice = leg.entryPrice; // Initialize TSL Peak
                                                     // base_otp is inherited and stays constant across re-entries
                                                 } catch (e) {
                                                     leg.entryPrice = currentTick;
                                                     leg.entryTime = getISTTime();
+                                                    leg.peakPrice = leg.entryPrice; // Initialize TSL Peak
                                                 }
 
                                                 // Redeploy exchange SL if needed
@@ -1762,6 +1772,15 @@ async function executeStrategy(strategyId) {
                                 leg.last_tick_price = leg.currentLtp;
 
                                 if (leg.entryPrice && leg.state === "ACTIVE") {
+                                    if (leg.peakPrice === undefined || leg.peakPrice === null) {
+                                        leg.peakPrice = leg.entryPrice;
+                                    }
+                                    if (leg.leg.side === "BUY") {
+                                        if (leg.currentLtp > leg.peakPrice) leg.peakPrice = leg.currentLtp;
+                                    } else {
+                                        if (leg.currentLtp < leg.peakPrice) leg.peakPrice = leg.currentLtp;
+                                    }
+
                                     const pnlPoints = leg.leg.side === "BUY"
                                         ? (leg.currentLtp - leg.entryPrice)
                                         : (leg.entryPrice - leg.currentLtp);
@@ -1915,16 +1934,143 @@ async function executeStrategy(strategyId) {
                             return;
                         }
 
-                        // Check Leg-wise Stop Loss (%) only if we didn't place SmartAPI SL orders (or if it's paper trading)
-                        if (config.variety !== "STOPLOSS" || config.is_paper_trading === true) {
-                            for (const leg of strategy.legs) {
-                                if (leg.exited || leg.state === "WAITING_FOR_RECOST") continue;
+                        // Manual Check for TSL and Static SL
+                        for (const leg of strategy.legs) {
+                            if (leg.exited || leg.state === "WAITING_FOR_RECOST") continue;
 
+                            let isHit = false;
+                            let exitReason = "LEG_STOP_LOSS";
+
+                            // 1. Evaluate Trailing Stop Loss mathematically (Step-based Tracking)
+                            if (leg.leg.tsl_enabled && leg.tslReferencePrice !== undefined && leg.currentLtp !== null && leg.leg.tsl_value > 0 && leg.leg.tsl_trail > 0) {
+                                const tslType = leg.leg.tsl_type || "PERCENTAGE";
+                                const tslMove = parseFloat(leg.leg.tsl_value);
+                                const tslTrail = parseFloat(leg.leg.tsl_trail);
+
+                                let moveThreshold = tslMove;
+                                let trailAmount = tslTrail;
+
+                                if (tslType === "PERCENTAGE") {
+                                    moveThreshold = leg.entryPrice * (tslMove / 100);
+                                    trailAmount = leg.entryPrice * (tslTrail / 100);
+                                } else if (tslType === "POINTS") {
+                                    // User wants literal Option Premium Price Ticks.
+                                    // A 50pt move means tracking exactly 50 points of price movement on the LTP.
+                                    // A 10pt trail means moving the trigger specifically by exactly 10 absolute points.
+                                    moveThreshold = tslMove;
+                                    trailAmount = tslTrail;
+                                }
+
+                                let favorableMove = 0;
+                                if (leg.leg.side === "BUY") {
+                                    favorableMove = leg.currentLtp - leg.tslReferencePrice;
+                                } else if (leg.leg.side === "SELL") {
+                                    favorableMove = leg.tslReferencePrice - leg.currentLtp;
+                                }
+
+                                // Check if step condition matches
+                                if (favorableMove >= moveThreshold) {
+                                    const steps = Math.floor(favorableMove / moveThreshold);
+                                    const totalTrail = steps * trailAmount;
+
+                                    if (steps > 0) {
+                                        const oldTrigger = leg.slTriggerPrice;
+                                        let newTrigger = oldTrigger;
+
+                                        if (leg.leg.side === "BUY") {
+                                            newTrigger = oldTrigger + totalTrail;
+                                        } else {
+                                            newTrigger = oldTrigger - totalTrail;
+                                        }
+
+                                        // Ensure we don't accidentally trail backwards.
+                                        // If oldTrigger is null (e.g., initial stop loss wasn't explicitly set), we bypass the strict direction check for the very first initialization.
+                                        let isValidTrail = true;
+                                        if (oldTrigger !== null && oldTrigger !== undefined) {
+                                            isValidTrail = leg.leg.side === "BUY" ? newTrigger > oldTrigger : newTrigger < oldTrigger;
+                                        }
+
+                                        // We evaluate the validity of the trail, even if leg.slTriggerPrice isn't explicitly set yet (like in simple paper)
+                                        if (isValidTrail) {
+                                            const roundedTrigger = roundToTick(newTrigger);
+                                            const newLimit = roundToTick(leg.leg.side === "BUY" ? 
+                                                roundedTrigger - parseFloat(config.entry_limit_offset || 0) : 
+                                                roundedTrigger + parseFloat(config.entry_limit_offset || 0));
+
+                                            // Attempt Exchange Modify if needed (only for live & exchange SL mode)
+                                            if (config.variety === "STOPLOSS" && !config.is_paper_trading && leg.slOrderId) {
+                                                try {
+                                                    const api = await getAuthorizedInstance(config.connectionId);
+                                                    const modParams = {
+                                                        variety: "STOPLOSS",
+                                                        orderid: leg.slOrderId,
+                                                        ordertype: "STOPLOSS_LIMIT",
+                                                        producttype: config.producttype || "CARRYFORWARD",
+                                                        duration: config.duration || "DAY",
+                                                        price: newLimit.toString(),
+                                                        quantity: leg.leg.lots.toString(),
+                                                        tradingsymbol: leg.instrument.symbol,
+                                                        symboltoken: leg.instrument.token,
+                                                        exchange: leg.instrument.exch_seg,
+                                                        triggerprice: roundedTrigger.toString(),
+                                                    };
+                                                    
+                                                    const res = await api.modifyOrder(modParams);
+                                                    if (res && res.status) {
+                                                        console.log(`[TSL] Exchange SL Modified for ${leg.instrument.symbol}. Trigger: ${oldTrigger} -> ${roundedTrigger}`);
+                                                        console.log(`[TSL] Reason: LTP crossed ${leg.currentLtp} (Anchor was ${leg.tslReferencePrice})`);
+                                                        addStrategyLog(strategyId, `TSL Step: Moved SL for ${leg.instrument.symbol} to ₹${roundedTrigger} (LTP: ${leg.currentLtp}, Anchor: ${leg.tslReferencePrice})`, "INFO");
+                                                    }
+                                                } catch (e) {
+                                                    console.error(`[TSL] Failed to modify order ${leg.slOrderId} at exchange:`, e.message);
+                                                }
+                                            } else {
+                                                // Paper Trading / Virtual Stop Loss update logging
+                                                const paperPayload = {
+                                                    variety: "STOPLOSS",
+                                                    orderid: leg.slOrderId || "PAPER-SL-ORDER",
+                                                    ordertype: "STOPLOSS_LIMIT",
+                                                    price: newLimit.toString(),
+                                                    quantity: leg.leg.lots.toString(),
+                                                    triggerprice: roundedTrigger.toString(),
+                                                };
+                                                console.log(`\n[${new Date().toISOString()}] PAPER SL MODIFY:`, paperPayload);
+                                                console.log(`[TSL Paper] Virtual SL Modified for ${leg.instrument.symbol}. Trigger: ${oldTrigger} -> ${roundedTrigger}`);
+                                                console.log(`[TSL Paper] Reason: LTP crossed ${leg.currentLtp} (Anchor was ${leg.tslReferencePrice}) | PnL: ₹${leg.pnlRupees ? leg.pnlRupees.toFixed(2) : '0.00'}`);
+                                                addStrategyLog(strategyId, `[PAPER TSL] Virtual SL moved to ₹${roundedTrigger} (LTP: ${leg.currentLtp}, Anchor: ${leg.tslReferencePrice})`, "INFO");
+                                            }
+
+                                            // Always update memory state regardless of mode
+                                            leg.slTriggerPrice = roundedTrigger;
+                                            leg.slLimitPrice = newLimit;
+                                            
+                                            // Step the reference price anchor so it resets for the NEXT step chunk calculation
+                                            leg.tslReferencePrice = leg.leg.side === "BUY" 
+                                                ? leg.tslReferencePrice + (steps * moveThreshold)
+                                                : leg.tslReferencePrice - (steps * moveThreshold);
+                                        }
+                                    }
+                                }
+                                
+                                // TSL evaluation mapping - if SL hits the local trailing values first
+                                if (leg.slTriggerPrice) {
+                                    if (leg.leg.side === "BUY" && leg.currentLtp <= leg.slTriggerPrice) {
+                                        isHit = true;
+                                        exitReason = "TRAILING_STOP_LOSS";
+                                    } else if (leg.leg.side === "SELL" && leg.currentLtp >= leg.slTriggerPrice) {
+                                        isHit = true;
+                                        exitReason = "TRAILING_STOP_LOSS";
+                                    }
+                                }
+                            }
+
+                            // 2. Evaluate Static Stop Loss (if not already hit by TSL)
+                            // Only apply if we are NOT using Exchange STOPLOSS orders or if we are doing paper trading.
+                            if (!isHit && (config.variety !== "STOPLOSS" || config.is_paper_trading === true)) {
                                 const isReentered = leg.reentry_count > 0;
                                 const activeSlType = isReentered && leg.leg.reentry_sl_enabled ? leg.leg.reentry_sl_type : (leg.leg.sl_type || "PERCENTAGE");
                                 const activeSlValue = isReentered && leg.leg.reentry_sl_enabled ? leg.leg.reentry_sl_value : (leg.leg.stop_loss || 0);
 
-                                let isHit = false;
                                 if (activeSlType === "POINTS") {
                                     isHit = leg.currentActivePnlPoints <= -activeSlValue;
                                 } else {
@@ -1932,23 +2078,39 @@ async function executeStrategy(strategyId) {
                                 }
 
                                 if (isHit) {
-                                    console.log(`[${new Date().toISOString()}] Manual Stop Loss hit for leg ${leg.instrument.symbol}: PnL=${leg.pnlPercent.toFixed(2)}%`);
-                                    await placeExitOrder({
-                                        config,
-                                        leg,
-                                        instrument: leg.instrument,
-                                        exitType: "LEG_STOP_LOSS"
-                                    });
-                                    await handleLegStopOut(leg, "LEG_STOP_LOSS", strategy);
+                                    exitReason = "LEG_STOP_LOSS";
                                 }
                             }
-                        } else {
-                            // Real Stop Loss handling for variety="STOPLOSS"
-                            // Check if any exchange SL was hit
+
+                            if (isHit) {
+                                console.log(`[${new Date().toISOString()}] ${exitReason} hit for leg ${leg.instrument.symbol}: PnL=${leg.pnlPercent.toFixed(2)}%`);
+                                
+                                // Clean up static Exchange SL order if we hit TSL (in case modify failed previously or it triggered locally first)
+                                if (config.variety === "STOPLOSS" && !config.is_paper_trading && leg.slOrderId) {
+                                    try {
+                                        const api = await getAuthorizedInstance(config.connectionId);
+                                        await api.cancelOrder({ variety: "STOPLOSS", orderid: leg.slOrderId });
+                                        console.log(`Cancelled Static SL order ${leg.slOrderId} for leg ${leg.instrument.symbol} due to ${exitReason}`);
+                                    } catch (e) {
+                                        console.error(`Failed to cancel static SL order ${leg.slOrderId} on trap:`, e.message);
+                                    }
+                                }
+
+                                await placeExitOrder({
+                                    config,
+                                    leg,
+                                    instrument: leg.instrument,
+                                    exitType: exitReason
+                                });
+                                await handleLegStopOut(leg, exitReason, strategy);
+                            }
+                        }
+
+                        // Real Stop Loss handling for variety="STOPLOSS" via API check
+                        if (config.variety === "STOPLOSS" && config.is_paper_trading !== true) {
                             for (const leg of strategy.legs) {
                                 if (leg.exited || leg.state === "WAITING_FOR_RECOST") continue;
                                 if (leg.slUniqueOrderId && !leg.exchangeSlProcessed) {
-                                    // Only check exchange if price is close to trigger (to save API quota)
                                     const isNearTrigger = leg.leg.side === "BUY"
                                         ? (leg.currentLtp <= leg.slTriggerPrice * 1.02)
                                         : (leg.currentLtp >= leg.slTriggerPrice * 0.98);
