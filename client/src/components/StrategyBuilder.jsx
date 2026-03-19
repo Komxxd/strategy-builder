@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { StopCircle, Loader2, TrendingUp, Timer, LayoutDashboard, Target, Save, Play, Plus, Trash2, ShieldCheck, Zap, Copy, MessageSquare, Ghost, X, Settings2 } from 'lucide-react';
+import { StopCircle, Loader2, TrendingUp, Timer, LayoutDashboard, Target, Save, Play, Plus, Trash2, ShieldCheck, Zap, Copy, MessageSquare, Ghost, X, Settings2, Clock } from 'lucide-react';
 import axios from 'axios';
 import { io } from 'socket.io-client';
 import { StrategyLogs } from './StrategyLogs';
@@ -747,6 +747,52 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
     );
 };
 
+const EntryTimer = ({ entryTime }) => {
+    const [timeLeft, setTimeLeft] = useState('');
+
+    useEffect(() => {
+        if (!entryTime) return;
+        const parts = entryTime.split(':');
+        const targetHours = parseInt(parts[0], 10);
+        const targetMinutes = parseInt(parts[1], 10);
+        const targetSeconds = parseInt(parts[2] || 0, 10);
+
+        const updateTimer = () => {
+            const now = new Date();
+            let target = new Date();
+            target.setHours(targetHours, targetMinutes, targetSeconds, 0);
+
+            let diff = target - now;
+            if (diff < 0) {
+                setTimeLeft('...');
+                return;
+            }
+
+            const hours = Math.floor(diff / (1000 * 60 * 60));
+            const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+            const seconds = Math.floor((diff % (1000 * 60)) / 1000);
+
+            let timeString = '';
+            if (hours > 0) timeString += `${hours}h `;
+            if (minutes > 0 || hours > 0) timeString += `${minutes}m `;
+            timeString += `${seconds}s`;
+
+            setTimeLeft(`in ${timeString.trim()}`);
+        };
+
+        updateTimer();
+        const interval = setInterval(updateTimer, 1000);
+        return () => clearInterval(interval);
+    }, [entryTime]);
+
+    return (
+        <div className="flex items-center gap-1 px-1.5 py-0.5 ml-1 bg-indigo-50 text-indigo-700 font-bold rounded border border-indigo-100/60 shadow-sm animate-pulse">
+            <Clock className="h-3 w-3" />
+            <span className="text-[10px] tracking-wide uppercase">Entry at {entryTime} {timeLeft ? `(${timeLeft})` : ''}</span>
+        </div>
+    );
+};
+
 // Tier 1 - Rule 1 & Phase 2: Interceptor to ensuring session key is always sent
 
 export const StrategyBuilder = ({ isConnected }) => {
@@ -1431,6 +1477,9 @@ export const StrategyBuilder = ({ isConnected }) => {
                                                     {strategyData.config?.is_paper_trading ? 'PAPER' : 'LIVE'}
                                                 </span>
                                                 <span className="text-xs font-bold text-muted-foreground ml-2">Index: {strategyData.config?.index}</span>
+                                                {strategyData.status === 'WAITING' && strategyData.config?.entry_time && (
+                                                    <EntryTimer entryTime={strategyData.config.entry_time} />
+                                                )}
                                             </div>
                                         </div>
                                         <div className="flex items-center gap-2">
