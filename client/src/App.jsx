@@ -6,9 +6,10 @@ import {
   AlertCircle, CheckCircle2, Search, LayoutDashboard, Box,
   ShoppingCart, Users, MessageSquare, Mail, Zap, BarChart2,
   Share2, Share, Bell, Folder, Tag, HelpCircle, MessageCircle,
-  Settings, Rocket, ChevronRight, Menu, LogOut, Loader2, Lock
+  Settings, Rocket, ChevronRight, Menu, LogOut, Loader2, Lock, History
 } from 'lucide-react';
 import { logoutBackend, loginBackend } from './api';
+import { StrategyHistory } from './components/StrategyHistory';
 import axios from 'axios';
 
 // Globally attach backend secret if already in session
@@ -23,6 +24,7 @@ function App() {
   const [success, setSuccess] = useState(null);
   const [logoutLoading, setLogoutLoading] = useState(false);
   const [loginLoading, setLoginLoading] = useState(false);
+  const [activeTab, setActiveTab] = useState('strategies'); // strategies, history
 
   const handleAuthenticated = () => {
     const newKey = sessionStorage.getItem('app_api_key');
@@ -106,8 +108,11 @@ function App() {
     });
   }, []);
 
-  const SidebarItem = ({ icon: Icon, label, active, badge }) => (
-    <button className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${active ? 'bg-secondary text-foreground' : 'text-muted-foreground hover:bg-secondary/50 hover:text-foreground'}`}>
+  const SidebarItem = ({ icon: Icon, label, active, onClick, badge }) => (
+    <button 
+      onClick={onClick}
+      className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${active ? 'bg-secondary text-foreground' : 'text-muted-foreground hover:bg-secondary/50 hover:text-foreground'}`}
+    >
       <div className="flex items-center gap-3">
         <Icon className={`h-4 w-4 ${active ? 'text-primary' : ''}`} />
         <span>{label}</span>
@@ -123,8 +128,6 @@ function App() {
       </div>
     );
   }
-
-
 
   return (
     <div className="flex h-screen w-full bg-[#fcfcfc] text-foreground font-sans overflow-hidden">
@@ -146,7 +149,18 @@ function App() {
 
           <div className="space-y-1">
             <p className="px-3 text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2">Main Menu</p>
-            <SidebarItem icon={LayoutDashboard} label="Strategies" active />
+            <SidebarItem 
+              icon={LayoutDashboard} 
+              label="Strategies" 
+              active={activeTab === 'strategies'} 
+              onClick={() => setActiveTab('strategies')}
+            />
+            <SidebarItem 
+              icon={History} 
+              label="History" 
+              active={activeTab === 'history'} 
+              onClick={() => setActiveTab('history')}
+            />
           </div>
 
         </div>
@@ -172,7 +186,9 @@ function App() {
             <Button variant="ghost" size="icon" className="md:hidden">
               <Menu className="h-5 w-5" />
             </Button>
-            <h1 className="text-2xl font-bold tracking-tight text-foreground">Strategies</h1>
+            <h1 className="text-2xl font-bold tracking-tight text-foreground">
+              {activeTab === 'strategies' ? 'Strategies' : 'Execution History'}
+            </h1>
           </div>
 
           <div className="flex items-center gap-4">
@@ -221,7 +237,11 @@ function App() {
             )}
 
             <div className="w-full animate-in fade-in duration-500 pb-20">
-              <StrategyBuilder isConnected={isConnected} />
+              {activeTab === 'strategies' ? (
+                <StrategyBuilder isConnected={isConnected} />
+              ) : (
+                <StrategyHistory />
+              )}
             </div>
           </div>
 
@@ -232,4 +252,3 @@ function App() {
 }
 
 export default App;
-
