@@ -69,6 +69,4 @@ if (RENDER_EXTERNAL_URL) {
 server.listen(PORT, async () => {
     console.log(`Server running on port ${PORT}`);
 
-    // Restore and resume active strategies from DB
-    strategyService.initializeActiveStrategies();
 });

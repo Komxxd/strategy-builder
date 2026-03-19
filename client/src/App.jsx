@@ -1,15 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { StrategyBuilder } from './components/StrategyBuilder';
-import { BrokerConnect } from './components/BrokerConnect';
 import { PasswordLock } from './components/PasswordLock';
 import {
   AlertCircle, CheckCircle2, Search, LayoutDashboard, Box,
   ShoppingCart, Users, MessageSquare, Mail, Zap, BarChart2,
   Share2, Share, Bell, Folder, Tag, HelpCircle, MessageCircle,
-  Settings, Rocket, ChevronRight, Menu, LogOut, Loader2, Lock
+  Settings, Rocket, ChevronRight, Menu, LogOut, Loader2, Lock, History
 } from 'lucide-react';
-import { logoutBackend } from './api';
+import { logoutBackend, loginBackend } from './api';
+import { StrategyHistory } from './components/StrategyHistory';
 import axios from 'axios';
 
 // Globally attach backend secret if already in session
@@ -23,27 +23,44 @@ function App() {
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
   const [logoutLoading, setLogoutLoading] = useState(false);
+  const [loginLoading, setLoginLoading] = useState(false);
+  const [activeTab, setActiveTab] = useState('strategies'); // strategies, history
 
   const handleAuthenticated = () => {
-    // Phase 2: Sync new key to axios
     const newKey = sessionStorage.getItem('app_api_key');
     axios.defaults.headers.common['x-api-key'] = newKey;
-
     setIsAuthenticated(true);
     sessionStorage.setItem('app_authenticated', 'true');
     setSuccess("Access unlocked! Welcome back.");
   };
 
-  const handleLogout = async () => {
-    try {
-      setLogoutLoading(true);
-      await logoutBackend();
-      setIsConnected(false);
-      setSuccess("Successfully logged out and disconnected.");
-    } catch (err) {
-      setError("Failed to logout: " + err.message);
-    } finally {
-      setLogoutLoading(false);
+  const handleToggleConnection = async () => {
+    if (isConnected) {
+      try {
+        setLogoutLoading(true);
+        await logoutBackend();
+        setIsConnected(false);
+        setSuccess("Successfully logged out and disconnected.");
+      } catch (err) {
+        setError("Failed to logout: " + err.message);
+      } finally {
+        setLogoutLoading(false);
+      }
+    } else {
+      try {
+        setLoginLoading(true);
+        const res = await loginBackend();
+        if (res.success) {
+          setIsConnected(true);
+          setSuccess("Successfully connected to the live market!");
+        } else {
+          setError(res.message || "Failed to connect to Angel One");
+        }
+      } catch (err) {
+        setError("Error connecting to broker service");
+      } finally {
+        setLoginLoading(false);
+      }
     }
   };
 
@@ -91,8 +108,11 @@ function App() {
     });
   }, []);
 
-  const SidebarItem = ({ icon: Icon, label, active, badge }) => (
-    <button className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${active ? 'bg-secondary text-foreground' : 'text-muted-foreground hover:bg-secondary/50 hover:text-foreground'}`}>
+  const SidebarItem = ({ icon: Icon, label, active, onClick, badge }) => (
+    <button 
+      onClick={onClick}
+      className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${active ? 'bg-secondary text-foreground' : 'text-muted-foreground hover:bg-secondary/50 hover:text-foreground'}`}
+    >
       <div className="flex items-center gap-3">
         <Icon className={`h-4 w-4 ${active ? 'text-primary' : ''}`} />
         <span>{label}</span>
@@ -105,19 +125,6 @@ function App() {
     return (
       <div className="flex items-center justify-center min-h-screen bg-[#fcfcfc] text-foreground font-sans w-full">
         <PasswordLock onAuthenticated={handleAuthenticated} />
-      </div>
-    );
-  }
-
-  if (!isConnected) {
-    return (
-      <div className="flex items-center justify-center min-h-screen bg-[#fcfcfc] text-foreground font-sans w-full">
-        <div className="w-full max-w-md">
-          <BrokerConnect onConnected={() => {
-            setIsConnected(true);
-            setSuccess("Successfully connected to the live market!");
-          }} />
-        </div>
       </div>
     );
   }
@@ -142,7 +149,18 @@ function App() {
 
           <div className="space-y-1">
             <p className="px-3 text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2">Main Menu</p>
-            <SidebarItem icon={LayoutDashboard} label="Strategies" active />
+            <SidebarItem 
+              icon={LayoutDashboard} 
+              label="Strategies" 
+              active={activeTab === 'strategies'} 
+              onClick={() => setActiveTab('strategies')}
+            />
+            <SidebarItem 
+              icon={History} 
+              label="History" 
+              active={activeTab === 'history'} 
+              onClick={() => setActiveTab('history')}
+            />
           </div>
 
         </div>
@@ -168,31 +186,33 @@ function App() {
             <Button variant="ghost" size="icon" className="md:hidden">
               <Menu className="h-5 w-5" />
             </Button>
-            <h1 className="text-2xl font-bold tracking-tight text-foreground">Strategies</h1>
+            <h1 className="text-2xl font-bold tracking-tight text-foreground">
+              {activeTab === 'strategies' ? 'Strategies' : 'Execution History'}
+            </h1>
           </div>
 
           <div className="flex items-center gap-4">
-            {isConnected && (
-              <div className="flex items-center gap-4">
-                <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 bg-green-50 text-green-700 rounded-full text-xs font-bold border border-green-200">
-                  <CheckCircle2 className="h-3.5 w-3.5" />
-                  Angel One Connected
-                </div>
-
-                <div className="h-8 w-[1px] bg-gray-100 hidden sm:block"></div>
-
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleLogout}
-                  disabled={logoutLoading}
-                  className="h-9 px-3 gap-2 border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700 active:bg-red-100 transition-colors font-semibold rounded-lg"
+            <div className="flex flex-col items-end gap-1">
+                <button
+                    onClick={handleToggleConnection}
+                    disabled={logoutLoading || loginLoading}
+                    className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold border transition-all cursor-pointer shadow-sm ${
+                        isConnected 
+                        ? "bg-green-50 text-green-700 border-green-200 hover:bg-red-50 hover:text-red-700 hover:border-red-200" 
+                        : "bg-red-50 text-red-600 border-red-200 hover:bg-green-50 hover:text-green-700 hover:border-green-200"
+                    } disabled:opacity-50 disabled:cursor-not-allowed`}
+                    title={isConnected ? "Click to Disconnect" : "Click to Connect"}
                 >
-                  {logoutLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <LogOut className="h-4 w-4" />}
-                  Disconnect
-                </Button>
-              </div>
-            )}
+                    {logoutLoading || loginLoading ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : isConnected ? (
+                        <CheckCircle2 className="h-3.5 w-3.5" />
+                    ) : (
+                        <AlertCircle className="h-3.5 w-3.5" />
+                    )}
+                    {isConnected ? "Angel One Connected" : "Angel One Disconnected"}
+                </button>
+            </div>
           </div>
         </header>
 
@@ -217,7 +237,11 @@ function App() {
             )}
 
             <div className="w-full animate-in fade-in duration-500 pb-20">
-              <StrategyBuilder />
+              {activeTab === 'strategies' ? (
+                <StrategyBuilder isConnected={isConnected} />
+              ) : (
+                <StrategyHistory />
+              )}
             </div>
           </div>
 
@@ -228,4 +252,3 @@ function App() {
 }
 
 export default App;
-

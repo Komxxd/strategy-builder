@@ -1,4 +1,4 @@
-const { defaultSmartApi, getAuthorizedInstance } = require("../config/smartapi");
+const { defaultSmartApi, getAuthorizedInstance, registerAuthErrorCallback } = require("../config/smartapi");
 const speakeasy = require("speakeasy");
 const marketSocketService = require("./marketSocket.service");
 
@@ -30,6 +30,10 @@ async function login() {
             feedToken: sessionData.data.feedToken,
             apiKey: process.env.SMARTAPI_API_KEY,
             clientCode: process.env.SMARTAPI_CLIENT_ID
+        }, () => {
+            console.log("Initializing active strategies from DB post-login...");
+            const strategyService = require("./strategy.service");
+            strategyService.initializeActiveStrategies();
         });
 
         console.log("Logged in successfully to SmartAPI");
@@ -41,7 +45,10 @@ async function login() {
 }
 
 function getSession() {
-    return sessionData;
+    if (sessionData && marketSocketService.isSocketConnected && marketSocketService.isSocketConnected()) {
+        return sessionData;
+    }
+    return null;
 }
 
 function logout() {
@@ -55,3 +62,8 @@ module.exports = {
     getSession,
     logout,
 };
+
+registerAuthErrorCallback(() => {
+    console.warn("Global token expiry totally intercepted! Automatically logging out...");
+    logout();
+});

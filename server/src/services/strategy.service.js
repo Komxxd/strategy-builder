@@ -2517,25 +2517,41 @@ async function getActiveStrategies() {
     return Promise.all(executions.map(exec => getStatus(exec.id)));
 }
 
+
 async function getExecutionHistory() {
     const executions = await prisma.strategy_executions.findMany({
-        where: { status: { in: ['COMPLETED', 'FAILED', 'TERMINATED'] } },
-        orderBy: { completed_at: 'desc' },
-        include: { strategy: { select: { name: true, config: true } } }
+        where: { 
+            status: { 
+                in: ["COMPLETED", "FAILED", "TERMINATED", "CANCELLED", "STOPPED", "SQUARED_OFF"] 
+            } 
+        },
+        orderBy: { 
+            completed_at: { sort: "desc", nulls: "last" }
+        },
+        include: { 
+            strategy: { 
+                select: { 
+                    name: true, 
+                    config: true 
+                } 
+            } 
+        },
+        take: 50
     });
 
     return executions.map(dbExec => ({
         id: dbExec.id,
         status: dbExec.status,
         config: dbExec.execution_details?.config || dbExec.strategy?.config || {},
-        name: dbExec.strategy?.name || "Deployed Strategy",
+        name: dbExec.strategy?.name || (dbExec.execution_details?.config?.name) || "Deployed Strategy",
         error: dbExec.execution_details?.error,
+        logs: dbExec.execution_details?.logs || [],
         legs: dbExec.execution_details?.legs || [],
         pnlPercent: dbExec.final_pnl_percent || 0,
         totalPnlRupees: dbExec.total_pnl_rupees || 0,
         exitType: dbExec.exit_type,
         started_at: dbExec.started_at,
-        completed_at: dbExec.completed_at
+        completed_at: dbExec.completed_at || dbExec.updatedAt
     }));
 }
 

@@ -6,10 +6,11 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { StopCircle, Loader2, TrendingUp, Timer, LayoutDashboard, Target, Save, Play, Plus, Trash2, ShieldCheck, Zap, Copy, MessageSquare, Ghost, X, Settings2 } from 'lucide-react';
+import { StopCircle, Loader2, TrendingUp, Timer, LayoutDashboard, Target, Save, Play, Plus, Trash2, ShieldCheck, Zap, Copy, MessageSquare, Ghost, X, Settings2, Clock } from 'lucide-react';
 import axios from 'axios';
 import { io } from 'socket.io-client';
 import { StrategyLogs } from './StrategyLogs';
+import { StrategyConfigModal } from './StrategyConfigModal';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:5001/api";
 const SOCKET_URL = API_BASE_URL.replace(/\/api\/?$/, "");
@@ -77,7 +78,7 @@ const LazyLegModal = ({ isOpen, onClose, leg, onChange, legIndex, level }) => {
 
     const modalContent = (
         <div
-            className="fixed inset-0 z-[40] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md transition-all duration-500 animate-in fade-in"
+            className="fixed inset-0 z-[999999] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md transition-all duration-500 animate-in fade-in"
             onClick={(e) => e.target === e.currentTarget && onClose()}
         >
             <div className="bg-white w-full max-w-4xl max-h-[90vh] flex flex-col rounded-[2.5rem] shadow-[0_32px_64px_-12px_rgba(0,0,0,0.4)] border border-slate-200 overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-10 duration-500 ease-out">
@@ -747,357 +748,71 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
     );
 };
 
-// Tier 1 - Rule 1 & Phase 2: Interceptor to ensuring session key is always sent
-
-export const StrategyBuilder = () => {
-    const [loading, setLoading] = useState(false);
-    const [runningStrategies, setRunningStrategies] = useState({}); // { id: data }
-    const [savedStrategies, setSavedStrategies] = useState([]);
-    const [editingId, setEditingId] = useState(null);
-    const [activeTab, setActiveTab] = useState('paper');
-    const [logWindowOpen, setLogWindowOpen] = useState(false);
-    const [logStrategyId, setLogStrategyId] = useState(null);
-
-    const [config, setConfig] = useState({
-        name: '',
-        index: 'NIFTY',
-        entry_time: '09:16:00',
-        exit_time: '15:29:00',
-        variety: 'STOPLOSS',
-        ordertype: 'LIMIT',
-        producttype: 'CARRYFORWARD',
-        duration: 'DAY',
-        price: '0',
-        triggerprice: '0',
-        squareoff: '0',
-        stoploss: '0',
-        overall_sl_type: 'PERCENTAGE',
-        overall_sl_value: 0,
-        overall_target_type: 'PERCENTAGE',
-        overall_target_value: 0,
-        entry_limit_offset: 0,
-        legs: [
-            { strike_criteria: 'STRIKE_TYPE', option_type: 'CE', strike: 'ATM', premium: 0, side: 'BUY', lots: 1, sl_type: 'PERCENTAGE', stop_loss: 10, simple_mntm_enabled: false, simple_mntm_mode: 'SIMPLE_PLUS_PCT', simple_mntm_value: 0, recost_enabled: false, recost_mode: 'RECOST_PLUS_PCT', recost_value: 0, max_reentry: 1, reentry_sl_enabled: false, reentry_sl_type: 'PERCENTAGE', reentry_sl_value: 10, re_asap_enabled: false, re_asap_max_entries: 1, lazy_leg_enabled: false, lazy_leg: null, tsl_enabled: false, tsl_type: 'PERCENTAGE', tsl_value: 0 }
-        ]
-    });
-
-    const fetchSavedStrategies = async () => {
-        try {
-            const res = await axios.get(`${API_BASE_URL}/strategy/user`);
-            setSavedStrategies(res.data?.data || []);
-        } catch (err) {
-            console.error("Error fetching saved strategies:", err);
-        }
-    };
-
-    const fetchActive = async () => {
-        try {
-            const res = await axios.get(`${API_BASE_URL}/strategy/active`);
-            if (res.data?.data && Array.isArray(res.data.data)) {
-                const activeMap = {};
-                res.data.data.forEach(s => {
-                    activeMap[s.id] = s;
-                });
-                setRunningStrategies(activeMap);
-            }
-        } catch (err) {
-            console.error("Error fetching active strategies:", err);
-        }
-    };
-
-    React.useEffect(() => {
-        fetchSavedStrategies();
-        fetchActive();
-    }, []);
-
-    const handleSave = async () => {
-        setLoading(true);
-        const finalConfig = { ...config, is_paper_trading: activeTab === 'paper' };
-        try {
-            if (editingId) {
-                await axios.put(`${API_BASE_URL}/strategy/update/${editingId}`, finalConfig);
-                setEditingId(null);
-            } else {
-                await axios.post(`${API_BASE_URL}/strategy/save`, finalConfig);
-            }
-            fetchSavedStrategies();
-        } catch (err) {
-            const validationErrors = err.response?.data?.errors;
-            if (validationErrors && Array.isArray(validationErrors)) {
-                const errorMsg = validationErrors.map(e => `${e.path}: ${e.msg}`).join('\n');
-                alert("Validation Error:\n" + errorMsg);
-            } else {
-                alert("Error saving strategy: " + (err.response?.data?.message || err.message));
-            }
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    const handleExecute = async (id) => {
-        try {
-            const res = await axios.post(`${API_BASE_URL}/strategy/execute/${id}`);
-            const newId = res.data.strategy_id || res.data.execution_id;
-            // Fetch initial status
-            const statusRes = await axios.get(`${API_BASE_URL}/strategy/status/${newId}`);
-            setRunningStrategies(prev => ({
-                ...prev,
-                [newId]: statusRes.data.data
-            }));
-            fetchActive();
-            // We no longer call fetchSavedStrategies() here because execution doesn't create a new template
-        } catch (err) {
-            alert("Error executing strategy: " + err.message);
-        }
-    };
-
-    const handleStop = async (id) => {
-        if (!id) return;
-        try {
-            await axios.post(`${API_BASE_URL}/strategy/stop/${id}`);
-            fetchActive();
-        } catch (err) {
-            alert("Error stopping strategy: " + err.message);
-        }
-    };
-
-    const handleSquareOff = async (id) => {
-        if (!id) return;
-        if (!confirm("Are you sure you want to instantly square off all positions for this strategy?")) return;
-        try {
-            await axios.post(`${API_BASE_URL}/strategy/squareoff/${id}`);
-            fetchActive();
-        } catch (err) {
-            alert("Error squaring off strategy: " + err.response?.data?.message || err.message);
-        }
-    };
-
-    const handleSquareOffLeg = async (id, legIndex) => {
-        if (!id) return;
-        if (!confirm("Are you sure you want to instantly square off this specific leg?")) return;
-        try {
-            await axios.post(`${API_BASE_URL}/strategy/squareoff/${id}/leg/${legIndex}`);
-            fetchActive();
-        } catch (err) {
-            alert("Error squaring off leg: " + err.response?.data?.message || err.message);
-        }
-    };
-
-    const handleEdit = (strategy) => {
-        setConfig(strategy.config);
-        setEditingId(strategy.id);
-        setActiveTab(strategy.config.is_paper_trading ? 'paper' : 'live');
-        window.scrollTo({ top: 0, behavior: 'smooth' });
-    };
-
-    const handleDelete = async (strategyIdToDelete) => {
-        if (!confirm("Delete this strategy?")) return;
-        try {
-            await axios.delete(`${API_BASE_URL}/strategy/delete/${strategyIdToDelete}`);
-            fetchSavedStrategies();
-        } catch (err) {
-            alert("Error deleting strategy: " + err.message);
-        }
-    };
-
-    // Helper to keep frontend PnL snappy with WebSocket updates
-    const recalculateStrategyPnL = (strategy) => {
-        if (!strategy || !strategy.legs) return strategy;
-
-        const updatedLegs = strategy.legs.map(l => {
-            // We only recalculate for legs that have an entry price and haven't fully exited yet in the UI
-            if (l.entryPrice && !l.exited) {
-                const curLtp = l.currentLtp || 0;
-                const entry = l.entryPrice || 1;
-                const side = l.leg?.side || "SELL";
-                const pnlPoints = side === "BUY" ? (curLtp - entry) : (entry - curLtp);
-                const quantity = (l.leg?.lots || 0) * (parseInt(l.instrument?.lotsize) || 1);
-
-                const curActiveRupees = pnlPoints * quantity;
-                const curActivePercent = (pnlPoints / entry) * 100;
-
-                const totalPoints = (l.bookedPnlPoints || 0) + pnlPoints;
-                const totalRupees = (l.bookedPnlRupees || 0) + curActiveRupees;
-                const totalPercent = l.original_traded_price > 0 ? (totalPoints / l.original_traded_price * 100) : 0;
-
-                return {
-                    ...l,
-                    currentActivePnlPoints: pnlPoints,
-                    currentActivePnlRupees: curActiveRupees,
-                    currentActivePnlPercent: curActivePercent,
-                    pnlPoints: totalPoints,
-                    pnlRupees: totalRupees,
-                    pnlPercent: totalPercent
-                };
-            }
-            return l;
-        });
-
-        const totalPnlRupees = updatedLegs.reduce((sum, l) => sum + (l.pnlRupees || 0), 0);
-        const totalOriginalValue = updatedLegs.reduce((sum, l) => {
-            if (!l.original_traded_price) return sum;
-            const quantity = (l.leg?.lots || 0) * (parseInt(l.instrument?.lotsize) || 1);
-            return sum + (l.original_traded_price * quantity);
-        }, 0);
-
-        const avgPnl = totalOriginalValue > 0 ? (totalPnlRupees / totalOriginalValue) * 100 : 0;
-
-        return {
-            ...strategy,
-            legs: updatedLegs,
-            totalPnlRupees,
-            totalOriginalValue,
-            pnlPercent: avgPnl
-        };
-    };
-
-    // Tier 1 - Live Streaming: WebSocket initialization
-    useEffect(() => {
-        console.log("[Socket] Connecting to:", SOCKET_URL);
-        const socket = io(SOCKET_URL, {
-            autoConnect: true,
-            reconnection: true
-        });
-
-        socket.on('ltp_update', (data) => {
-            setRunningStrategies(prev => {
-                let next = { ...prev };
-                let overallHasChanges = false;
-
-                Object.keys(next).forEach(id => {
-                    const strategy = next[id];
-                    if (strategy.legs) {
-                        let strategyLegsChanged = false;
-                        const updatedLegs = strategy.legs.map(leg => {
-                            if (leg.instrument.token === data.token &&
-                                (leg.instrument.exch_seg === data.exchange || leg.instrument.exchange === data.exchange)) {
-                                if (leg.currentLtp !== data.ltp) {
-                                    strategyLegsChanged = true;
-                                    return { ...leg, currentLtp: data.ltp };
-                                }
-                            }
-                            return leg;
-                        });
-
-                        if (strategyLegsChanged) {
-                            // Immediate recalculation of overall PnL on every tick
-                            next[id] = recalculateStrategyPnL({ ...strategy, legs: updatedLegs });
-                            overallHasChanges = true;
-                        }
-                    }
-                });
-
-                return overallHasChanges ? next : prev;
-            });
-        });
-
-        socket.on('strategy_log', (data) => {
-            setRunningStrategies(prev => {
-                if (!prev[data.strategyId]) return prev;
-                const strategy = prev[data.strategyId];
-                const updatedLogs = [...(strategy.logs || []), data.log];
-                return {
-                    ...prev,
-                    [data.strategyId]: { ...strategy, logs: updatedLogs }
-                };
-            });
-        });
-
-        socket.on('connect', () => console.log('WebSocket Connected'));
-
-        return () => {
-            socket.disconnect();
-        };
-    }, []);
+const EntryTimer = ({ entryTime }) => {
+    const [timeLeft, setTimeLeft] = useState('');
 
     useEffect(() => {
-        let interval;
-        if (Object.keys(runningStrategies).length > 0) {
-            interval = setInterval(async () => {
-                try {
-                    const latestActiveIds = Object.keys(runningStrategies);
-                    const updates = await Promise.all(
-                        latestActiveIds.map(async (id) => {
-                            try {
-                                const res = await axios.get(`${API_BASE_URL}/strategy/status/${id}`);
-                                return { id, data: res.data.data };
-                            } catch (e) {
-                                return { id, error: true };
-                            }
-                        })
-                    );
+        if (!entryTime) return;
+        const parts = entryTime.split(':');
+        const targetHours = parseInt(parts[0], 10);
+        const targetMinutes = parseInt(parts[1], 10);
+        const targetSeconds = parseInt(parts[2] || 0, 10);
 
-                    setRunningStrategies(prev => {
-                        let next = { ...prev };
-                        let hasChanges = false;
+        const updateTimer = () => {
+            const now = new Date();
+            let target = new Date();
+            target.setHours(targetHours, targetMinutes, targetSeconds, 0);
 
-                        updates.forEach(u => {
-                            if (u.error || u.data.status === "COMPLETED" || u.data.status === "FAILED") {
-                                if (next[u.id]) {
-                                    delete next[u.id];
-                                    hasChanges = true;
-                                }
-                            } else {
-                                const existing = next[u.id];
-                                // Add if new, or update if status changed
-                                if (!existing || existing.status !== u.data.status) {
-                                    next[u.id] = u.data;
-                                    hasChanges = true;
-                                } else {
-                                    // Periodic refresh of non-price data (pnl, etc)
-                                    // We merge u.data (latest DB state) with our local memory (carrying LTPs)
-                                    // and then perform a local PnL recalculation to keep it snappy.
-                                    const latestLegs = u.data.legs || [];
-                                    const mergedStrategy = {
-                                        ...u.data,
-                                        legs: latestLegs.map(newLeg => {
-                                            // Try to find matching leg in our current memory to preserve its fast price
-                                            const existingLeg = existing.legs?.find(ex => ex.instrument.token === newLeg.instrument.token);
-                                            return {
-                                                ...newLeg,
-                                                currentLtp: existingLeg ? (existingLeg.currentLtp || newLeg.currentLtp) : newLeg.currentLtp
-                                            };
-                                        })
-                                    };
-                                    next[u.id] = recalculateStrategyPnL(mergedStrategy);
-                                    hasChanges = true;
-                                }
-                            }
-                        });
-                        return hasChanges ? next : prev;
-                    });
+            let diff = target - now;
+            if (diff < 0) {
+                setTimeLeft('...');
+                return;
+            }
 
-                    if (updates.some(u => !u.error && (u.data.status === "COMPLETED" || u.data.status === "FAILED"))) {
-                        fetchActive();
-                    }
-                } catch (err) {
-                    console.error("Error polling statuses:", err);
-                }
-            }, 5000); // Polling every 5s for reliable status sync
-        }
+            const hours = Math.floor(diff / (1000 * 60 * 60));
+            const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+            const seconds = Math.floor((diff % (1000 * 60)) / 1000);
+
+            let timeString = '';
+            if (hours > 0) timeString += `${hours}h `;
+            if (minutes > 0 || hours > 0) timeString += `${minutes}m `;
+            timeString += `${seconds}s`;
+
+            setTimeLeft(`in ${timeString.trim()}`);
+        };
+
+        updateTimer();
+        const interval = setInterval(updateTimer, 1000);
         return () => clearInterval(interval);
-    }, [Object.keys(runningStrategies).length]);
+    }, [entryTime]);
 
     return (
-        <div className="space-y-6">
-            <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-                <TabsList className="grid w-full grid-cols-2 mb-8 h-12 bg-muted/50 p-1 rounded-2xl">
-                    <TabsTrigger value="paper" className="rounded-xl font-bold data-[state=active]:bg-blue-600 data-[state=active]:text-white flex items-center gap-2">
-                        <ShieldCheck className="h-4 w-4" /> Paper Trading
-                    </TabsTrigger>
-                    <TabsTrigger value="live" className="rounded-xl font-bold data-[state=active]:bg-orange-600 data-[state=active]:text-white flex items-center gap-2">
-                        <Zap className="h-4 w-4" /> Live Market
-                    </TabsTrigger>
-                </TabsList>
+        <div className="flex items-center gap-1 px-1.5 py-0.5 ml-1 bg-indigo-50 text-indigo-700 font-bold rounded border border-indigo-100/60 shadow-sm animate-pulse">
+            <Clock className="h-3 w-3" />
+            <span className="text-[10px] tracking-wide uppercase">Entry at {entryTime} {timeLeft ? `(${timeLeft})` : ''}</span>
+        </div>
+    );
+};
 
-                <Card className="w-full border-border bg-card overflow-hidden">
-                    <CardHeader className="border-b bg-muted">
-                        <CardTitle className="flex items-center gap-2 text-xl font-bold">
-                            <Target className="h-5 w-5 text-primary" />
-                            Strategy Configuration
-                        </CardTitle>
-                    </CardHeader>
-                    <CardContent className="pt-6">
+// Tier 1 - Rule 1 & Phase 2: Interceptor to ensuring session key is always sent
+
+
+export const StrategyFormContent = ({ config, setConfig, editingId, setEditingId, loading, handleSave, isReadOnly }) => {
+    return (
+        <div className={isReadOnly ? "read-only-form opacity-90" : ""}>
+            <style>{`
+                .read-only-form input,
+                .read-only-form [role="combobox"],
+                .read-only-form label,
+                .read-only-form [type="checkbox"] {
+                    pointer-events: none !important;
+                }
+                .read-only-form .hide-on-readonly {
+                    opacity: 0.5 !important;
+                    pointer-events: none !important;
+                    display: none !important;
+                }
+            `}</style>
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                             <div className="space-y-2 lg:col-span-1">
                                 <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
@@ -1129,7 +844,7 @@ export const StrategyBuilder = () => {
                             </div>
                         </div>
 
-                        <div className="flex items-center justify-between pt-6">
+                        <div className="flex items-center justify-between pt-6 hide-on-readonly">
                             <div className="text-sm font-bold uppercase tracking-wider text-muted-foreground">
                                 Strategy Legs
                             </div>
@@ -1371,7 +1086,7 @@ export const StrategyBuilder = () => {
                                 </div>
                             )}
 
-                            <div className="flex items-end">
+                            <div className="flex items-end hide-on-readonly">
                                 <Button
                                     className="w-full h-11 gap-2 rounded-xl shadow-lg font-bold"
                                     onClick={handleSave}
@@ -1382,7 +1097,7 @@ export const StrategyBuilder = () => {
                                 </Button>
                             </div>
                             {editingId && (
-                                <div className="flex items-end">
+                                <div className="flex items-end hide-on-readonly">
                                     <Button
                                         variant="outline"
                                         className="w-full h-11 gap-2 rounded-xl"
@@ -1393,6 +1108,373 @@ export const StrategyBuilder = () => {
                                 </div>
                             )}
                         </div>
+        </div>
+    );
+};
+
+export const StrategyBuilder = ({ isConnected }) => {
+    const [loading, setLoading] = useState(false);
+    const [runningStrategies, setRunningStrategies] = useState({}); // { id: data }
+    const [savedStrategies, setSavedStrategies] = useState([]);
+    const [editingId, setEditingId] = useState(null);
+    const [activeTab, setActiveTab] = useState('paper');
+    const [logWindowOpen, setLogWindowOpen] = useState(false);
+    const [logStrategyId, setLogStrategyId] = useState(null);
+    const [configWindowOpen, setConfigWindowOpen] = useState(false);
+    const [configStrategyId, setConfigStrategyId] = useState(null);
+
+    const [config, setConfig] = useState({
+        name: '',
+        index: 'NIFTY',
+        entry_time: '09:16:00',
+        exit_time: '15:29:00',
+        variety: 'STOPLOSS',
+        ordertype: 'LIMIT',
+        producttype: 'CARRYFORWARD',
+        duration: 'DAY',
+        price: '0',
+        triggerprice: '0',
+        squareoff: '0',
+        stoploss: '0',
+        overall_sl_type: 'PERCENTAGE',
+        overall_sl_value: 0,
+        overall_target_type: 'PERCENTAGE',
+        overall_target_value: 0,
+        entry_limit_offset: 0,
+        legs: [
+            { strike_criteria: 'STRIKE_TYPE', option_type: 'CE', strike: 'ATM', premium: 0, side: 'BUY', lots: 1, sl_type: 'PERCENTAGE', stop_loss: 10, simple_mntm_enabled: false, simple_mntm_mode: 'SIMPLE_PLUS_PCT', simple_mntm_value: 0, recost_enabled: false, recost_mode: 'RECOST_PLUS_PCT', recost_value: 0, max_reentry: 1, reentry_sl_enabled: false, reentry_sl_type: 'PERCENTAGE', reentry_sl_value: 10, re_asap_enabled: false, re_asap_max_entries: 1, lazy_leg_enabled: false, lazy_leg: null, tsl_enabled: false, tsl_type: 'PERCENTAGE', tsl_value: 0 }
+        ]
+    });
+
+    const fetchSavedStrategies = async () => {
+        try {
+            const res = await axios.get(`${API_BASE_URL}/strategy/user`);
+            setSavedStrategies(res.data?.data || []);
+        } catch (err) {
+            console.error("Error fetching saved strategies:", err);
+        }
+    };
+
+    const fetchActive = async () => {
+        try {
+            const res = await axios.get(`${API_BASE_URL}/strategy/active`);
+            if (res.data?.data && Array.isArray(res.data.data)) {
+                const activeMap = {};
+                res.data.data.forEach(s => {
+                    activeMap[s.id] = s;
+                });
+                setRunningStrategies(activeMap);
+            }
+        } catch (err) {
+            console.error("Error fetching active strategies:", err);
+        }
+    };
+
+    React.useEffect(() => {
+        fetchSavedStrategies();
+    }, []);
+
+    React.useEffect(() => {
+        if (isConnected) {
+            fetchActive();
+        } else {
+            setRunningStrategies({});
+        }
+    }, [isConnected]);
+
+    const handleSave = async () => {
+        setLoading(true);
+        const finalConfig = { ...config, is_paper_trading: activeTab === 'paper' };
+        try {
+            if (editingId) {
+                await axios.put(`${API_BASE_URL}/strategy/update/${editingId}`, finalConfig);
+                setEditingId(null);
+            } else {
+                await axios.post(`${API_BASE_URL}/strategy/save`, finalConfig);
+            }
+            fetchSavedStrategies();
+        } catch (err) {
+            const validationErrors = err.response?.data?.errors;
+            if (validationErrors && Array.isArray(validationErrors)) {
+                const errorMsg = validationErrors.map(e => `${e.path}: ${e.msg}`).join('\n');
+                alert("Validation Error:\n" + errorMsg);
+            } else {
+                alert("Error saving strategy: " + (err.response?.data?.message || err.message));
+            }
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleExecute = async (id) => {
+        if (!isConnected) {
+            alert("Please connect to Angel One to execute strategies.");
+            return;
+        }
+        try {
+            const res = await axios.post(`${API_BASE_URL}/strategy/execute/${id}`);
+            const newId = res.data.strategy_id || res.data.execution_id;
+            // Fetch initial status
+            const statusRes = await axios.get(`${API_BASE_URL}/strategy/status/${newId}`);
+            setRunningStrategies(prev => ({
+                ...prev,
+                [newId]: statusRes.data.data
+            }));
+            fetchActive();
+            // We no longer call fetchSavedStrategies() here because execution doesn't create a new template
+        } catch (err) {
+            alert("Error executing strategy: " + err.message);
+        }
+    };
+
+    const handleStop = async (id) => {
+        if (!id) return;
+        try {
+            await axios.post(`${API_BASE_URL}/strategy/stop/${id}`);
+            fetchActive();
+        } catch (err) {
+            alert("Error stopping strategy: " + err.message);
+        }
+    };
+
+    const handleSquareOff = async (id) => {
+        if (!id) return;
+        if (!confirm("Are you sure you want to instantly square off all positions for this strategy?")) return;
+        try {
+            await axios.post(`${API_BASE_URL}/strategy/squareoff/${id}`);
+            fetchActive();
+        } catch (err) {
+            alert("Error squaring off strategy: " + err.response?.data?.message || err.message);
+        }
+    };
+
+    const handleSquareOffLeg = async (id, legIndex) => {
+        if (!id) return;
+        if (!confirm("Are you sure you want to instantly square off this specific leg?")) return;
+        try {
+            await axios.post(`${API_BASE_URL}/strategy/squareoff/${id}/leg/${legIndex}`);
+            fetchActive();
+        } catch (err) {
+            alert("Error squaring off leg: " + err.response?.data?.message || err.message);
+        }
+    };
+
+    const handleEdit = (strategy) => {
+        setConfig(strategy.config);
+        setEditingId(strategy.id);
+        setActiveTab(strategy.config.is_paper_trading ? 'paper' : 'live');
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    };
+
+    const handleDelete = async (strategyIdToDelete) => {
+        if (!confirm("Delete this strategy?")) return;
+        try {
+            await axios.delete(`${API_BASE_URL}/strategy/delete/${strategyIdToDelete}`);
+            fetchSavedStrategies();
+        } catch (err) {
+            alert("Error deleting strategy: " + err.message);
+        }
+    };
+
+    // Helper to keep frontend PnL snappy with WebSocket updates
+    const recalculateStrategyPnL = (strategy) => {
+        if (!strategy || !strategy.legs) return strategy;
+
+        const updatedLegs = strategy.legs.map(l => {
+            // We only recalculate for legs that have an entry price and haven't fully exited yet in the UI
+            if (l.entryPrice && !l.exited) {
+                const curLtp = l.currentLtp || 0;
+                const entry = l.entryPrice || 1;
+                const side = l.leg?.side || "SELL";
+                const pnlPoints = side === "BUY" ? (curLtp - entry) : (entry - curLtp);
+                const quantity = (l.leg?.lots || 0) * (parseInt(l.instrument?.lotsize) || 1);
+
+                const curActiveRupees = pnlPoints * quantity;
+                const curActivePercent = (pnlPoints / entry) * 100;
+
+                const totalPoints = (l.bookedPnlPoints || 0) + pnlPoints;
+                const totalRupees = (l.bookedPnlRupees || 0) + curActiveRupees;
+                const totalPercent = l.original_traded_price > 0 ? (totalPoints / l.original_traded_price * 100) : 0;
+
+                return {
+                    ...l,
+                    currentActivePnlPoints: pnlPoints,
+                    currentActivePnlRupees: curActiveRupees,
+                    currentActivePnlPercent: curActivePercent,
+                    pnlPoints: totalPoints,
+                    pnlRupees: totalRupees,
+                    pnlPercent: totalPercent
+                };
+            }
+            return l;
+        });
+
+        const totalPnlRupees = updatedLegs.reduce((sum, l) => sum + (l.pnlRupees || 0), 0);
+        const totalOriginalValue = updatedLegs.reduce((sum, l) => {
+            if (!l.original_traded_price) return sum;
+            const quantity = (l.leg?.lots || 0) * (parseInt(l.instrument?.lotsize) || 1);
+            return sum + (l.original_traded_price * quantity);
+        }, 0);
+
+        const avgPnl = totalOriginalValue > 0 ? (totalPnlRupees / totalOriginalValue) * 100 : 0;
+
+        return {
+            ...strategy,
+            legs: updatedLegs,
+            totalPnlRupees,
+            totalOriginalValue,
+            pnlPercent: avgPnl
+        };
+    };
+
+    // Tier 1 - Live Streaming: WebSocket initialization
+    useEffect(() => {
+        console.log("[Socket] Connecting to:", SOCKET_URL);
+        const socket = io(SOCKET_URL, {
+            autoConnect: true,
+            reconnection: true
+        });
+
+        socket.on('ltp_update', (data) => {
+            setRunningStrategies(prev => {
+                let next = { ...prev };
+                let overallHasChanges = false;
+
+                Object.keys(next).forEach(id => {
+                    const strategy = next[id];
+                    if (strategy.legs) {
+                        let strategyLegsChanged = false;
+                        const updatedLegs = strategy.legs.map(leg => {
+                            if (leg.instrument.token === data.token &&
+                                (leg.instrument.exch_seg === data.exchange || leg.instrument.exchange === data.exchange)) {
+                                if (leg.currentLtp !== data.ltp) {
+                                    strategyLegsChanged = true;
+                                    return { ...leg, currentLtp: data.ltp };
+                                }
+                            }
+                            return leg;
+                        });
+
+                        if (strategyLegsChanged) {
+                            // Immediate recalculation of overall PnL on every tick
+                            next[id] = recalculateStrategyPnL({ ...strategy, legs: updatedLegs });
+                            overallHasChanges = true;
+                        }
+                    }
+                });
+
+                return overallHasChanges ? next : prev;
+            });
+        });
+
+        socket.on('strategy_log', (data) => {
+            setRunningStrategies(prev => {
+                if (!prev[data.strategyId]) return prev;
+                const strategy = prev[data.strategyId];
+                const updatedLogs = [...(strategy.logs || []), data.log];
+                return {
+                    ...prev,
+                    [data.strategyId]: { ...strategy, logs: updatedLogs }
+                };
+            });
+        });
+
+        socket.on('connect', () => console.log('WebSocket Connected'));
+
+        return () => {
+            socket.disconnect();
+        };
+    }, []);
+
+    useEffect(() => {
+        let interval;
+        if (isConnected && Object.keys(runningStrategies).length > 0) {
+            interval = setInterval(async () => {
+                try {
+                    const latestActiveIds = Object.keys(runningStrategies);
+                    const updates = await Promise.all(
+                        latestActiveIds.map(async (id) => {
+                            try {
+                                const res = await axios.get(`${API_BASE_URL}/strategy/status/${id}`);
+                                return { id, data: res.data.data };
+                            } catch (e) {
+                                return { id, error: true };
+                            }
+                        })
+                    );
+
+                    setRunningStrategies(prev => {
+                        let next = { ...prev };
+                        let hasChanges = false;
+
+                        updates.forEach(u => {
+                            if (u.error || u.data.status === "COMPLETED" || u.data.status === "FAILED") {
+                                if (next[u.id]) {
+                                    delete next[u.id];
+                                    hasChanges = true;
+                                }
+                            } else {
+                                const existing = next[u.id];
+                                // Add if new, or update if status changed
+                                if (!existing || existing.status !== u.data.status) {
+                                    next[u.id] = u.data;
+                                    hasChanges = true;
+                                } else {
+                                    // Periodic refresh of non-price data (pnl, etc)
+                                    // We merge u.data (latest DB state) with our local memory (carrying LTPs)
+                                    // and then perform a local PnL recalculation to keep it snappy.
+                                    const latestLegs = u.data.legs || [];
+                                    const mergedStrategy = {
+                                        ...u.data,
+                                        legs: latestLegs.map(newLeg => {
+                                            // Try to find matching leg in our current memory to preserve its fast price
+                                            const existingLeg = existing.legs?.find(ex => ex.instrument.token === newLeg.instrument.token);
+                                            return {
+                                                ...newLeg,
+                                                currentLtp: existingLeg ? (existingLeg.currentLtp || newLeg.currentLtp) : newLeg.currentLtp
+                                            };
+                                        })
+                                    };
+                                    next[u.id] = recalculateStrategyPnL(mergedStrategy);
+                                    hasChanges = true;
+                                }
+                            }
+                        });
+                        return hasChanges ? next : prev;
+                    });
+
+                    if (updates.some(u => !u.error && (u.data.status === "COMPLETED" || u.data.status === "FAILED"))) {
+                        fetchActive();
+                    }
+                } catch (err) {
+                    console.error("Error polling statuses:", err);
+                }
+            }, 5000); // Polling every 5s for reliable status sync
+        }
+        return () => clearInterval(interval);
+    }, [Object.keys(runningStrategies).length, isConnected]);
+
+    return (
+        <div className="space-y-6">
+            <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+                <TabsList className="grid w-full grid-cols-2 mb-8 h-12 bg-muted/50 p-1 rounded-2xl">
+                    <TabsTrigger value="paper" className="rounded-xl font-bold data-[state=active]:bg-blue-600 data-[state=active]:text-white flex items-center gap-2">
+                        <ShieldCheck className="h-4 w-4" /> Paper Trading
+                    </TabsTrigger>
+                    <TabsTrigger value="live" className="rounded-xl font-bold data-[state=active]:bg-orange-600 data-[state=active]:text-white flex items-center gap-2">
+                        <Zap className="h-4 w-4" /> Live Market
+                    </TabsTrigger>
+                </TabsList>
+
+                <Card className="w-full border-border bg-card overflow-hidden">
+                    <CardHeader className="border-b bg-muted">
+                        <CardTitle className="flex items-center gap-2 text-xl font-bold">
+                            <Target className="h-5 w-5 text-primary" />
+                            Strategy Configuration
+                        </CardTitle>
+                    </CardHeader>
+                    <CardContent className="pt-6">
+                        <StrategyFormContent config={config} setConfig={setConfig} editingId={editingId} setEditingId={setEditingId} loading={loading} handleSave={handleSave} isReadOnly={false} />
                     </CardContent >
                 </Card >
 
@@ -1420,9 +1502,24 @@ export const StrategyBuilder = () => {
                                                     {strategyData.config?.is_paper_trading ? 'PAPER' : 'LIVE'}
                                                 </span>
                                                 <span className="text-xs font-bold text-muted-foreground ml-2">Index: {strategyData.config?.index}</span>
+                                                {strategyData.status === 'WAITING' && strategyData.config?.entry_time && (
+                                                    <EntryTimer entryTime={strategyData.config.entry_time} />
+                                                )}
                                             </div>
                                         </div>
                                         <div className="flex items-center gap-2">
+                                            <Button
+                                                size="sm"
+                                                variant="outline"
+                                                className="h-8 px-4 gap-1.5 rounded-lg text-xs font-bold border-indigo-500 hover:bg-indigo-50 text-indigo-600 shadow-sm"
+                                                onClick={() => {
+                                                    setConfigStrategyId(id);
+                                                    setConfigWindowOpen(true);
+                                                }}
+                                            >
+                                                <Settings2 className="h-3.5 w-3.5" />
+                                                Config
+                                            </Button>
                                             <Button
                                                 size="sm"
                                                 variant="outline"
@@ -1668,8 +1765,10 @@ export const StrategyBuilder = () => {
                                                             <div className="flex items-center justify-end gap-2">
                                                                 <Button
                                                                     size="sm"
-                                                                    className="h-8 px-4 gap-1.5 rounded-lg text-xs font-bold shadow-sm"
+                                                                    className={`h-8 px-4 gap-1.5 rounded-lg text-xs font-bold shadow-sm ${!isConnected ? 'opacity-50 grayscale cursor-not-allowed' : ''}`}
                                                                     onClick={() => handleExecute(s.id)}
+                                                                    disabled={!isConnected}
+                                                                    title={!isConnected ? "Please connect to Angel One to execute strategies" : ""}
                                                                 >
                                                                     <Play className="h-3.5 w-3.5 fill-current" /> Deploy
                                                                 </Button>
@@ -1704,6 +1803,12 @@ export const StrategyBuilder = () => {
                     onClose={() => setLogWindowOpen(false)}
                     logs={logStrategyId ? runningStrategies[logStrategyId]?.logs : []}
                     strategyName={logStrategyId ? (runningStrategies[logStrategyId]?.name || runningStrategies[logStrategyId]?.config?.name || 'Strategy') : ''}
+                />
+                <StrategyConfigModal
+                    isOpen={configWindowOpen}
+                    onClose={() => setConfigWindowOpen(false)}
+                    config={configStrategyId ? runningStrategies[configStrategyId]?.config : null}
+                    strategyName={configStrategyId ? (runningStrategies[configStrategyId]?.name || runningStrategies[configStrategyId]?.config?.name || 'Strategy') : ''}
                 />
             </Tabs>
         </div >

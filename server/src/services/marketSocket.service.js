@@ -118,7 +118,7 @@ const INVERSE_EXCH_MAPPING = {
     7: "NCDEX"
 };
 
-function initMarketSocket({ jwtToken, feedToken, clientCode, apiKey }) {
+function initMarketSocket({ jwtToken, feedToken, clientCode, apiKey }, onConnected) {
     if (socket) {
         disconnectMarketSocket();
     }
@@ -137,6 +137,7 @@ function initMarketSocket({ jwtToken, feedToken, clientCode, apiKey }) {
     socket.connect().then(() => {
         isConnected = true;
         console.log("Market WebSocket connected for client:", clientCode);
+        if (typeof onConnected === 'function') onConnected();
 
         // Listen for ticks
         socket.on("tick", (tick) => {
@@ -192,6 +193,14 @@ function initMarketSocket({ jwtToken, feedToken, clientCode, apiKey }) {
 
         socket.on("error", (err) => {
             console.error("[MarketSocket] WebSocket Error Event:", err);
+            isConnected = false;
+            if (io) io.emit("broker_status", { connected: false });
+        });
+
+        socket.on("close", () => {
+            console.log("[MarketSocket] WebSocket Closed Event");
+            isConnected = false;
+            if (io) io.emit("broker_status", { connected: false });
         });
 
     }).catch(err => {
@@ -210,6 +219,7 @@ function disconnectMarketSocket() {
         subscribedTokens.clear();
         console.log("Market WebSocket disconnected.");
     }
+    if (io) io.emit("broker_status", { connected: false });
 }
 
 /**
@@ -241,5 +251,6 @@ module.exports = {
     syncSubscriptions,
     disconnectMarketSocket,
     sendAlert,
-    sendStrategyLog
+    sendStrategyLog,
+    isSocketConnected: () => isConnected,
 };
