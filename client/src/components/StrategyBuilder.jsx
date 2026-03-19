@@ -749,7 +749,7 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
 
 // Tier 1 - Rule 1 & Phase 2: Interceptor to ensuring session key is always sent
 
-export const StrategyBuilder = () => {
+export const StrategyBuilder = ({ isConnected }) => {
     const [loading, setLoading] = useState(false);
     const [runningStrategies, setRunningStrategies] = useState({}); // { id: data }
     const [savedStrategies, setSavedStrategies] = useState([]);
@@ -807,8 +807,15 @@ export const StrategyBuilder = () => {
 
     React.useEffect(() => {
         fetchSavedStrategies();
-        fetchActive();
     }, []);
+
+    React.useEffect(() => {
+        if (isConnected) {
+            fetchActive();
+        } else {
+            setRunningStrategies({});
+        }
+    }, [isConnected]);
 
     const handleSave = async () => {
         setLoading(true);
@@ -835,6 +842,10 @@ export const StrategyBuilder = () => {
     };
 
     const handleExecute = async (id) => {
+        if (!isConnected) {
+            alert("Please connect to Angel One to execute strategies.");
+            return;
+        }
         try {
             const res = await axios.post(`${API_BASE_URL}/strategy/execute/${id}`);
             const newId = res.data.strategy_id || res.data.execution_id;
@@ -1012,7 +1023,7 @@ export const StrategyBuilder = () => {
 
     useEffect(() => {
         let interval;
-        if (Object.keys(runningStrategies).length > 0) {
+        if (isConnected && Object.keys(runningStrategies).length > 0) {
             interval = setInterval(async () => {
                 try {
                     const latestActiveIds = Object.keys(runningStrategies);
@@ -1076,7 +1087,7 @@ export const StrategyBuilder = () => {
             }, 5000); // Polling every 5s for reliable status sync
         }
         return () => clearInterval(interval);
-    }, [Object.keys(runningStrategies).length]);
+    }, [Object.keys(runningStrategies).length, isConnected]);
 
     return (
         <div className="space-y-6">
@@ -1668,8 +1679,10 @@ export const StrategyBuilder = () => {
                                                             <div className="flex items-center justify-end gap-2">
                                                                 <Button
                                                                     size="sm"
-                                                                    className="h-8 px-4 gap-1.5 rounded-lg text-xs font-bold shadow-sm"
+                                                                    className={`h-8 px-4 gap-1.5 rounded-lg text-xs font-bold shadow-sm ${!isConnected ? 'opacity-50 grayscale cursor-not-allowed' : ''}`}
                                                                     onClick={() => handleExecute(s.id)}
+                                                                    disabled={!isConnected}
+                                                                    title={!isConnected ? "Please connect to Angel One to execute strategies" : ""}
                                                                 >
                                                                     <Play className="h-3.5 w-3.5 fill-current" /> Deploy
                                                                 </Button>
