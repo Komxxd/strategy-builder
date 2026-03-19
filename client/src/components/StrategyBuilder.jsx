@@ -364,7 +364,7 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
                                 <SelectItem value="POINTS">Points</SelectItem>
                             </SelectContent>
                         </Select>
-                        
+
                         <div className="flex-1 relative">
                             <Input
                                 className="h-11 rounded-md w-full"
