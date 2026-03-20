@@ -1121,7 +1121,8 @@ export const StrategyBuilder = ({ isConnected }) => {
     const [logWindowOpen, setLogWindowOpen] = useState(false);
     const [logStrategyId, setLogStrategyId] = useState(null);
     const [configWindowOpen, setConfigWindowOpen] = useState(false);
-    const [configStrategyId, setConfigStrategyId] = useState(null);
+    const [viewConfig, setViewConfig] = useState(null);
+    const [viewStrategyName, setViewStrategyName] = useState('');
     const [searchTerm, setSearchTerm] = useState('');
 
     const [config, setConfig] = useState({
@@ -1514,7 +1515,8 @@ export const StrategyBuilder = ({ isConnected }) => {
                                                 variant="outline"
                                                 className="h-8 px-4 gap-1.5 rounded-lg text-xs font-bold border-indigo-500 hover:bg-indigo-50 text-indigo-600 shadow-sm"
                                                 onClick={() => {
-                                                    setConfigStrategyId(id);
+                                                    setViewConfig(strategyData.config);
+                                                    setViewStrategyName(strategyData.name || strategyData.config?.name || 'Strategy');
                                                     setConfigWindowOpen(true);
                                                 }}
                                             >
@@ -1792,6 +1794,18 @@ export const StrategyBuilder = ({ isConnected }) => {
                                                                 <Button
                                                                     size="sm"
                                                                     variant="outline"
+                                                                    className="h-8 px-4 gap-1.5 rounded-lg text-xs font-bold border-indigo-500 hover:bg-indigo-50 text-indigo-600 shadow-sm"
+                                                                    onClick={() => {
+                                                                        setViewConfig(s.config);
+                                                                        setViewStrategyName(s.name || s.config?.name || 'Strategy');
+                                                                        setConfigWindowOpen(true);
+                                                                    }}
+                                                                >
+                                                                    <Settings2 className="h-3.5 w-3.5" /> View
+                                                                </Button>
+                                                                <Button
+                                                                    size="sm"
+                                                                    variant="outline"
                                                                     className="h-8 px-3 gap-1 rounded-lg text-xs"
                                                                     onClick={() => handleEdit(s)}
                                                                 >
@@ -1824,8 +1838,8 @@ export const StrategyBuilder = ({ isConnected }) => {
                 <StrategyConfigModal
                     isOpen={configWindowOpen}
                     onClose={() => setConfigWindowOpen(false)}
-                    config={configStrategyId ? runningStrategies[configStrategyId]?.config : null}
-                    strategyName={configStrategyId ? (runningStrategies[configStrategyId]?.name || runningStrategies[configStrategyId]?.config?.name || 'Strategy') : ''}
+                    config={viewConfig}
+                    strategyName={viewStrategyName}
                 />
             </Tabs>
         </div >
