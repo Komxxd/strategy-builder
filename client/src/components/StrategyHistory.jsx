@@ -279,9 +279,14 @@ export const StrategyHistory = () => {
                                                                         <span className="font-bold">₹{Number(leg.currentLtp || 0).toFixed(2)}</span>
                                                                     </div>
                                                                     
-                                                                    <div className="flex gap-1.5">
+                                                                    <div className="flex gap-1.5 flex-wrap">
+                                                                        {leg.initialSlTriggerPrice != null && (
+                                                                            <span className="text-slate-400 font-bold px-1.5 py-0.5 bg-slate-50 border border-slate-100 rounded text-[9px] uppercase tracking-tighter shrink-0">Init SL: {Number(leg.initialSlTriggerPrice).toFixed(1)}</span>
+                                                                        )}
                                                                         {leg.slTriggerPrice != null && (
-                                                                            <span className="text-red-600 font-bold px-1.5 py-0.5 bg-red-50/50 border border-red-100/50 rounded">SL {Number(leg.slTriggerPrice).toFixed(2)}</span>
+                                                                            <span className={`font-bold px-1.5 py-0.5 border rounded text-[9px] uppercase tracking-tighter shrink-0 ${Number(leg.slTriggerPrice) !== Number(leg.initialSlTriggerPrice) ? 'text-indigo-600 bg-indigo-50 border-indigo-100' : 'text-red-600 bg-red-50/50 border-red-100/50'}`}>
+                                                                                Now SL: {Number(leg.slTriggerPrice).toFixed(1)}
+                                                                            </span>
                                                                         )}
                                                                         {leg.rtp != null && (
                                                                             <span className="text-orange-600 font-bold px-1.5 py-0.5 bg-orange-50/50 border border-orange-100/50 rounded">RTP {Number(leg.rtp).toFixed(2)}</span>

@@ -1365,6 +1365,7 @@ async function executeStrategy(strategyId) {
                                     leg.slOrderId = slOrder.orderid;
                                     leg.slUniqueOrderId = slOrder.uniqueorderid;
                                     leg.slTriggerPrice = prices?.trigger || null;
+                                    leg.initialSlTriggerPrice = prices?.trigger || null;
                                     leg.slLimitPrice = prices?.limit || null;
                                 }
                             }
@@ -1616,6 +1617,7 @@ async function executeStrategy(strategyId) {
                                                 leg.slOrderId = slOrder.orderid;
                                                 leg.slUniqueOrderId = slOrder.uniqueorderid;
                                                 leg.slTriggerPrice = prices?.trigger || null;
+                                                leg.initialSlTriggerPrice = prices?.trigger || null;
                                                 leg.slLimitPrice = prices?.limit || null;
                                             }
                                         }
@@ -1756,6 +1758,7 @@ async function executeStrategy(strategyId) {
                                                         leg.slOrderId = slOrder.orderid;
                                                         leg.slUniqueOrderId = slOrder.uniqueorderid;
                                                         leg.slTriggerPrice = prices?.trigger;
+                                                        leg.initialSlTriggerPrice = prices?.trigger;
                                                         leg.slLimitPrice = prices?.limit;
                                                         leg.exchangeSlProcessed = false;
                                                     }
@@ -2085,6 +2088,22 @@ async function executeStrategy(strategyId) {
 
                                     if (isHit) {
                                         exitReason = "LEG_STOP_LOSS";
+                                    }
+
+                                    // Initialize slTriggerPrice and initialSlTriggerPrice for display if not set
+                                    if (leg.initialSlTriggerPrice === undefined || leg.initialSlTriggerPrice === null) {
+                                        const prices = computeStopLossExitPrices(
+                                            leg.entryPrice,
+                                            leg.leg.side,
+                                            activeSlType,
+                                            activeSlValue,
+                                            config.entry_limit_offset
+                                        );
+                                        if (prices) {
+                                            leg.slTriggerPrice = prices.trigger;
+                                            leg.initialSlTriggerPrice = prices.trigger;
+                                            leg.slLimitPrice = prices.limit;
+                                        }
                                     }
                                 }
                             }

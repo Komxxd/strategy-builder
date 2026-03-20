@@ -1593,10 +1593,18 @@ export const StrategyBuilder = ({ isConnected }) => {
                                                                         <span>Entry: {(l.entryPrice || 0).toFixed(2)}</span>
                                                                         <span>|</span>
                                                                         <span className="animate-pulse text-blue-600 font-bold">LTP: {(l.currentLtp || 0).toFixed(2)}</span>
+                                                                        {l.initialSlTriggerPrice != null && (
+                                                                            <>
+                                                                                <span>|</span>
+                                                                                <span className="text-slate-500 font-bold">Init SL: {Number(l.initialSlTriggerPrice).toFixed(1)}</span>
+                                                                            </>
+                                                                        )}
                                                                         {l.slTriggerPrice != null && (
                                                                             <>
                                                                                 <span>|</span>
-                                                                                <span className="text-red-500 font-bold">SL: {l.slTriggerPrice.toFixed(2)}</span>
+                                                                                <span className={`font-black ${Number(l.slTriggerPrice) !== Number(l.initialSlTriggerPrice) ? 'text-indigo-600 animate-pulse' : 'text-slate-800'}`}>
+                                                                                    Now SL: {Number(l.slTriggerPrice).toFixed(1)}
+                                                                                </span>
                                                                             </>
                                                                         )}
                                                                         {l.rtp != null && (
