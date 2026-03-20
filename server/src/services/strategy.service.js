@@ -1354,20 +1354,24 @@ async function executeStrategy(strategyId) {
                                     slLimitMargin: config.entry_limit_offset,
                                     connectionId: config.connectionId
                                 });
+                                const prices = computeStopLossExitPrices(
+                                    leg.entryPrice,
+                                    leg.leg.side,
+                                    leg.leg.sl_type || "PERCENTAGE",
+                                    leg.leg.stop_loss,
+                                    config.entry_limit_offset
+                                );
+
                                 if (slOrder?.orderid) {
-                                    const prices = computeStopLossExitPrices(
-                                        leg.entryPrice,
-                                        leg.leg.side,
-                                        leg.leg.sl_type || "PERCENTAGE",
-                                        leg.leg.stop_loss,
-                                        config.entry_limit_offset
-                                    );
                                     leg.slOrderId = slOrder.orderid;
                                     leg.slUniqueOrderId = slOrder.uniqueorderid;
-                                    leg.slTriggerPrice = prices?.trigger || null;
-                                    leg.initialSlTriggerPrice = prices?.trigger || null;
-                                    leg.slLimitPrice = prices?.limit || null;
+                                } else {
+                                    addStrategyLog(strategyId, `[FALLBACK] Initializing virtual SL monitoring for unprotected leg ${leg.instrument.symbol}.`, "WARNING");
                                 }
+
+                                leg.slTriggerPrice = prices?.trigger || null;
+                                leg.initialSlTriggerPrice = prices?.trigger || null;
+                                leg.slLimitPrice = prices?.limit || null;
                             }
                         }));
 
@@ -1612,14 +1616,17 @@ async function executeStrategy(strategyId) {
                                                 connectionId: config.connectionId,
                                                 strategyId: strategyId
                                             });
+
+                                            const prices = computeStopLossExitPrices(leg.entryPrice, leg.leg.side, leg.leg.sl_type || "PERCENTAGE", leg.leg.stop_loss, config.entry_limit_offset);
                                             if (slOrder?.orderid) {
-                                                const prices = computeStopLossExitPrices(leg.entryPrice, leg.leg.side, leg.leg.sl_type || "PERCENTAGE", leg.leg.stop_loss, config.entry_limit_offset);
                                                 leg.slOrderId = slOrder.orderid;
                                                 leg.slUniqueOrderId = slOrder.uniqueorderid;
-                                                leg.slTriggerPrice = prices?.trigger || null;
-                                                leg.initialSlTriggerPrice = prices?.trigger || null;
-                                                leg.slLimitPrice = prices?.limit || null;
+                                            } else {
+                                                addStrategyLog(strategyId, `[FALLBACK] Initializing virtual SL monitoring for ${leg.instrument.symbol} (Momentum Entry).`, "WARNING");
                                             }
+                                            leg.slTriggerPrice = prices?.trigger || null;
+                                            leg.initialSlTriggerPrice = prices?.trigger || null;
+                                            leg.slLimitPrice = prices?.limit || null;
                                         }
                                     }
                                 }
@@ -1716,9 +1723,9 @@ async function executeStrategy(strategyId) {
                                                         config.connectionId,
                                                         config.is_paper_trading === true,
                                                         leg.instrument,
-                                                        28800000, // 8 Hours Timeout MS
-                                                        1000,     // 1 Sec Poll Interval
-                                                        {         // Inject Advanced Paper Config
+                                                        28800000, 
+                                                        1000,     
+                                                        {         
                                                             side: side,
                                                             ordertype: ordertype,
                                                             price: parseFloat(finalPriceStr || 0),
@@ -1728,12 +1735,11 @@ async function executeStrategy(strategyId) {
                                                     leg.entryPrice = fill || currentTick;
                                                     leg.entryTime = getISTTime();
                                                     leg.original_traded_price = leg.entryPrice;
-                                                    leg.peakPrice = leg.entryPrice; // Initialize TSL Peak
-                                                    // base_otp is inherited and stays constant across re-entries
+                                                    leg.peakPrice = leg.entryPrice; 
                                                 } catch (e) {
                                                     leg.entryPrice = currentTick;
                                                     leg.entryTime = getISTTime();
-                                                    leg.peakPrice = leg.entryPrice; // Initialize TSL Peak
+                                                    leg.peakPrice = leg.entryPrice; 
                                                 }
 
                                                 // Redeploy exchange SL if needed
@@ -1753,15 +1759,18 @@ async function executeStrategy(strategyId) {
                                                         connectionId: config.connectionId,
                                                         strategyId: strategyId
                                                     });
+
+                                                    const prices = computeStopLossExitPrices(leg.entryPrice, leg.leg.side, activeSlType, activeSlValue, config.entry_limit_offset);
                                                     if (slOrder?.orderid) {
-                                                        const prices = computeStopLossExitPrices(leg.entryPrice, leg.leg.side, activeSlType, activeSlValue, config.entry_limit_offset);
                                                         leg.slOrderId = slOrder.orderid;
                                                         leg.slUniqueOrderId = slOrder.uniqueorderid;
-                                                        leg.slTriggerPrice = prices?.trigger;
-                                                        leg.initialSlTriggerPrice = prices?.trigger;
-                                                        leg.slLimitPrice = prices?.limit;
-                                                        leg.exchangeSlProcessed = false;
+                                                    } else {
+                                                        addStrategyLog(strategyId, `[FALLBACK] Initializing virtual SL monitoring for ${leg.instrument.symbol} (Re-Cost Entry).`, "WARNING");
                                                     }
+                                                    leg.slTriggerPrice = prices?.trigger;
+                                                    leg.initialSlTriggerPrice = prices?.trigger;
+                                                    leg.slLimitPrice = prices?.limit;
+                                                    leg.exchangeSlProcessed = false;
                                                 }
                                             }, 1000);
                                         } catch (err) {
@@ -2072,8 +2081,8 @@ async function executeStrategy(strategyId) {
                             }
 
                             // 2. Evaluate Static Stop Loss (if not already hit by TSL)
-                            // Only apply if we are NOT using Exchange STOPLOSS orders or if we are doing paper trading.
-                            if (!isHit && (config.variety !== "STOPLOSS" || config.is_paper_trading === true)) {
+                            // Fallback: Also monitor manually if we are doing live STOPLOSS but the order failed (slOrderId is null)
+                            if (!isHit && (config.variety !== "STOPLOSS" || config.is_paper_trading === true || !leg.slOrderId)) {
                                 const isReentered = leg.reentry_count > 0;
                                 const activeSlValue = isReentered && leg.leg.reentry_sl_enabled ? parseFloat(leg.leg.reentry_sl_value || 0) : parseFloat(leg.leg.stop_loss || 0);
 
