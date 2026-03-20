@@ -2072,17 +2072,20 @@ async function executeStrategy(strategyId) {
                             // Only apply if we are NOT using Exchange STOPLOSS orders or if we are doing paper trading.
                             if (!isHit && (config.variety !== "STOPLOSS" || config.is_paper_trading === true)) {
                                 const isReentered = leg.reentry_count > 0;
-                                const activeSlType = isReentered && leg.leg.reentry_sl_enabled ? leg.leg.reentry_sl_type : (leg.leg.sl_type || "PERCENTAGE");
-                                const activeSlValue = isReentered && leg.leg.reentry_sl_enabled ? leg.leg.reentry_sl_value : (leg.leg.stop_loss || 0);
+                                const activeSlValue = isReentered && leg.leg.reentry_sl_enabled ? parseFloat(leg.leg.reentry_sl_value || 0) : parseFloat(leg.leg.stop_loss || 0);
 
-                                if (activeSlType === "POINTS") {
-                                    isHit = leg.currentActivePnlPoints <= -activeSlValue;
-                                } else {
-                                    isHit = leg.currentActivePnlPercent <= -activeSlValue;
-                                }
+                                if (activeSlValue > 0) {
+                                    const activeSlType = isReentered && leg.leg.reentry_sl_enabled ? leg.leg.reentry_sl_type : (leg.leg.sl_type || "PERCENTAGE");
 
-                                if (isHit) {
-                                    exitReason = "LEG_STOP_LOSS";
+                                    if (activeSlType === "POINTS") {
+                                        isHit = leg.currentActivePnlPoints <= -activeSlValue;
+                                    } else {
+                                        isHit = leg.currentActivePnlPercent <= -activeSlValue;
+                                    }
+
+                                    if (isHit) {
+                                        exitReason = "LEG_STOP_LOSS";
+                                    }
                                 }
                             }
 
