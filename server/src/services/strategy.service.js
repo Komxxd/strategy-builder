@@ -1867,7 +1867,9 @@ async function executeStrategy(strategyId) {
                                 exit_order_id: strategy.exitOrderId,
                                 exit_type: "OVERALL_STOP_LOSS",
                                 final_pnl_percent: avgPnl,
-                                totalPnlRupees: totalPnlRupees
+                                totalPnlRupees: totalPnlRupees,
+                                totalOriginalValue: strategy.totalOriginalValue,
+                                legs: strategy.legs
                             });
                             clearInterval(interval);
                             return;
@@ -1928,7 +1930,9 @@ async function executeStrategy(strategyId) {
                                 exit_order_id: strategy.exitOrderId,
                                 exit_type: "OVERALL_TARGET",
                                 final_pnl_percent: avgPnl,
-                                totalPnlRupees: totalPnlRupees
+                                totalPnlRupees: totalPnlRupees,
+                                totalOriginalValue: strategy.totalOriginalValue,
+                                legs: strategy.legs
                             });
                             clearInterval(interval);
                             return;
@@ -2193,7 +2197,9 @@ async function executeStrategy(strategyId) {
                                 exit_order_id: strategy.exitOrderId,
                                 exit_type: "EXIT_TIME",
                                 final_pnl_percent: strategy.pnlPercent,
-                                totalPnlRupees: strategy.totalPnlRupees
+                                totalPnlRupees: strategy.totalPnlRupees,
+                                totalOriginalValue: strategy.totalOriginalValue,
+                                legs: strategy.legs
                             });
                             clearInterval(interval);
                         }
@@ -2211,7 +2217,9 @@ async function executeStrategy(strategyId) {
                             exit_order_id: strategy.exitOrderId,
                             exit_type: "LEGS_COMPLETED",
                             final_pnl_percent: strategy.pnlPercent,
-                            totalPnlRupees: strategy.totalPnlRupees
+                            totalPnlRupees: strategy.totalPnlRupees,
+                            totalOriginalValue: strategy.totalOriginalValue,
+                            legs: strategy.legs
                         });
                         clearInterval(interval);
                         return;
@@ -2549,6 +2557,7 @@ async function getExecutionHistory() {
         legs: dbExec.execution_details?.legs || [],
         pnlPercent: dbExec.final_pnl_percent || 0,
         totalPnlRupees: dbExec.total_pnl_rupees || 0,
+        totalOriginalValue: dbExec.execution_details?.totalOriginalValue || 0,
         exitType: dbExec.exit_type,
         started_at: dbExec.started_at,
         completed_at: dbExec.completed_at || dbExec.updatedAt
