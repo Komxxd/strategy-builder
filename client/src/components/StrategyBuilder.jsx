@@ -150,17 +150,17 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
     const [isLazyModalOpen, setIsLazyModalOpen] = useState(false);
 
     return (
-        <div className={`p-6 rounded-2xl border-2 transition-all duration-300 ${isRecursive ? 'bg-muted/30 border-dashed mt-4 ml-4 md:ml-8 border-primary/20' : 'bg-card border-primary/10 hover:border-primary/30 shadow-sm'}`}>
-            <div className="flex items-center justify-between mb-6">
-                <div className="flex items-center gap-3">
-                    <div className={`h-10 w-10 ${isRecursive ? 'bg-orange-500/10 text-orange-600' : 'bg-primary/10 text-primary'} rounded-xl flex items-center justify-center font-bold`}>
-                        {isRecursive ? <Ghost className="h-5 w-5" /> : legIndex + 1}
+        <div className={`p-3 rounded-lg border-2 transition-all duration-300 ${isRecursive ? 'bg-muted/30 border-dashed mt-2 ml-4 md:ml-6 border-primary/20' : 'bg-card border-primary/10 hover:border-primary/30 shadow-sm'}`}>
+            <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                    <div className={`h-8 w-8 ${isRecursive ? 'bg-orange-500/10 text-orange-600' : 'bg-primary/10 text-primary'} rounded flex items-center justify-center font-bold text-sm`}>
+                        {isRecursive ? <Ghost className="h-4 w-4" /> : legIndex + 1}
                     </div>
                     <div>
-                        <h3 className="font-bold text-lg tracking-tight">
+                        <h3 className="font-bold text-sm tracking-tight">
                             {isRecursive ? `Lazy Leg (Level ${level})` : `Strategy Leg ${legIndex + 1}`}
                         </h3>
-                        <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider">
+                        <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">
                             {isRecursive ? 'Placed after parent SL hits' : 'Initial Entry Leg'}
                         </p>
                     </div>
@@ -210,7 +210,7 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
                         value={leg.option_type}
                         onValueChange={(v) => onChange({ ...leg, option_type: v })}
                     >
-                        <SelectTrigger className="h-11 rounded-xl">
+                        <SelectTrigger className="h-9 rounded-lg text-sm">
                             <SelectValue placeholder="Type" />
                         </SelectTrigger>
                         <SelectContent>
@@ -220,15 +220,15 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
                     </Select>
                 </div>
 
-                <div className="space-y-2">
-                    <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+                <div className="space-y-1">
+                    <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
                         <Target className="h-3 w-3" /> Strike Criteria
                     </Label>
                     <Select
                         value={leg.strike_criteria || 'STRIKE_TYPE'}
                         onValueChange={(v) => onChange({ ...leg, strike_criteria: v })}
                     >
-                        <SelectTrigger className="h-11 rounded-xl">
+                        <SelectTrigger className="h-9 rounded-lg text-sm">
                             <SelectValue placeholder="Criteria" />
                         </SelectTrigger>
                         <SelectContent>
@@ -239,12 +239,12 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
                 </div>
 
                 {leg.strike_criteria === 'CLOSEST_PREMIUM' ? (
-                    <div className="space-y-2">
-                        <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+                    <div className="space-y-1">
+                        <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
                             Premium (₹)
                         </Label>
                         <Input
-                            className="h-11 rounded-xl"
+                            className="h-9 rounded-lg text-sm"
                             type="text"
                             value={leg.premium === undefined ? '' : leg.premium}
                             onChange={(e) => {
@@ -257,15 +257,15 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
                         />
                     </div>
                 ) : (
-                    <div className="space-y-2">
-                        <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+                    <div className="space-y-1">
+                        <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
                             <Target className="h-3 w-3" /> Strike
                         </Label>
                         <Select
                             value={leg.strike}
                             onValueChange={(v) => onChange({ ...leg, strike: v })}
                         >
-                            <SelectTrigger className="h-11 rounded-xl">
+                            <SelectTrigger className="h-9 rounded-lg text-sm">
                                 <SelectValue placeholder="Select Strike" />
                             </SelectTrigger>
                             <SelectContent className="max-h-[300px]">
@@ -281,13 +281,13 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
                     </div>
                 )}
 
-                <div className="space-y-2">
-                    <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Side</Label>
+                <div className="space-y-1">
+                    <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Side</Label>
                     <Select
                         value={leg.side}
                         onValueChange={(v) => onChange({ ...leg, side: v })}
                     >
-                        <SelectTrigger className="h-11 rounded-xl">
+                        <SelectTrigger className="h-9 rounded-lg text-sm">
                             <SelectValue placeholder="Side" />
                         </SelectTrigger>
                         <SelectContent>
@@ -297,23 +297,23 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
                     </Select>
                 </div>
 
-                <div className="space-y-2">
-                    <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Lots</Label>
+                <div className="space-y-1">
+                    <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Lots</Label>
                     <Input
-                        className="h-11 rounded-xl"
+                        className="h-9 rounded-lg text-sm"
                         type="number"
                         value={leg.lots}
                         onChange={(e) => onChange({ ...leg, lots: parseInt(e.target.value) })}
                     />
                 </div>
 
-                <div className="space-y-2">
-                    <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">SL Type</Label>
+                <div className="space-y-1">
+                    <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">SL Type</Label>
                     <Select
                         value={leg.sl_type || 'PERCENTAGE'}
                         onValueChange={(v) => onChange({ ...leg, sl_type: v })}
                     >
-                        <SelectTrigger className="h-11 rounded-xl">
+                        <SelectTrigger className="h-9 rounded-lg text-sm">
                             <SelectValue placeholder="SL Type" />
                         </SelectTrigger>
                         <SelectContent>
@@ -323,21 +323,21 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
                     </Select>
                 </div>
 
-                <div className="space-y-2">
-                    <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                <div className="space-y-1">
+                    <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
                         Stop Loss {leg.sl_type === 'POINTS' ? '(Pts)' : '(%)'}
                     </Label>
                     <Input
-                        className="h-11 rounded-xl"
+                        className="h-9 rounded-lg text-sm"
                         type="number"
                         value={leg.stop_loss}
                         onChange={(e) => onChange({ ...leg, stop_loss: parseFloat(e.target.value) })}
                     />
                 </div>
 
-                <div className="space-y-2 md:col-span-2 lg:col-span-2">
-                    <div className="flex items-center justify-between mb-1.5">
-                        <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Trailing Stop Loss</Label>
+                <div className="space-y-1 md:col-span-2 lg:col-span-2">
+                    <div className="flex items-center justify-between mb-0.5">
+                        <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Trailing Stop Loss</Label>
                         <div className="flex items-center gap-1.5">
                             <input
                                 type="checkbox"
@@ -346,7 +346,7 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
                                 checked={leg.tsl_enabled || false}
                                 onChange={(e) => onChange({ ...leg, tsl_enabled: e.target.checked })}
                             />
-                            <Label htmlFor={`tsl-enabled-${idPrefix}`} className="text-[10px] font-bold tracking-wide cursor-pointer uppercase">
+                            <Label htmlFor={`tsl-enabled-${idPrefix}`} className="text-[9px] font-bold tracking-wide cursor-pointer uppercase">
                                 Enable
                             </Label>
                         </div>
@@ -357,7 +357,7 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
                             onValueChange={(v) => onChange({ ...leg, tsl_type: v })}
                             disabled={!leg.tsl_enabled}
                         >
-                            <SelectTrigger className="h-11 rounded-md w-[30%]">
+                            <SelectTrigger className="h-9 rounded-md w-[30%] text-xs">
                                 <SelectValue placeholder="Type" />
                             </SelectTrigger>
                             <SelectContent>
@@ -368,7 +368,7 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
 
                         <div className="flex-1 relative">
                             <Input
-                                className="h-11 rounded-md w-full"
+                                className="h-9 rounded-md w-full text-xs"
                                 type="number"
                                 placeholder="Move"
                                 value={leg.tsl_value === 0 ? '' : (leg.tsl_value !== undefined ? leg.tsl_value : '')}
@@ -383,7 +383,7 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
 
                         <div className="flex-1 relative">
                             <Input
-                                className="h-11 rounded-md w-full"
+                                className="h-9 rounded-md w-full text-xs"
                                 type="number"
                                 placeholder="Trail"
                                 value={leg.tsl_trail === 0 ? '' : (leg.tsl_trail !== undefined ? leg.tsl_trail : '')}
@@ -398,12 +398,12 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
                     </div>
                 </div>
 
-                <div className="md:col-span-2 space-y-4 pt-4 border-t border-dashed mt-2">
+                <div className="md:col-span-2 space-y-3 pt-3 border-t border-dashed mt-1">
                     <div className="flex items-center gap-2">
                         <input
                             type="checkbox"
                             id={`simple-mntm-${idPrefix}`}
-                            className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
+                            className="w-3.5 h-3.5 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
                             checked={leg.simple_mntm_enabled || false}
                             onChange={(e) => onChange({
                                 ...leg,
@@ -412,20 +412,20 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
                                 simple_mntm_value: leg.simple_mntm_value || 0
                             })}
                         />
-                        <Label htmlFor={`simple-mntm-${idPrefix}`} className="text-sm font-bold tracking-wide text-foreground cursor-pointer flex items-center gap-1.5">
+                        <Label htmlFor={`simple-mntm-${idPrefix}`} className="text-[11px] font-bold tracking-wide text-foreground cursor-pointer flex items-center gap-1.5">
                             Simple Momentum
                         </Label>
                     </div>
 
                     {leg.simple_mntm_enabled && (
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pl-6 animate-in slide-in-from-top-2">
-                            <div className="space-y-2">
-                                <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Simple Mntm Mode</Label>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pl-5 animate-in slide-in-from-top-2">
+                            <div className="space-y-1">
+                                <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Simple Mntm Mode</Label>
                                 <Select
                                     value={leg.simple_mntm_mode || 'SIMPLE_PLUS_PCT'}
                                     onValueChange={(v) => onChange({ ...leg, simple_mntm_mode: v })}
                                 >
-                                    <SelectTrigger className="h-11 rounded-xl">
+                                    <SelectTrigger className="h-9 rounded-lg text-xs">
                                         <SelectValue placeholder="Mode" />
                                     </SelectTrigger>
                                     <SelectContent>
@@ -436,12 +436,12 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
                                     </SelectContent>
                                 </Select>
                             </div>
-                            <div className="space-y-2">
-                                <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                            <div className="space-y-1">
+                                <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
                                     Mntm Value {leg.simple_mntm_mode && leg.simple_mntm_mode.includes('PCT') ? '(%)' : '(Pts)'}
                                 </Label>
                                 <Input
-                                    className="h-11 rounded-xl"
+                                    className="h-9 rounded-lg text-xs"
                                     type="text"
                                     value={leg.simple_mntm_value === undefined ? '' : leg.simple_mntm_value}
                                     onChange={(e) => {
@@ -456,17 +456,17 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
                         </div>
                     )}
 
-                    <div className="h-4"></div>
+                    <div className="h-2"></div>
 
                     {/* Exclusivity: RE-ASAP, RE-COST, LAZY LEG */}
                     <div className="grid grid-cols-1 gap-4">
                         {/* RE-ASAP */}
-                        <div className={`space-y-4 pt-4 border-t transition-all duration-300 ${(leg.recost_enabled || leg.lazy_leg_enabled) ? 'opacity-40 grayscale pointer-events-none' : ''}`}>
+                        <div className={`space-y-3 pt-3 border-t transition-all duration-300 ${(leg.recost_enabled || leg.lazy_leg_enabled) ? 'opacity-40 grayscale pointer-events-none' : ''}`}>
                             <div className="flex items-center gap-2">
                                 <input
                                     type="checkbox"
                                     id={`re-asap-${idPrefix}`}
-                                    className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                    className="w-3.5 h-3.5 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
                                     checked={leg.re_asap_enabled || false}
                                     disabled={leg.recost_enabled || leg.lazy_leg_enabled}
                                     onChange={(e) => onChange({
@@ -477,19 +477,19 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
                                         lazy_leg_enabled: false
                                     })}
                                 />
-                                <Label htmlFor={`re-asap-${idPrefix}`} className={`text-sm font-bold tracking-wide text-foreground flex items-center gap-1.5 ${(leg.recost_enabled || leg.lazy_leg_enabled) ? 'cursor-not-allowed' : 'cursor-pointer'}`}>
+                                <Label htmlFor={`re-asap-${idPrefix}`} className={`text-[11px] font-bold tracking-wide text-foreground flex items-center gap-1.5 ${(leg.recost_enabled || leg.lazy_leg_enabled) ? 'cursor-not-allowed' : 'cursor-pointer'}`}>
                                     RE-ASAP
                                 </Label>
                             </div>
                             {leg.re_asap_enabled && (
-                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pl-6 animate-in slide-in-from-top-2">
-                                    <div className="space-y-2">
-                                        <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Max Entries</Label>
+                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pl-5 animate-in slide-in-from-top-2">
+                                    <div className="space-y-1">
+                                        <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Max Entries</Label>
                                         <Select
                                             value={(leg.re_asap_max_entries || 1).toString()}
                                             onValueChange={(v) => onChange({ ...leg, re_asap_max_entries: parseInt(v) })}
                                         >
-                                            <SelectTrigger className="h-11 rounded-xl">
+                                            <SelectTrigger className="h-9 rounded-lg text-xs">
                                                 <SelectValue placeholder="Entries" />
                                             </SelectTrigger>
                                             <SelectContent className="max-h-[250px]">
@@ -506,12 +506,12 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
                         </div>
 
                         {/* RE-COST */}
-                        <div className={`space-y-4 pt-4 border-t transition-all duration-300 ${(leg.re_asap_enabled || leg.lazy_leg_enabled) ? 'opacity-40 grayscale pointer-events-none' : ''}`}>
+                        <div className={`space-y-3 pt-3 border-t transition-all duration-300 ${(leg.re_asap_enabled || leg.lazy_leg_enabled) ? 'opacity-40 grayscale pointer-events-none' : ''}`}>
                             <div className="flex items-center gap-2">
                                 <input
                                     type="checkbox"
                                     id={`recost-${idPrefix}`}
-                                    className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                    className="w-3.5 h-3.5 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
                                     checked={leg.recost_enabled || false}
                                     disabled={leg.re_asap_enabled || leg.lazy_leg_enabled}
                                     onChange={(e) => onChange({
@@ -527,20 +527,20 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
                                         reentry_sl_value: leg.reentry_sl_value || leg.stop_loss || 0
                                     })}
                                 />
-                                <Label htmlFor={`recost-${idPrefix}`} className={`text-sm font-bold tracking-wide text-foreground ${(leg.re_asap_enabled || leg.lazy_leg_enabled) ? 'cursor-not-allowed' : 'cursor-pointer'}`}>
+                                <Label htmlFor={`recost-${idPrefix}`} className={`text-[11px] font-bold tracking-wide text-foreground ${(leg.re_asap_enabled || leg.lazy_leg_enabled) ? 'cursor-not-allowed' : 'cursor-pointer'}`}>
                                     RE-COST
                                 </Label>
                             </div>
                             {leg.recost_enabled && (
-                                <div className="space-y-4 pl-6 animate-in slide-in-from-top-2">
-                                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                                        <div className="space-y-2">
-                                            <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Re-Cost Mode</Label>
+                                <div className="space-y-3 pl-5 animate-in slide-in-from-top-2">
+                                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                        <div className="space-y-1">
+                                            <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Re-Cost Mode</Label>
                                             <Select
                                                 value={leg.recost_mode || 'RECOST_PLUS_PCT'}
                                                 onValueChange={(v) => onChange({ ...leg, recost_mode: v })}
                                             >
-                                                <SelectTrigger className="h-11 rounded-xl">
+                                                <SelectTrigger className="h-9 rounded-lg text-xs">
                                                     <SelectValue placeholder="Mode" />
                                                 </SelectTrigger>
                                                 <SelectContent>
@@ -551,12 +551,12 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
                                                 </SelectContent>
                                             </Select>
                                         </div>
-                                        <div className="space-y-2">
-                                            <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+                                        <div className="space-y-1">
+                                            <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
                                                 Value {leg.recost_mode && leg.recost_mode.includes('PCT') ? '(%)' : '(Pts)'}
                                             </Label>
                                             <Input
-                                                className="h-11 rounded-xl"
+                                                className="h-9 rounded-lg text-xs"
                                                 type="text"
                                                 value={leg.recost_value === undefined ? '' : leg.recost_value}
                                                 onChange={(e) => {
@@ -568,13 +568,13 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
                                                 onBlur={(e) => onChange({ ...leg, recost_value: parseFloat(e.target.value) || 0 })}
                                             />
                                         </div>
-                                        <div className="space-y-2">
-                                            <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Max Entries</Label>
+                                        <div className="space-y-1">
+                                            <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Max Entries</Label>
                                             <Select
                                                 value={(leg.max_reentry || 1).toString()}
                                                 onValueChange={(v) => onChange({ ...leg, max_reentry: parseInt(v) })}
                                             >
-                                                <SelectTrigger className="h-11 rounded-xl">
+                                                <SelectTrigger className="h-9 rounded-lg text-xs">
                                                     <SelectValue placeholder="Entries" />
                                                 </SelectTrigger>
                                                 <SelectContent className="max-h-[250px]">
@@ -588,12 +588,12 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
                                         </div>
                                     </div>
 
-                                    <div className="space-y-4">
+                                    <div className="space-y-3">
                                         <div className="flex items-center gap-2">
                                             <input
                                                 type="checkbox"
                                                 id={`reentry-mntm-${idPrefix}`}
-                                                className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                                className="w-3.5 h-3.5 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
                                                 checked={leg.recost_mntm_enabled || false}
                                                 onChange={(e) => onChange({
                                                     ...leg,
@@ -602,19 +602,19 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
                                                     recost_mntm_value: leg.recost_mntm_value || 0
                                                 })}
                                             />
-                                            <Label htmlFor={`reentry-mntm-${idPrefix}`} className="text-xs font-bold tracking-wide text-foreground cursor-pointer">
+                                            <Label htmlFor={`reentry-mntm-${idPrefix}`} className="text-[10px] font-bold tracking-wide text-foreground cursor-pointer uppercase">
                                                 Re Entry Mntm
                                             </Label>
                                         </div>
                                         {leg.recost_mntm_enabled && (
-                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pl-6 animate-in slide-in-from-top-2 border-l-2 border-primary/20">
-                                                <div className="space-y-2">
-                                                    <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Mntm Mode</Label>
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pl-5 animate-in slide-in-from-top-2 border-l-2 border-primary/20">
+                                                <div className="space-y-1">
+                                                    <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Mntm Mode</Label>
                                                     <Select
                                                         value={leg.recost_mntm_mode || 'RECOST_PLUS_PCT'}
                                                         onValueChange={(v) => onChange({ ...leg, recost_mntm_mode: v })}
                                                     >
-                                                        <SelectTrigger className="h-11 rounded-xl">
+                                                        <SelectTrigger className="h-9 rounded-lg text-xs">
                                                             <SelectValue placeholder="Mode" />
                                                         </SelectTrigger>
                                                         <SelectContent>
@@ -625,12 +625,12 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
                                                         </SelectContent>
                                                     </Select>
                                                 </div>
-                                                <div className="space-y-2">
-                                                    <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                                                <div className="space-y-1">
+                                                    <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
                                                         Value {leg.recost_mntm_mode && leg.recost_mntm_mode.includes('PCT') ? '(%)' : '(Pts)'}
                                                     </Label>
                                                     <Input
-                                                        className="h-11 rounded-xl"
+                                                        className="h-9 rounded-lg text-xs"
                                                         type="text"
                                                         value={leg.recost_mntm_value === undefined ? '' : leg.recost_mntm_value}
                                                         onChange={(e) => {
@@ -649,23 +649,23 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
                                             <input
                                                 type="checkbox"
                                                 id={`reentry-sl-${idPrefix}`}
-                                                className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                                className="w-3.5 h-3.5 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
                                                 checked={leg.reentry_sl_enabled || false}
                                                 onChange={(e) => onChange({ ...leg, reentry_sl_enabled: e.target.checked })}
                                             />
-                                            <Label htmlFor={`reentry-sl-${idPrefix}`} className="text-xs font-bold tracking-wide text-foreground cursor-pointer">
-                                                Override Stop Loss on Re-Entry
+                                            <Label htmlFor={`reentry-sl-${idPrefix}`} className="text-[10px] font-bold tracking-wide text-foreground cursor-pointer uppercase">
+                                                Override SL on Re-Entry
                                             </Label>
                                         </div>
                                         {leg.reentry_sl_enabled && (
-                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pl-6 animate-in slide-in-from-top-2 border-l-2 border-primary/20">
-                                                <div className="space-y-2">
-                                                    <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">New SL Type</Label>
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pl-5 animate-in slide-in-from-top-2 border-l-2 border-primary/20">
+                                                <div className="space-y-1">
+                                                    <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">SL Type</Label>
                                                     <Select
                                                         value={leg.reentry_sl_type || 'PERCENTAGE'}
                                                         onValueChange={(v) => onChange({ ...leg, reentry_sl_type: v })}
                                                     >
-                                                        <SelectTrigger className="h-11 rounded-xl">
+                                                        <SelectTrigger className="h-9 rounded-lg text-xs">
                                                             <SelectValue placeholder="SL Type" />
                                                         </SelectTrigger>
                                                         <SelectContent>
@@ -674,12 +674,12 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
                                                         </SelectContent>
                                                     </Select>
                                                 </div>
-                                                <div className="space-y-2">
-                                                    <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
-                                                        New SL Value {leg.reentry_sl_type === 'POINTS' ? '(Pts)' : '(%)'}
+                                                <div className="space-y-1">
+                                                    <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+                                                        Value {leg.reentry_sl_type === 'POINTS' ? '(Pts)' : '(%)'}
                                                     </Label>
                                                     <Input
-                                                        className="h-11 rounded-xl"
+                                                        className="h-9 rounded-lg text-xs"
                                                         type="number"
                                                         value={leg.reentry_sl_value !== undefined ? leg.reentry_sl_value : (leg.stop_loss || 0)}
                                                         onChange={(e) => onChange({ ...leg, reentry_sl_value: parseFloat(e.target.value) })}
@@ -693,12 +693,12 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
                         </div>
 
                         {/* LAZY LEG */}
-                        <div className={`space-y-4 pt-4 border-t transition-all duration-300 ${(leg.re_asap_enabled || leg.recost_enabled) ? 'opacity-40 grayscale pointer-events-none' : ''}`}>
+                        <div className={`space-y-3 pt-3 border-t transition-all duration-300 ${(leg.re_asap_enabled || leg.recost_enabled) ? 'opacity-40 grayscale pointer-events-none' : ''}`}>
                             <div className="flex items-center gap-2">
                                 <input
                                     type="checkbox"
                                     id={`lazy-leg-${idPrefix}`}
-                                    className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                    className="w-3.5 h-3.5 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
                                     checked={leg.lazy_leg_enabled || false}
                                     disabled={leg.re_asap_enabled || leg.recost_enabled}
                                     onChange={(e) => onChange({
@@ -709,25 +709,25 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
                                         lazy_leg: e.target.checked ? (leg.lazy_leg || { ...DEFAULT_LEG }) : leg.lazy_leg
                                     })}
                                 />
-                                <Label htmlFor={`lazy-leg-${idPrefix}`} className={`text-sm font-bold tracking-wide text-foreground flex items-center gap-1.5 ${(leg.re_asap_enabled || leg.recost_enabled) ? 'cursor-not-allowed' : 'cursor-pointer'}`}>
+                                <Label htmlFor={`lazy-leg-${idPrefix}`} className={`text-[11px] font-bold tracking-wide text-foreground flex items-center gap-1.5 ${(leg.re_asap_enabled || leg.recost_enabled) ? 'cursor-not-allowed' : 'cursor-pointer'}`}>
                                     LAZY LEG
                                 </Label>
                             </div>
 
                             {leg.lazy_leg_enabled && leg.lazy_leg && (
                                 <div className="animate-in slide-in-from-top-2">
-                                    <div className="flex items-center justify-between p-4 bg-orange-50/50 border border-orange-200 rounded-2xl group hover:border-orange-300 transition-all cursor-pointer" onClick={() => setIsLazyModalOpen(true)}>
-                                        <div className="flex items-center gap-3">
-                                            <div className="h-10 w-10 bg-orange-500/10 text-orange-600 rounded-xl flex items-center justify-center">
-                                                <Ghost className="h-5 w-5" />
+                                    <div className="flex items-center justify-between p-2.5 bg-orange-50/50 border border-orange-200 rounded-lg group hover:border-orange-300 transition-all cursor-pointer" onClick={() => setIsLazyModalOpen(true)}>
+                                        <div className="flex items-center gap-2">
+                                            <div className="h-8 w-8 bg-orange-500/10 text-orange-600 rounded flex items-center justify-center">
+                                                <Ghost className="h-4 w-4" />
                                             </div>
                                             <div>
-                                                <p className="text-xs font-bold text-orange-600 uppercase tracking-widest">Lazy Leg Level {level + 1}</p>
-                                                <p className="text-sm font-bold text-slate-700">{getLegSummary(leg.lazy_leg)}</p>
+                                                <p className="text-[9px] font-black text-orange-600 uppercase tracking-widest">Lazy Leg Lvl {level + 1}</p>
+                                                <p className="text-xs font-bold text-slate-700">{getLegSummary(leg.lazy_leg)}</p>
                                             </div>
                                         </div>
-                                        <Button variant="ghost" size="sm" className="rounded-xl group-hover:bg-orange-100/50">
-                                            <Settings2 className="h-4 w-4 mr-2" /> Configure
+                                        <Button variant="ghost" size="sm" className="h-7 rounded-md text-[10px] group-hover:bg-orange-100/50">
+                                            <Settings2 className="h-3.5 w-3.5 mr-1" /> Config
                                         </Button>
                                     </div>
                                     <LazyLegModal
@@ -813,25 +813,25 @@ export const StrategyFormContent = ({ config, setConfig, editingId, setEditingId
                     display: none !important;
                 }
             `}</style>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                <div className="space-y-2 lg:col-span-1">
-                    <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div className="space-y-1 lg:col-span-1">
+                    <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
                         <Target className="h-3 w-3" /> Strategy Name
                     </Label>
                     <Input
-                        className="h-11 rounded-xl"
+                        className="h-9 rounded-lg text-sm"
                         type="text"
                         placeholder="E.g., Morning Breakout (CE)"
                         value={config.name || ''}
                         onChange={(e) => setConfig({ ...config, name: e.target.value })}
                     />
                 </div>
-                <div className="space-y-2">
-                    <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+                <div className="space-y-1">
+                    <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
                         <LayoutDashboard className="h-3 w-3" /> Index
                     </Label>
                     <Select value={config.index} onValueChange={(v) => setConfig({ ...config, index: v })}>
-                        <SelectTrigger className="h-11 rounded-xl">
+                        <SelectTrigger className="h-9 rounded-lg text-sm">
                             <SelectValue placeholder="Select Index" />
                         </SelectTrigger>
                         <SelectContent>
@@ -844,24 +844,24 @@ export const StrategyFormContent = ({ config, setConfig, editingId, setEditingId
                 </div>
             </div>
 
-            <div className="flex items-center justify-between pt-6 hide-on-readonly">
-                <div className="text-sm font-bold uppercase tracking-wider text-muted-foreground">
+            <div className="flex items-center justify-between pt-4 hide-on-readonly">
+                <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
                     Strategy Legs
                 </div>
                 <Button
                     type="button"
                     variant="outline"
-                    className="h-9 gap-2 rounded-xl"
+                    className="h-8 gap-2 rounded-lg text-xs"
                     onClick={() => {
                         const next = [...config.legs, { ...DEFAULT_LEG }];
                         setConfig({ ...config, legs: next });
                     }}
                 >
-                    <Plus className="h-4 w-4" /> Add Leg
+                    <Plus className="h-3 w-3" /> Add Leg
                 </Button>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-3">
                 {config.legs.map((leg, legIndex) => (
                     <LegConfiguration
                         key={`leg-config-${legIndex}`}
@@ -886,72 +886,64 @@ export const StrategyFormContent = ({ config, setConfig, editingId, setEditingId
                 ))}
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 pt-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 pt-4">
 
-                <div className="space-y-2">
-                    <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Variety</Label>
+                <div className="space-y-1">
+                    <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Variety</Label>
                     <Select value={config.variety} onValueChange={(v) => setConfig({ ...config, variety: v })}>
-                        <SelectTrigger className="h-11 rounded-xl">
+                        <SelectTrigger className="h-9 rounded-lg text-sm">
                             <SelectValue placeholder="Variety" />
                         </SelectTrigger>
                         <SelectContent>
                             <SelectItem value="STOPLOSS">STOPLOSS</SelectItem>
-                            {/* <SelectItem value="NORMAL">NORMAL</SelectItem> */}
-                            {/* <SelectItem value="ROBO">ROBO</SelectItem> */}
                         </SelectContent>
                     </Select>
                 </div>
 
-                <div className="space-y-2">
-                    <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Product Type</Label>
+                <div className="space-y-1">
+                    <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Product Type</Label>
                     <Select value={config.producttype} onValueChange={(v) => setConfig({ ...config, producttype: v })}>
-                        <SelectTrigger className="h-11 rounded-xl">
+                        <SelectTrigger className="h-9 rounded-lg text-sm">
                             <SelectValue placeholder="Product" />
                         </SelectTrigger>
                         <SelectContent>
                             <SelectItem value="CARRYFORWARD">CARRYFORWARD (NRML)</SelectItem>
                             <SelectItem value="INTRADAY">INTRADAY (MIS)</SelectItem>
-                            {/* <SelectItem value="DELIVERY">DELIVERY (CNC)</SelectItem> */}
-                            {/* <SelectItem value="MARGIN">MARGIN</SelectItem> */}
-                            {/* <SelectItem value="BO">BO (Bracket Order)</SelectItem> */}
                         </SelectContent>
                     </Select>
                 </div>
 
-                <div className="space-y-2">
-                    <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Order Type</Label>
+                <div className="space-y-1">
+                    <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Order Type</Label>
                     <Select value={config.ordertype} onValueChange={(v) => setConfig({ ...config, ordertype: v })}>
-                        <SelectTrigger className="h-11 rounded-xl">
+                        <SelectTrigger className="h-9 rounded-lg text-sm">
                             <SelectValue placeholder="Order Type" />
                         </SelectTrigger>
                         <SelectContent>
                             <SelectItem value="MARKET">MARKET</SelectItem>
                             <SelectItem value="LIMIT">LIMIT</SelectItem>
-                            {/* <SelectItem value="STOPLOSS_LIMIT">SL-L</SelectItem> */}
-                            {/* <SelectItem value="STOPLOSS_MARKET">SL-M</SelectItem> */}
                         </SelectContent>
                     </Select>
                 </div>
 
-                <div className="space-y-2">
-                    <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Duration</Label>
+                <div className="space-y-1">
+                    <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Duration</Label>
                     <Select value={config.duration} onValueChange={(v) => setConfig({ ...config, duration: v })}>
-                        <SelectTrigger className="h-11 rounded-xl">
+                        <SelectTrigger className="h-9 rounded-lg text-sm">
                             <SelectValue placeholder="Duration" />
                         </SelectTrigger>
                         <SelectContent>
                             <SelectItem value="DAY">DAY</SelectItem>
-                            {/* <SelectItem value="IOC">IOC</SelectItem> */}
                         </SelectContent>
                     </Select>
                 </div>
 
-                <div className="space-y-2">
-                    <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+                <div className="space-y-1">
+                    <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
                         <Timer className="h-3 w-3" /> Entry Time
                     </Label>
                     <Input
-                        className="h-11 rounded-xl"
+                        className="h-9 rounded-lg text-sm"
                         type="time"
                         step="1"
                         value={config.entry_time}
@@ -959,12 +951,12 @@ export const StrategyFormContent = ({ config, setConfig, editingId, setEditingId
                     />
                 </div>
 
-                <div className="space-y-2">
-                    <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+                <div className="space-y-1">
+                    <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
                         <Timer className="h-3 w-3" /> Exit Time
                     </Label>
                     <Input
-                        className="h-11 rounded-xl"
+                        className="h-9 rounded-lg text-sm"
                         type="time"
                         step="1"
                         value={config.exit_time}
@@ -972,12 +964,12 @@ export const StrategyFormContent = ({ config, setConfig, editingId, setEditingId
                     />
                 </div>
 
-                <div className="space-y-2">
-                    <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+                <div className="space-y-1">
+                    <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
                         Overall SL Type
                     </Label>
                     <Select value={config.overall_sl_type || 'PERCENTAGE'} onValueChange={(v) => setConfig({ ...config, overall_sl_type: v })}>
-                        <SelectTrigger className="h-11 rounded-xl">
+                        <SelectTrigger className="h-9 rounded-lg text-sm">
                             <SelectValue placeholder="SL Type" />
                         </SelectTrigger>
                         <SelectContent>
@@ -987,12 +979,12 @@ export const StrategyFormContent = ({ config, setConfig, editingId, setEditingId
                     </Select>
                 </div>
 
-                <div className="space-y-2">
-                    <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+                <div className="space-y-1">
+                    <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
                         Overall SL {config.overall_sl_type === 'AMOUNT' ? '(₹)' : '(%)'}
                     </Label>
                     <Input
-                        className="h-11 rounded-xl"
+                        className="h-9 rounded-lg text-sm"
                         type="text"
                         value={config.overall_sl_value}
                         onChange={(e) => {
@@ -1007,12 +999,12 @@ export const StrategyFormContent = ({ config, setConfig, editingId, setEditingId
                     />
                 </div>
 
-                <div className="space-y-2">
-                    <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+                <div className="space-y-1">
+                    <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
                         Overall Target Type
                     </Label>
                     <Select value={config.overall_target_type || 'PERCENTAGE'} onValueChange={(v) => setConfig({ ...config, overall_target_type: v })}>
-                        <SelectTrigger className="h-11 rounded-xl">
+                        <SelectTrigger className="h-9 rounded-lg text-sm">
                             <SelectValue placeholder="Target Type" />
                         </SelectTrigger>
                         <SelectContent>
@@ -1022,12 +1014,12 @@ export const StrategyFormContent = ({ config, setConfig, editingId, setEditingId
                     </Select>
                 </div>
 
-                <div className="space-y-2">
-                    <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+                <div className="space-y-1">
+                    <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
                         Overall Target {config.overall_target_type === 'AMOUNT' ? '(₹)' : '(%)'}
                     </Label>
                     <Input
-                        className="h-11 rounded-xl"
+                        className="h-9 rounded-lg text-sm"
                         type="text"
                         value={config.overall_target_value}
                         onChange={(e) => {
@@ -1043,10 +1035,10 @@ export const StrategyFormContent = ({ config, setConfig, editingId, setEditingId
                 </div>
 
                 {config.ordertype === 'LIMIT' ? (
-                    <div className="space-y-2">
-                        <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Limit Offset (LTP + )</Label>
+                    <div className="space-y-1">
+                        <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Limit Offset (LTP + )</Label>
                         <Input
-                            className="h-11 rounded-xl"
+                            className="h-9 rounded-lg text-sm"
                             type="text"
                             value={config.entry_limit_offset}
                             onChange={(e) => {
@@ -1061,10 +1053,10 @@ export const StrategyFormContent = ({ config, setConfig, editingId, setEditingId
                         />
                     </div>
                 ) : (config.ordertype !== 'MARKET' && config.ordertype !== 'STOPLOSS_MARKET' && (
-                    <div className="space-y-2">
-                        <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Price</Label>
+                    <div className="space-y-1">
+                        <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Price</Label>
                         <Input
-                            className="h-11 rounded-xl"
+                            className="h-9 rounded-lg text-sm"
                             type="number"
                             step="0.05"
                             value={config.price}
@@ -1074,10 +1066,10 @@ export const StrategyFormContent = ({ config, setConfig, editingId, setEditingId
                 ))}
 
                 {(config.ordertype === 'STOPLOSS_LIMIT' || config.ordertype === 'STOPLOSS_MARKET') && (
-                    <div className="space-y-2">
-                        <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Trigger Price</Label>
+                    <div className="space-y-1">
+                        <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Trigger Price</Label>
                         <Input
-                            className="h-11 rounded-xl"
+                            className="h-9 rounded-lg text-sm"
                             type="number"
                             step="0.05"
                             value={config.triggerprice}
@@ -1088,11 +1080,11 @@ export const StrategyFormContent = ({ config, setConfig, editingId, setEditingId
 
                 <div className="flex items-end hide-on-readonly">
                     <Button
-                        className="w-full h-11 gap-2 rounded-xl shadow-lg font-bold"
+                        className="w-full h-9 gap-2 rounded-lg shadow-md font-bold text-xs"
                         onClick={handleSave}
                         disabled={loading}
                     >
-                        {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                        {loading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
                         {editingId ? "Update Strategy" : "Save Strategy"}
                     </Button>
                 </div>
@@ -1100,7 +1092,7 @@ export const StrategyFormContent = ({ config, setConfig, editingId, setEditingId
                     <div className="flex items-end hide-on-readonly">
                         <Button
                             variant="outline"
-                            className="w-full h-11 gap-2 rounded-xl"
+                            className="w-full h-9 gap-2 rounded-lg text-xs"
                             onClick={() => setEditingId(null)}
                         >
                             Cancel Edit
@@ -1108,6 +1100,7 @@ export const StrategyFormContent = ({ config, setConfig, editingId, setEditingId
                     </div>
                 )}
             </div>
+
         </div>
     );
 };
@@ -1457,25 +1450,25 @@ export const StrategyBuilder = ({ isConnected }) => {
     }, [Object.keys(runningStrategies).length, isConnected]);
 
     return (
-        <div className="space-y-6">
+        <div className="space-y-4">
             <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-                <TabsList className="grid w-full grid-cols-2 mb-8 h-12 bg-muted/50 p-1 rounded-2xl">
-                    <TabsTrigger value="paper" className="rounded-xl font-bold data-[state=active]:bg-blue-600 data-[state=active]:text-white flex items-center gap-2">
-                        <ShieldCheck className="h-4 w-4" /> Paper Trading
+                <TabsList className="grid w-full grid-cols-2 mb-4 h-10 bg-muted/50 p-1 rounded-lg">
+                    <TabsTrigger value="paper" className="rounded-md font-bold text-xs data-[state=active]:bg-blue-600 data-[state=active]:text-white flex items-center gap-2">
+                        <ShieldCheck className="h-3.5 w-3.5" /> Paper Trading
                     </TabsTrigger>
-                    <TabsTrigger value="live" className="rounded-xl font-bold data-[state=active]:bg-orange-600 data-[state=active]:text-white flex items-center gap-2">
-                        <Zap className="h-4 w-4" /> Live Market
+                    <TabsTrigger value="live" className="rounded-md font-bold text-xs data-[state=active]:bg-orange-600 data-[state=active]:text-white flex items-center gap-2">
+                        <Zap className="h-3.5 w-3.5" /> Live Market
                     </TabsTrigger>
                 </TabsList>
 
                 <Card className="w-full border-border bg-card overflow-hidden">
-                    <CardHeader className="border-b bg-muted">
-                        <CardTitle className="flex items-center gap-2 text-xl font-bold">
-                            <Target className="h-5 w-5 text-primary" />
+                    <CardHeader className="border-b bg-muted py-3 px-4">
+                        <CardTitle className="flex items-center gap-2 text-base font-bold">
+                            <Target className="h-4 w-4 text-primary" />
                             Strategy Configuration
                         </CardTitle>
                     </CardHeader>
-                    <CardContent className="pt-6">
+                    <CardContent className="p-4">
                         <StrategyFormContent config={config} setConfig={setConfig} editingId={editingId} setEditingId={setEditingId} loading={loading} handleSave={handleSave} isReadOnly={false} />
                     </CardContent >
                 </Card >
@@ -1485,25 +1478,25 @@ export const StrategyBuilder = ({ isConnected }) => {
                         .filter(([_, data]) => (activeTab === 'paper' ? data.config?.is_paper_trading : !data.config?.is_paper_trading))
                         .map(([id, strategyData]) => (
                             <Card key={id} className={`w-full border-border animate-in fade-in slide-in-from-bottom-4 duration-500 ${activeTab === 'paper' ? 'bg-blue-50/50' : 'bg-orange-50/50'}`}>
-                                <CardContent className="p-6 space-y-4">
+                                <CardContent className="p-4 space-y-3">
                                     <div className="flex items-center justify-between">
                                         <div className="space-y-1">
-                                            <div className="flex items-center gap-3">
-                                                <div className="p-2 bg-muted rounded-lg">
-                                                    <Timer className="h-4 w-4 text-primary" />
+                                            <div className="flex items-center gap-2">
+                                                <div className="p-1.5 bg-muted rounded">
+                                                    <Timer className="h-3.5 w-3.5 text-primary" />
                                                 </div>
-                                                <p className="text-sm font-bold">{strategyData.name || strategyData.config?.name || 'Strategy Execution'} <span className="text-xs font-mono text-muted-foreground ml-2">#{id.split('-')[0] || id}</span></p>
+                                                <p className="text-sm font-bold">{strategyData.name || strategyData.config?.name || 'Strategy Execution'} <span className="text-[10px] font-mono text-muted-foreground ml-1">#{id.split('-')[0] || id}</span></p>
                                             </div>
-                                            <div className="flex items-center gap-2 mt-2">
+                                            <div className="flex items-center gap-2 mt-1">
                                                 <span className="relative flex h-2 w-2">
                                                     <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${strategyData.status === 'FAILED' ? 'bg-red-400' : 'bg-green-400'} opacity-75`}></span>
                                                     <span className={`relative inline-flex rounded-full h-2 w-2 ${strategyData.status === 'FAILED' ? 'bg-red-500' : 'bg-green-500'}`}></span>
                                                 </span>
-                                                <span className="text-sm font-bold uppercase tracking-tight">{strategyData.status}</span>
-                                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${strategyData.config?.is_paper_trading ? 'bg-blue-100 text-blue-700' : 'bg-orange-100 text-orange-700'}`}>
+                                                <span className="text-[10px] font-bold uppercase tracking-tight">{strategyData.status}</span>
+                                                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${strategyData.config?.is_paper_trading ? 'bg-blue-100 text-blue-700' : 'bg-orange-100 text-orange-700'}`}>
                                                     {strategyData.config?.is_paper_trading ? 'PAPER' : 'LIVE'}
                                                 </span>
-                                                <span className="text-xs font-bold text-muted-foreground ml-2">Index: {strategyData.config?.index}</span>
+                                                <span className="text-[10px] font-bold text-muted-foreground ml-1">Index: {strategyData.config?.index}</span>
                                                 {strategyData.status === 'WAITING' && strategyData.config?.entry_time && (
                                                     <EntryTimer entryTime={strategyData.config.entry_time} />
                                                 )}
@@ -1557,24 +1550,24 @@ export const StrategyBuilder = ({ isConnected }) => {
                                     </div>
 
                                     {strategyData?.status === "IN_POSITION" || strategyData?.status === "COMPLETED" ? (
-                                        <div className="space-y-4 pt-4 border-t border-border">
+                                        <div className="space-y-3 pt-3 border-t border-border">
                                             {/* Overall Strategy PnL Summary */}
-                                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                                                <div className={`p-4 rounded-xl flex flex-col justify-center items-center ${(strategyData.pnlPercent || 0) >= 0 ? 'bg-emerald-50' : 'bg-red-50'}`}>
-                                                    <span className="text-xs font-bold uppercase text-muted-foreground mb-1">Overall Return (%)</span>
-                                                    <span className={`text-2xl font-mono font-bold transition-all duration-300 ${(strategyData.pnlPercent || 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                                <div className={`p-2.5 rounded-lg flex flex-col justify-center items-center ${(strategyData.pnlPercent || 0) >= 0 ? 'bg-emerald-100/50' : 'bg-red-100/50'}`}>
+                                                    <span className="text-[10px] font-black uppercase text-muted-foreground mb-0.5">Return %</span>
+                                                    <span className={`text-lg font-mono font-black ${(strategyData.pnlPercent || 0) >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>
                                                         {(strategyData.pnlPercent || 0) > 0 ? '+' : ''}{(strategyData.pnlPercent || 0).toFixed(3)}%
                                                     </span>
                                                 </div>
-                                                <div className={`p-4 rounded-xl flex flex-col justify-center items-center ${(strategyData.totalPnlRupees || 0) >= 0 ? 'bg-emerald-50' : 'bg-red-50'}`}>
-                                                    <span className="text-xs font-bold uppercase text-muted-foreground mb-1">Overall PnL (₹)</span>
-                                                    <span className={`text-2xl font-mono font-bold transition-all duration-300 ${(strategyData.totalPnlRupees || 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                                                <div className={`p-2.5 rounded-lg flex flex-col justify-center items-center ${(strategyData.totalPnlRupees || 0) >= 0 ? 'bg-emerald-100/50' : 'bg-red-100/50'}`}>
+                                                    <span className="text-[10px] font-black uppercase text-muted-foreground mb-0.5">PnL (₹)</span>
+                                                    <span className={`text-lg font-mono font-black ${(strategyData.totalPnlRupees || 0) >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>
                                                         {(strategyData.totalPnlRupees || 0) > 0 ? '+' : ''}{(strategyData.totalPnlRupees || 0).toFixed(2)}
                                                     </span>
                                                 </div>
-                                                <div className="p-4 rounded-xl flex flex-col justify-center items-center bg-slate-50 border border-slate-100">
-                                                    <span className="text-xs font-bold uppercase text-muted-foreground mb-1">Total Entry Value</span>
-                                                    <span className="text-2xl font-mono font-bold text-slate-700">
+                                                <div className="p-2.5 rounded-lg flex flex-col justify-center items-center bg-slate-100 border border-slate-200">
+                                                    <span className="text-[10px] font-black uppercase text-muted-foreground mb-0.5">Entry Value</span>
+                                                    <span className="text-lg font-mono font-black text-slate-700">
                                                         ₹{(strategyData.totalOriginalValue || 0).toFixed(2)}
                                                     </span>
                                                 </div>
@@ -1728,17 +1721,17 @@ export const StrategyBuilder = ({ isConnected }) => {
 
                 {
                     savedStrategies.length > 0 && (
-                        <Card className="w-full border-border bg-card mt-8">
-                            <CardHeader className="border-b py-4 bg-muted/30 flex flex-col md:flex-row items-center justify-between gap-4">
-                                <CardTitle className="text-lg font-bold flex items-center gap-2">
-                                    <Save className="h-4 w-4 text-primary" /> Saved Strategies (Templates)
+                        <Card className="w-full border-border bg-card mt-4">
+                            <CardHeader className="border-b py-2 px-4 bg-muted/30 flex flex-col md:flex-row items-center justify-between gap-2">
+                                <CardTitle className="text-sm font-bold flex items-center gap-2">
+                                    <Save className="h-3.5 w-3.5 text-primary" /> Saved Strategies (Templates)
                                 </CardTitle>
-                                <div className="relative w-full md:w-72">
-                                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                                <div className="relative w-full md:w-64">
+                                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
                                     <Input
                                         type="text"
                                         placeholder="Search by strategy name or ID..."
-                                        className="h-9 pl-9 pr-4 rounded-xl text-xs bg-white/50 border-none shadow-sm focus-visible:ring-1 focus-visible:ring-primary/20"
+                                        className="h-8 pl-8 pr-3 rounded-lg text-[10px] bg-white/50 border-none shadow-sm focus-visible:ring-1 focus-visible:ring-primary/20"
                                         value={searchTerm}
                                         onChange={(e) => setSearchTerm(e.target.value)}
                                     />
@@ -1746,14 +1739,14 @@ export const StrategyBuilder = ({ isConnected }) => {
                             </CardHeader>
                             <CardContent className="p-0">
                                 <div className="overflow-x-auto">
-                                    <table className="w-full text-sm">
-                                        <thead className="bg-muted text-muted-foreground">
+                                    <table className="w-full text-xs">
+                                        <thead className="bg-muted text-muted-foreground border-b">
                                             <tr>
-                                                <th className="px-4 py-3 text-left font-bold text-xs uppercase tracking-wider">Name</th>
-                                                <th className="px-4 py-3 text-left font-bold text-xs uppercase tracking-wider">Date Created</th>
-                                                <th className="px-4 py-3 text-left font-bold text-xs uppercase tracking-wider">Index</th>
-                                                <th className="px-4 py-3 text-left font-bold text-xs uppercase tracking-wider">Type</th>
-                                                <th className="px-4 py-3 text-right font-bold text-xs uppercase tracking-wider">Actions</th>
+                                                <th className="px-3 py-2 text-left font-bold text-[10px] uppercase tracking-wider">Name</th>
+                                                <th className="px-3 py-2 text-left font-bold text-[10px] uppercase tracking-wider">Date Created</th>
+                                                <th className="px-3 py-2 text-left font-bold text-[10px] uppercase tracking-wider">Index</th>
+                                                <th className="px-3 py-2 text-left font-bold text-[10px] uppercase tracking-wider">Type</th>
+                                                <th className="px-3 py-2 text-right font-bold text-[10px] uppercase tracking-wider">Actions</th>
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y border-t">
@@ -1767,46 +1760,46 @@ export const StrategyBuilder = ({ isConnected }) => {
                                                 })
                                                 .map((s) => (
                                                     <tr key={s.id} className="hover:bg-muted/50 transition-colors">
-                                                        <td className="px-4 py-4 font-bold text-base">
+                                                        <td className="px-3 py-2 font-bold text-sm">
                                                             {s.name || s.config?.name || 'Unnamed Strategy'}
-                                                            <div className="text-[10px] font-mono text-muted-foreground font-normal mt-1">ID: {s.id.split('-')[0] || s.id}</div>
+                                                            <div className="text-[9px] font-mono text-muted-foreground font-normal">ID: {s.id.split('-')[0] || s.id}</div>
                                                         </td>
-                                                        <td className="px-4 py-4 font-mono text-xs text-muted-foreground">
+                                                        <td className="px-3 py-2 font-mono text-[10px] text-muted-foreground">
                                                             {new Date(s.created_at).toLocaleDateString()} {new Date(s.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                                         </td>
-                                                        <td className="px-4 py-4 font-bold">{s.config?.index}</td>
-                                                        <td className="px-4 py-4">
-                                                            <span className="px-2 py-1 rounded text-[10px] font-bold bg-slate-100 text-slate-700">
-                                                                {s.config?.legs?.map((l) => `${l.side} ${l.option_type} (${l.lots} ${l.lots > 1 ? 'Lots' : 'Lot'})`).join(' | ') || '---'}
+                                                        <td className="px-3 py-2 font-bold text-xs">{s.config?.index}</td>
+                                                        <td className="px-3 py-2">
+                                                            <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-slate-100 text-slate-700">
+                                                                {s.config?.legs?.map((l) => `${l.side} ${l.option_type} (${l.lots} ${l.lots > 1 ? 'L' : 'L'})`).join(' | ') || '---'}
                                                             </span>
                                                         </td>
-                                                        <td className="px-4 py-4 text-right">
-                                                            <div className="flex items-center justify-end gap-2">
+                                                        <td className="px-3 py-2 text-right">
+                                                            <div className="flex items-center justify-end gap-1.5">
                                                                 <Button
                                                                     size="sm"
-                                                                    className={`h-8 px-4 gap-1.5 rounded-lg text-xs font-bold shadow-sm ${!isConnected ? 'opacity-50 grayscale cursor-not-allowed' : ''}`}
+                                                                    className={`h-7 px-3 gap-1 rounded-md text-[10px] font-bold shadow-sm ${!isConnected ? 'opacity-50 grayscale cursor-not-allowed' : ''}`}
                                                                     onClick={() => handleExecute(s.id)}
                                                                     disabled={!isConnected}
                                                                     title={!isConnected ? "Please connect to Angel One to execute strategies" : ""}
                                                                 >
-                                                                    <Play className="h-3.5 w-3.5 fill-current" /> Deploy
+                                                                    <Play className="h-3 w-3 fill-current" /> Deploy
                                                                 </Button>
                                                                 <Button
                                                                     size="sm"
                                                                     variant="outline"
-                                                                    className="h-8 px-4 gap-1.5 rounded-lg text-xs font-bold border-indigo-500 hover:bg-indigo-50 text-indigo-600 shadow-sm"
+                                                                    className="h-7 px-3 gap-1 rounded-md text-[10px] font-bold border-indigo-500 hover:bg-indigo-50 text-indigo-600 shadow-sm"
                                                                     onClick={() => {
                                                                         setViewConfig(s.config);
                                                                         setViewStrategyName(s.name || s.config?.name || 'Strategy');
                                                                         setConfigWindowOpen(true);
                                                                     }}
                                                                 >
-                                                                    <Settings2 className="h-3.5 w-3.5" /> View
+                                                                    <Settings2 className="h-3 w-3" /> View
                                                                 </Button>
                                                                 <Button
                                                                     size="sm"
                                                                     variant="outline"
-                                                                    className="h-8 px-3 gap-1 rounded-lg text-xs"
+                                                                    className="h-7 px-2.5 rounded-md text-[10px]"
                                                                     onClick={() => handleEdit(s)}
                                                                 >
                                                                     Edit
@@ -1814,10 +1807,10 @@ export const StrategyBuilder = ({ isConnected }) => {
                                                                 <Button
                                                                     size="sm"
                                                                     variant="ghost"
-                                                                    className="h-8 px-3 gap-1 rounded-lg text-xs text-destructive hover:text-destructive hover:bg-red-50"
+                                                                    className="h-7 px-2 rounded-md text-[10px] text-destructive hover:text-destructive hover:bg-red-50"
                                                                     onClick={() => handleDelete(s.id)}
                                                                 >
-                                                                    <Trash2 className="h-3.5 w-3.5" />
+                                                                    <Trash2 className="h-3 w-3" />
                                                                 </Button>
                                                             </div>
                                                         </td>
