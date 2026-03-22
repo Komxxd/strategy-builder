@@ -667,7 +667,8 @@ async function placeStopLossWithRetry({ baseConfig, legSide, entryPrice, instrum
 }
 
 async function placeExitOrder({ config, leg, instrument, exitType }) {
-    if (leg.exited || leg.isExiting) return leg.exitOrderId;
+    if (leg.exited) return leg.exitOrderId;
+    if (leg.isExiting && !config.is_paper_trading) return leg.exitOrderId;
 
     if (!instrument) {
         console.log(`[Exit] Leg has no instrument (State: ${leg.state}). Marking as exited.`);
@@ -684,7 +685,6 @@ async function placeExitOrder({ config, leg, instrument, exitType }) {
             console.log(`[Exit] Leg ${instrument.symbol} has orderId ${leg.orderId} but no entry price. Attempting cancellation...`);
             try {
                 const api = await getAuthorizedInstance(config.connectionId);
-                // Variety for entry is usually NORMAL (see executeStrategy)
                 await api.cancelOrder({ variety: "NORMAL", orderid: leg.orderId });
                 console.log(`[Exit] Successfully cancelled pending entry order ${leg.orderId}`);
                 leg.exited = true;
@@ -694,7 +694,6 @@ async function placeExitOrder({ config, leg, instrument, exitType }) {
                 return null;
             } catch (e) {
                 console.warn(`[Exit] Cancellation failed for ${leg.orderId}: ${e.message}. It may have filled. Proceeding with MARKET exit.`);
-                // If it fails to cancel, it might have filled. Fall through to place a market exit order.
             }
         } else {
             console.log(`[Exit] Leg ${instrument.symbol} has no entry price (State: ${leg.state}). Skipping broker order.`);
@@ -708,12 +707,13 @@ async function placeExitOrder({ config, leg, instrument, exitType }) {
 
     leg.isExiting = true;
 
-    const exitSide = leg.leg.side === "BUY" ? "SELL" : "BUY";
-    let exitOrderType = config.ordertype === "LIMIT" ? "LIMIT" : "MARKET";
-    let finalPrice = "0";
+    try {
+        const exitSide = leg.leg.side === "BUY" ? "SELL" : "BUY";
+        // FORCE MARKET exit if we are retrying (isExiting was already true in a previous tick)
+        let exitOrderType = (leg.exitRetryCount > 0) ? "MARKET" : (config.ordertype === "LIMIT" ? "LIMIT" : "MARKET");
+        let finalPrice = "0";
 
-    if (exitOrderType === "LIMIT") {
-        try {
+        if (exitOrderType === "LIMIT") {
             const ltpRes = await marketService.getLTP({
                 exchange: instrument.exch_seg,
                 symboltoken: instrument.token,
@@ -722,57 +722,81 @@ async function placeExitOrder({ config, leg, instrument, exitType }) {
             if (ltpRes.status && ltpRes.data?.fetched?.[0]) {
                 const ltp = ltpRes.data.fetched[0].ltp;
                 const offset = parseFloat(config.entry_limit_offset || 0);
-
-                // For exit SELL (closing BUY): price = LTP - offset (to be aggressive and fill)
-                // For exit BUY (closing SELL): price = LTP + offset (to be aggressive and fill)
-                if (exitSide === "SELL") {
-                    finalPrice = roundToTick(ltp - offset).toString();
-                } else {
-                    finalPrice = roundToTick(ltp + offset).toString();
-                }
+                if (exitSide === "SELL") finalPrice = roundToTick(ltp - offset).toString();
+                else finalPrice = roundToTick(ltp + offset).toString();
             } else if (leg.currentLtp) {
-                console.warn(`Could not fetch fresh LTP for exit of ${instrument.symbol}, falling back to last known active LTP: ${leg.currentLtp}`);
-                const ltp = leg.currentLtp;
-                const offset = parseFloat(config.entry_limit_offset || 0);
-
-                if (exitSide === "SELL") {
-                    finalPrice = roundToTick(ltp - offset).toString();
-                } else {
-                    finalPrice = roundToTick(ltp + offset).toString();
-                }
-            } else {
-                console.warn(`Could not fetch LTP for exit of ${instrument.symbol} and no previous LTP available, falling back to MARKET. API Response:`, JSON.stringify(ltpRes));
-                exitOrderType = "MARKET";
-            }
-        } catch (err) {
-            if (leg.currentLtp) {
-                console.warn(`Error calculating limit exit price for ${instrument.symbol}, falling back to last known active LTP:`, err.message);
                 const ltp = leg.currentLtp;
                 const offset = parseFloat(config.entry_limit_offset || 0);
                 if (exitSide === "SELL") finalPrice = roundToTick(ltp - offset).toString();
                 else finalPrice = roundToTick(ltp + offset).toString();
             } else {
-                console.error(`Error calculating limit exit price for ${instrument.symbol}:`, err.message);
                 exitOrderType = "MARKET";
             }
         }
+
+        const closeConfig = {
+            ...config,
+            side: exitSide,
+            variety: "NORMAL",
+            ordertype: exitOrderType,
+            price: finalPrice,
+            lots: leg.leg.lots
+        };
+
+        const orderData = await placeOrder(closeConfig, instrument, config.connectionId);
+        leg.exitOrderId = orderData.orderid;
+        leg.exitUniqueOrderId = orderData.uniqueorderid;
+        leg.exitType = exitType;
+        leg.exitTime = getISTTime();
+
+        if (config.is_paper_trading) {
+            leg.exited = true;
+            leg.isExiting = false;
+            return orderData.orderid;
+        }
+
+        // --- Verified Exit (Live Only) ---
+        // Monitor fill status in background
+        setTimeout(async () => {
+            try {
+                const fill = await waitForOrderFillPrice(
+                    leg.exitUniqueOrderId,
+                    config.connectionId,
+                    false,
+                    leg.instrument,
+                    2000, // Timeout after 2 seconds
+                    1000  // Poll every 1s
+                );
+
+                if (fill) {
+                    leg.exited = true;
+                    leg.isExiting = false;
+                    addStrategyLog(config.id || "system", `Exit confirmed for ${instrument.symbol} at ₹${fill}.`, "SUCCESS");
+                } else {
+                    // Missed price / Timeout
+                    console.warn(`[Exit Poller] Order ${leg.exitOrderId} pending for 2s. Retrying via MARKET.`);
+                    addStrategyLog(config.id || "system", `Exit order for ${instrument.symbol} pending for 2s. Escalating to Market order...`, "WARNING");
+                    
+                    const api = await getAuthorizedInstance(config.connectionId);
+                    await api.cancelOrder({ variety: "NORMAL", orderid: leg.exitOrderId });
+
+                    leg.exitRetryCount = (leg.exitRetryCount || 0) + 1;
+                    leg.isExiting = false; // Allow monitor loop to trigger retry
+                }
+            } catch (pollErr) {
+                console.error(`[Exit Poller] Error verifying exit for ${instrument.symbol}:`, pollErr.message);
+                leg.isExiting = false; // Allow retry on error
+            }
+        }, 0);
+
+        return orderData.orderid;
+    } catch (error) {
+        console.error(`[Exit] Failed to place exit order for ${instrument.symbol}:`, error.message);
+        addStrategyLog(config.id || "system", `CRITICAL: Exit placement FAILED for ${instrument.symbol}: ${error.message}. Re-attempting...`, "ERROR");
+        
+        leg.isExiting = false; // Allow monitor loop to re-attempt on next tick
+        return null;
     }
-
-    const closeConfig = {
-        ...config,
-        side: exitSide,
-        variety: "NORMAL",
-        ordertype: exitOrderType,
-        price: finalPrice,
-        lots: leg.leg.lots
-    };
-
-    const orderData = await placeOrder(closeConfig, instrument, config.connectionId);
-    leg.exited = true;
-    leg.exitOrderId = orderData.orderid;
-    leg.exitType = exitType;
-    leg.exitTime = getISTTime();
-    return orderData.orderid;
 }
 
 function getLegStrikeSelection({ index, option_type, strike, spotPrice }) {
