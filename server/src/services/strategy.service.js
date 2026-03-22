@@ -1354,19 +1354,24 @@ async function executeStrategy(strategyId) {
                                     slLimitMargin: config.entry_limit_offset,
                                     connectionId: config.connectionId
                                 });
+                                const prices = computeStopLossExitPrices(
+                                    leg.entryPrice,
+                                    leg.leg.side,
+                                    leg.leg.sl_type || "PERCENTAGE",
+                                    leg.leg.stop_loss,
+                                    config.entry_limit_offset
+                                );
+
                                 if (slOrder?.orderid) {
-                                    const prices = computeStopLossExitPrices(
-                                        leg.entryPrice,
-                                        leg.leg.side,
-                                        leg.leg.sl_type || "PERCENTAGE",
-                                        leg.leg.stop_loss,
-                                        config.entry_limit_offset
-                                    );
                                     leg.slOrderId = slOrder.orderid;
                                     leg.slUniqueOrderId = slOrder.uniqueorderid;
-                                    leg.slTriggerPrice = prices?.trigger || null;
-                                    leg.slLimitPrice = prices?.limit || null;
+                                } else {
+                                    addStrategyLog(strategyId, `[FALLBACK] Initializing virtual SL monitoring for unprotected leg ${leg.instrument.symbol}.`, "WARNING");
                                 }
+
+                                leg.slTriggerPrice = prices?.trigger || null;
+                                leg.initialSlTriggerPrice = prices?.trigger || null;
+                                leg.slLimitPrice = prices?.limit || null;
                             }
                         }));
 
@@ -1611,13 +1616,17 @@ async function executeStrategy(strategyId) {
                                                 connectionId: config.connectionId,
                                                 strategyId: strategyId
                                             });
+
+                                            const prices = computeStopLossExitPrices(leg.entryPrice, leg.leg.side, leg.leg.sl_type || "PERCENTAGE", leg.leg.stop_loss, config.entry_limit_offset);
                                             if (slOrder?.orderid) {
-                                                const prices = computeStopLossExitPrices(leg.entryPrice, leg.leg.side, leg.leg.sl_type || "PERCENTAGE", leg.leg.stop_loss, config.entry_limit_offset);
                                                 leg.slOrderId = slOrder.orderid;
                                                 leg.slUniqueOrderId = slOrder.uniqueorderid;
-                                                leg.slTriggerPrice = prices?.trigger || null;
-                                                leg.slLimitPrice = prices?.limit || null;
+                                            } else {
+                                                addStrategyLog(strategyId, `[FALLBACK] Initializing virtual SL monitoring for ${leg.instrument.symbol} (Momentum Entry).`, "WARNING");
                                             }
+                                            leg.slTriggerPrice = prices?.trigger || null;
+                                            leg.initialSlTriggerPrice = prices?.trigger || null;
+                                            leg.slLimitPrice = prices?.limit || null;
                                         }
                                     }
                                 }
@@ -1714,9 +1723,9 @@ async function executeStrategy(strategyId) {
                                                         config.connectionId,
                                                         config.is_paper_trading === true,
                                                         leg.instrument,
-                                                        28800000, // 8 Hours Timeout MS
-                                                        1000,     // 1 Sec Poll Interval
-                                                        {         // Inject Advanced Paper Config
+                                                        28800000, 
+                                                        1000,     
+                                                        {         
                                                             side: side,
                                                             ordertype: ordertype,
                                                             price: parseFloat(finalPriceStr || 0),
@@ -1726,12 +1735,11 @@ async function executeStrategy(strategyId) {
                                                     leg.entryPrice = fill || currentTick;
                                                     leg.entryTime = getISTTime();
                                                     leg.original_traded_price = leg.entryPrice;
-                                                    leg.peakPrice = leg.entryPrice; // Initialize TSL Peak
-                                                    // base_otp is inherited and stays constant across re-entries
+                                                    leg.peakPrice = leg.entryPrice; 
                                                 } catch (e) {
                                                     leg.entryPrice = currentTick;
                                                     leg.entryTime = getISTTime();
-                                                    leg.peakPrice = leg.entryPrice; // Initialize TSL Peak
+                                                    leg.peakPrice = leg.entryPrice; 
                                                 }
 
                                                 // Redeploy exchange SL if needed
@@ -1751,14 +1759,18 @@ async function executeStrategy(strategyId) {
                                                         connectionId: config.connectionId,
                                                         strategyId: strategyId
                                                     });
+
+                                                    const prices = computeStopLossExitPrices(leg.entryPrice, leg.leg.side, activeSlType, activeSlValue, config.entry_limit_offset);
                                                     if (slOrder?.orderid) {
-                                                        const prices = computeStopLossExitPrices(leg.entryPrice, leg.leg.side, activeSlType, activeSlValue, config.entry_limit_offset);
                                                         leg.slOrderId = slOrder.orderid;
                                                         leg.slUniqueOrderId = slOrder.uniqueorderid;
-                                                        leg.slTriggerPrice = prices?.trigger;
-                                                        leg.slLimitPrice = prices?.limit;
-                                                        leg.exchangeSlProcessed = false;
+                                                    } else {
+                                                        addStrategyLog(strategyId, `[FALLBACK] Initializing virtual SL monitoring for ${leg.instrument.symbol} (Re-Cost Entry).`, "WARNING");
                                                     }
+                                                    leg.slTriggerPrice = prices?.trigger;
+                                                    leg.initialSlTriggerPrice = prices?.trigger;
+                                                    leg.slLimitPrice = prices?.limit;
+                                                    leg.exchangeSlProcessed = false;
                                                 }
                                             }, 1000);
                                         } catch (err) {
@@ -1867,7 +1879,9 @@ async function executeStrategy(strategyId) {
                                 exit_order_id: strategy.exitOrderId,
                                 exit_type: "OVERALL_STOP_LOSS",
                                 final_pnl_percent: avgPnl,
-                                totalPnlRupees: totalPnlRupees
+                                totalPnlRupees: totalPnlRupees,
+                                totalOriginalValue: strategy.totalOriginalValue,
+                                legs: strategy.legs
                             });
                             clearInterval(interval);
                             return;
@@ -1928,7 +1942,9 @@ async function executeStrategy(strategyId) {
                                 exit_order_id: strategy.exitOrderId,
                                 exit_type: "OVERALL_TARGET",
                                 final_pnl_percent: avgPnl,
-                                totalPnlRupees: totalPnlRupees
+                                totalPnlRupees: totalPnlRupees,
+                                totalOriginalValue: strategy.totalOriginalValue,
+                                legs: strategy.legs
                             });
                             clearInterval(interval);
                             return;
@@ -2065,20 +2081,39 @@ async function executeStrategy(strategyId) {
                             }
 
                             // 2. Evaluate Static Stop Loss (if not already hit by TSL)
-                            // Only apply if we are NOT using Exchange STOPLOSS orders or if we are doing paper trading.
-                            if (!isHit && (config.variety !== "STOPLOSS" || config.is_paper_trading === true)) {
+                            // Fallback: Also monitor manually if we are doing live STOPLOSS but the order failed (slOrderId is null)
+                            if (!isHit && (config.variety !== "STOPLOSS" || config.is_paper_trading === true || !leg.slOrderId)) {
                                 const isReentered = leg.reentry_count > 0;
-                                const activeSlType = isReentered && leg.leg.reentry_sl_enabled ? leg.leg.reentry_sl_type : (leg.leg.sl_type || "PERCENTAGE");
-                                const activeSlValue = isReentered && leg.leg.reentry_sl_enabled ? leg.leg.reentry_sl_value : (leg.leg.stop_loss || 0);
+                                const activeSlValue = isReentered && leg.leg.reentry_sl_enabled ? parseFloat(leg.leg.reentry_sl_value || 0) : parseFloat(leg.leg.stop_loss || 0);
 
-                                if (activeSlType === "POINTS") {
-                                    isHit = leg.currentActivePnlPoints <= -activeSlValue;
-                                } else {
-                                    isHit = leg.currentActivePnlPercent <= -activeSlValue;
-                                }
+                                if (activeSlValue > 0) {
+                                    const activeSlType = isReentered && leg.leg.reentry_sl_enabled ? leg.leg.reentry_sl_type : (leg.leg.sl_type || "PERCENTAGE");
 
-                                if (isHit) {
-                                    exitReason = "LEG_STOP_LOSS";
+                                    if (activeSlType === "POINTS") {
+                                        isHit = leg.currentActivePnlPoints <= -activeSlValue;
+                                    } else {
+                                        isHit = leg.currentActivePnlPercent <= -activeSlValue;
+                                    }
+
+                                    if (isHit) {
+                                        exitReason = "LEG_STOP_LOSS";
+                                    }
+
+                                    // Initialize slTriggerPrice and initialSlTriggerPrice for display if not set
+                                    if (leg.initialSlTriggerPrice === undefined || leg.initialSlTriggerPrice === null) {
+                                        const prices = computeStopLossExitPrices(
+                                            leg.entryPrice,
+                                            leg.leg.side,
+                                            activeSlType,
+                                            activeSlValue,
+                                            config.entry_limit_offset
+                                        );
+                                        if (prices) {
+                                            leg.slTriggerPrice = prices.trigger;
+                                            leg.initialSlTriggerPrice = prices.trigger;
+                                            leg.slLimitPrice = prices.limit;
+                                        }
+                                    }
                                 }
                             }
 
@@ -2193,7 +2228,9 @@ async function executeStrategy(strategyId) {
                                 exit_order_id: strategy.exitOrderId,
                                 exit_type: "EXIT_TIME",
                                 final_pnl_percent: strategy.pnlPercent,
-                                totalPnlRupees: strategy.totalPnlRupees
+                                totalPnlRupees: strategy.totalPnlRupees,
+                                totalOriginalValue: strategy.totalOriginalValue,
+                                legs: strategy.legs
                             });
                             clearInterval(interval);
                         }
@@ -2211,7 +2248,9 @@ async function executeStrategy(strategyId) {
                             exit_order_id: strategy.exitOrderId,
                             exit_type: "LEGS_COMPLETED",
                             final_pnl_percent: strategy.pnlPercent,
-                            totalPnlRupees: strategy.totalPnlRupees
+                            totalPnlRupees: strategy.totalPnlRupees,
+                            totalOriginalValue: strategy.totalOriginalValue,
+                            legs: strategy.legs
                         });
                         clearInterval(interval);
                         return;
@@ -2549,6 +2588,7 @@ async function getExecutionHistory() {
         legs: dbExec.execution_details?.legs || [],
         pnlPercent: dbExec.final_pnl_percent || 0,
         totalPnlRupees: dbExec.total_pnl_rupees || 0,
+        totalOriginalValue: dbExec.execution_details?.totalOriginalValue || 0,
         exitType: dbExec.exit_type,
         started_at: dbExec.started_at,
         completed_at: dbExec.completed_at || dbExec.updatedAt

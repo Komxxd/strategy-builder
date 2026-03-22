@@ -39,25 +39,25 @@ export function StrategyLogs({ isOpen, onClose, logs, strategyName }) {
             className="fixed inset-0 z-[99999] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-[4px] transition-all duration-500 ease-in-out animate-in fade-in"
             onClick={(e) => e.target === e.currentTarget && onClose()}
         >
-            <div className="bg-white w-full max-w-xl h-[550px] flex flex-col rounded-3xl shadow-[0_32px_64px_-16px_rgba(0,0,0,0.3)] border border-slate-200 overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-8 duration-500 fill-mode-forwards ease-out">
+            <div className="bg-white w-full max-w-xl h-[550px] flex flex-col rounded-xl shadow-[0_20px_40px_-12px_rgba(0,0,0,0.2)] border border-slate-200 overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-8 duration-500 fill-mode-forwards ease-out">
                 {/* Compact Header */}
-                <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-white shrink-0">
-                    <div className="flex items-center gap-3">
-                        <div className="h-10 w-10 bg-slate-900 rounded-2xl flex items-center justify-center shadow-lg shadow-slate-200">
-                            <MessageSquare className="h-5 w-5 text-white" />
+                <div className="px-4 py-2.5 border-b border-slate-100 flex items-center justify-between bg-white shrink-0">
+                    <div className="flex items-center gap-2.5">
+                        <div className="h-8 w-8 bg-slate-900 rounded-lg flex items-center justify-center shadow-lg shadow-slate-200">
+                            <MessageSquare className="h-4 w-4 text-white" />
                         </div>
                         <div>
-                            <h3 className="text-base font-bold text-slate-900 tracking-tight leading-none">Strategy Execution Logs</h3>
-                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1.5 opacity-70">
+                            <h3 className="text-sm font-bold text-slate-900 tracking-tight leading-none">Execution Logs</h3>
+                            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-1 opacity-70">
                                 {strategyName}
                             </p>
                         </div>
                     </div>
                     <button
                         onClick={onClose}
-                        className="p-1.5 rounded-xl hover:bg-slate-100 transition-all text-slate-400 hover:text-slate-900 border border-transparent hover:border-slate-200"
+                        className="p-1 rounded-lg hover:bg-slate-100 transition-all text-slate-400 hover:text-slate-900"
                     >
-                        <X className="h-5 w-5" />
+                        <X className="h-4 w-4" />
                     </button>
                 </div>
 
@@ -65,14 +65,14 @@ export function StrategyLogs({ isOpen, onClose, logs, strategyName }) {
                 <div className="flex-1 overflow-hidden bg-slate-50/30">
                     <div
                         ref={scrollRef}
-                        className="h-full overflow-y-auto px-5 py-4 custom-scrollbar scroll-smooth"
+                        className="h-full overflow-y-auto px-4 py-3 custom-scrollbar scroll-smooth"
                     >
-                        <div className="space-y-1">
+                        <div className="space-y-0.5">
                             {logs && logs.length > 0 ? (
                                 logs.map((log, i) => {
                                     const config = getLevelConfig(log.level);
                                     return (
-                                        <div key={i} className="group flex items-start gap-3 py-1.5 px-3 rounded-xl hover:bg-white hover:shadow-sm border border-transparent hover:border-slate-100 transition-all duration-200">
+                                        <div key={i} className="group flex items-start gap-2.5 py-1 px-2.5 rounded hover:bg-white hover:shadow-sm border border-transparent hover:border-slate-100 transition-all duration-200">
                                             {/* Time Column */}
                                             <div className="shrink-0 w-20 pt-0.5">
                                                 <span className="text-[10px] font-bold text-slate-400 font-mono tracking-tighter block whitespace-nowrap opacity-80">
@@ -110,12 +110,12 @@ export function StrategyLogs({ isOpen, onClose, logs, strategyName }) {
                 </div>
 
                 {/* Compact Footer */}
-                <div className="px-6 py-3 bg-white border-t border-slate-100 flex items-center justify-between shrink-0">
-                    <div className="flex items-center gap-2 text-[9px] font-bold text-slate-400 uppercase tracking-widest">
+                <div className="px-4 py-2 bg-white border-t border-slate-100 flex items-center justify-between shrink-0">
+                    <div className="flex items-center gap-2 text-[8px] font-bold text-slate-400 uppercase tracking-widest">
                         <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
                         Live Monitoring
                     </div>
-                    <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest bg-slate-50 px-3 py-1 rounded-full border border-slate-100 translate-y-[-1px]">
+                    <div className="text-[9px] font-bold text-slate-400 uppercase tracking-widest bg-slate-50 px-2.5 py-0.5 rounded-full border border-slate-100">
                         {logs?.length || 0} Total Events
                     </div>
                 </div>
