@@ -15,14 +15,30 @@ function downloadInstrumentMaster() {
             fs.mkdirSync(dataDir, { recursive: true });
         }
 
-        const file = fs.createWriteStream(OUTPUT_PATH);
+        // Stream-collect the full JSON, then filter to only OPTIDX instruments
+        // before writing to disk. This reduces the file from ~41MB to ~2MB,
+        // saving ~100-150MB of runtime V8 heap memory.
+        let rawData = '';
 
         https.get(INSTRUMENT_URL, (response) => {
-            response.pipe(file);
+            response.on('data', (chunk) => { rawData += chunk; });
 
-            file.on("finish", () => {
-                file.close();
-                resolve();
+            response.on('end', () => {
+                try {
+                    const all = JSON.parse(rawData);
+                    rawData = ''; // Free the raw string immediately
+
+                    // Keep ONLY option index instruments — the only type the app uses
+                    const filtered = all.filter(i => i.instrumenttype === "OPTIDX");
+                    const originalCount = all.length;
+
+                    fs.writeFileSync(OUTPUT_PATH, JSON.stringify(filtered));
+                    console.log(`Instruments filtered: ${originalCount} total → ${filtered.length} OPTIDX saved (${(fs.statSync(OUTPUT_PATH).size / (1024 * 1024)).toFixed(1)} MB)`);
+                    resolve();
+                } catch (parseErr) {
+                    if (fs.existsSync(OUTPUT_PATH)) fs.unlinkSync(OUTPUT_PATH);
+                    reject(parseErr);
+                }
             });
         }).on("error", (err) => {
             if (fs.existsSync(OUTPUT_PATH)) {

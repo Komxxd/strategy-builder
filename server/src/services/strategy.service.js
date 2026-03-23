@@ -175,7 +175,8 @@ function loadInstruments() {
         if (fs.existsSync(INSTRUMENT_PATH)) {
             const raw = fs.readFileSync(INSTRUMENT_PATH, "utf-8");
             instruments = JSON.parse(raw);
-            // console.log("Strategy Service: Instruments loaded", instruments.length);
+            const fileSizeMB = (Buffer.byteLength(raw, 'utf-8') / (1024 * 1024)).toFixed(1);
+            console.log(`Instruments loaded: ${instruments.length} records (${fileSizeMB} MB file)`);
         }
     } catch (err) {
         console.error("Strategy Service: Error loading instruments", err.message);
