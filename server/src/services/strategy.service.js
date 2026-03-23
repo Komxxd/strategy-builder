@@ -159,9 +159,9 @@ async function runGlobalPriceFetcher() {
         console.error("[PriceFetcher] Fatal crash in global price fetcher:", globalErr);
     } finally {
         const duration = Date.now() - startTime;
-        if (duration > 1000 || failedChunks > 0 || totalChunks > 2) {
-            console.log(`[PriceFetcher] Done: ${totalTokens} tokens, ${totalChunks} chunks. Success: ${successfulChunks}, Failed: ${failedChunks}. Duration: ${duration}ms`);
-        }
+        // if (duration > 1000 || failedChunks > 0 || totalChunks > 2) {
+        //     console.log(`[PriceFetcher] Done: ${totalTokens} tokens, ${totalChunks} chunks. Success: ${successfulChunks}, Failed: ${failedChunks}. Duration: ${duration}ms`);
+        // }
         isFetchingGlobalLtp = false;
     }
 }
@@ -175,7 +175,7 @@ function loadInstruments() {
         if (fs.existsSync(INSTRUMENT_PATH)) {
             const raw = fs.readFileSync(INSTRUMENT_PATH, "utf-8");
             instruments = JSON.parse(raw);
-            console.log("Strategy Service: Instruments loaded", instruments.length);
+            // console.log("Strategy Service: Instruments loaded", instruments.length);
         }
     } catch (err) {
         console.error("Strategy Service: Error loading instruments", err.message);
@@ -291,7 +291,19 @@ function addStrategyLog(strategyId, message, level = "INFO") {
     // Live broadcast
     marketSocketService.sendStrategyLog(strategyId, logEntry);
 
-    console.log(`[Log][${strategyId}] ${message}`);
+    // Only log to terminal if it's CRITICAL, ERROR, or process logs like re-entry, SL hits
+    const isCriticalProcess = level === "CRITICAL" || level === "ERROR" || 
+        message.toUpperCase().includes("REENTRY") || 
+        message.toUpperCase().includes("RE-COST") || 
+        message.toUpperCase().includes("RE ASAP") ||
+        message.toUpperCase().includes("STOP OUT") ||
+        message.toUpperCase().includes("STOPPED OUT") ||
+        message.toUpperCase().includes("EXIT") ||
+        message.toUpperCase().includes("SQUARING OFF");
+
+    if (isCriticalProcess) {
+        console.log(`[Log][${strategyId}] ${message}`);
+    }
 }
 
 function findOptionInstrument(indexName, optionType, strike) {
@@ -1143,7 +1155,7 @@ async function executeStrategy(strategyId) {
                     return;
                 }
                 strategy.entryAttempted = true;
-                console.log(`Entry time reached for ${strategyId}`);
+                // console.log(`Entry time reached for ${strategyId}`);
                 try {
                     // 1. Get Spot Price to identify ATM Strike
                     let indexToken, indexExchange;
@@ -1161,7 +1173,7 @@ async function executeStrategy(strategyId) {
                         indexExchange = "BSE";
                     }
 
-                    console.log(`Fetching LTP for ${config.index} (${indexExchange}:${indexToken})...`);
+                    // console.log(`Fetching LTP for ${config.index} (${indexExchange}:${indexToken})...`);
                     const ltpRes = await marketService.getLTP({
                         exchange: indexExchange,
                         symboltoken: indexToken,
@@ -1170,7 +1182,7 @@ async function executeStrategy(strategyId) {
 
                     if (ltpRes.status && ltpRes.data && ltpRes.data.fetched && ltpRes.data.fetched.length > 0) {
                         const spotPrice = ltpRes.data.fetched[0].ltp;
-                        console.log(`Spot Price for ${config.index}: ${spotPrice}`);
+                        // console.log(`Spot Price for ${config.index}: ${spotPrice}`);
                         addStrategyLog(strategyId, `Entry condition met. Spot Price for ${config.index}: ₹${spotPrice}. Identifying strikes...`, "INFO");
                         const legs = config.legs || [];
                         const resolvedLegs = [];
@@ -1186,7 +1198,7 @@ async function executeStrategy(strategyId) {
                                     strike: leg.strike,
                                     spotPrice
                                 });
-                                console.log(`Execution Search: Index=${config.index}, Spot=${spotPrice}, ATM=${atmStrike}, Selected=${strikeLabel}, TargetStrike=${targetStrike}, Type=${leg.option_type}`);
+                                // console.log(`Execution Search: Index=${config.index}, Spot=${spotPrice}, ATM=${atmStrike}, Selected=${strikeLabel}, TargetStrike=${targetStrike}, Type=${leg.option_type}`);
                                 addStrategyLog(strategyId, `Leg ${resolvedLegs.length + 1}: Selecting ${strikeLabel} (${leg.option_type}) at Strike ${targetStrike}.`, "INFO");
                                 targetInstrument = findOptionInstrument(config.index, leg.option_type, targetStrike);
                                 if (!targetInstrument) {
@@ -1409,7 +1421,7 @@ async function executeStrategy(strategyId) {
                             instrument: strategy.legs.map(l => l.instrument)
                         });
 
-                        console.log(`Strategy ${strategyId} in position: ${strategy.legs.map(l => l.instrument.symbol).join(", ")}`);
+                        // console.log(`Strategy ${strategyId} in position: ${strategy.legs.map(l => l.instrument.symbol).join(", ")}`);
                     } else {
                         console.error(`[${strategyId}] Failed to fetch Spot Price for entry. API Response:`, JSON.stringify(ltpRes));
                         strategy.entryAttempted = false; // allow retry next tick
@@ -2524,7 +2536,7 @@ async function getStatus(strategyId) {
 }
 
 async function initializeActiveStrategies() {
-    console.log("Strategy Service: Initializing active strategies from DB...");
+    // console.log("Strategy Service: Initializing active strategies from DB...");
     try {
         const activeExecutions = await prisma.strategy_executions.findMany({
             where: {
@@ -2537,7 +2549,7 @@ async function initializeActiveStrategies() {
             }
         });
 
-        console.log(`Strategy Service: Found ${activeExecutions.length} active executions to restore`);
+        // console.log(`Strategy Service: Found ${activeExecutions.length} active executions to restore`);
 
         for (const exec of activeExecutions) {
             if (!exec.strategy) continue;
@@ -2556,7 +2568,7 @@ async function initializeActiveStrategies() {
 
             activeStrategies.set(exec.id, runtimeStrategy);
             executeStrategy(exec.id);
-            console.log(`Strategy Service: Restored strategy ${exec.id} (${exec.strategy.name}) in state ${exec.status}`);
+            // console.log(`Strategy Service: Restored strategy ${exec.id} (${exec.strategy.name}) in state ${exec.status}`);
         }
     } catch (err) {
         console.error("Strategy Service: Error initializing active strategies:", err.message);

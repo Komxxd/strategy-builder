@@ -31,7 +31,6 @@ async function login() {
             apiKey: process.env.SMARTAPI_API_KEY,
             clientCode: process.env.SMARTAPI_CLIENT_ID
         }, () => {
-            console.log("Initializing active strategies from DB post-login...");
             const strategyService = require("./strategy.service");
             strategyService.initializeActiveStrategies();
         });

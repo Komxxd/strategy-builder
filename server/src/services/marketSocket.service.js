@@ -40,7 +40,7 @@ function subscribeTokens(exchange, tokens) {
     const newTokens = tokens.filter(t => !subscribedTokens.has(`${exchange}:${t}`));
     if (newTokens.length === 0) return;
 
-    console.log(`[MarketSocket] Subscribing to ${newTokens.length} new tokens on ${exchange}`);
+    // console.log(`[MarketSocket] Subscribing to ${newTokens.length} new tokens on ${exchange}`);
 
     const request = {
         correlationId: "strategy_builder_sub",
@@ -86,7 +86,7 @@ function syncSubscriptions(tasks) {
         const exchType = EXCH_MAPPING[exch];
         if (!exchType) return;
 
-        console.log(`[MarketSocket] Unsubscribing from ${tokens.length} stale tokens on ${exch}`);
+        // console.log(`[MarketSocket] Unsubscribing from ${tokens.length} stale tokens on ${exch}`);
         const request = {
             correlationId: "strategy_builder_unsub",
             action: 0, // 0 for Unsubscribe (as per SmartAPI V2 docs)
@@ -145,7 +145,7 @@ function initMarketSocket({ jwtToken, feedToken, clientCode, apiKey }, onConnect
 
             // Log full tick once to debug field names
             if (debugLogCount < 5) {
-                console.log("[MarketSocket] FULL TICK DEBUG:", JSON.stringify(tick));
+                // console.log("[MarketSocket] FULL TICK DEBUG:", JSON.stringify(tick));
                 debugLogCount++;
             }
 
@@ -165,9 +165,9 @@ function initMarketSocket({ jwtToken, feedToken, clientCode, apiKey }, onConnect
             const ltp = parseFloat(ltpRaw) / 100;
 
             // Log once in a while to confirm traffic without flooding
-            if (Math.random() < 0.05) {
-                console.log(`[MarketSocket] Live Tick: ${exchStr}:${token} -> ${ltp}`);
-            }
+            // if (Math.random() < 0.05) {
+            //     console.log(`[MarketSocket] Live Tick: ${exchStr}:${token} -> ${ltp}`);
+            // }
 
             if (exchStr && token) {
                 // 1. Update Global LTP Map in Strategy Service
@@ -188,7 +188,7 @@ function initMarketSocket({ jwtToken, feedToken, clientCode, apiKey }, onConnect
 
         // SmartAPI WebSocket V2 sends a response after subscription
         socket.on("response", (res) => {
-            console.log("[MarketSocket] Subscription Response:", JSON.stringify(res));
+            // console.log("[MarketSocket] Subscription Response:", JSON.stringify(res));
         });
 
         socket.on("error", (err) => {
