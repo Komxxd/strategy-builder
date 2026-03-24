@@ -52,122 +52,31 @@ async function runGlobalDbWriter() {
 // Write to DB every 5 seconds
 setInterval(runGlobalDbWriter, 5000);
 
-async function runGlobalPriceFetcher() {
-    if (isFetchingGlobalLtp) {
-        if (!this.skipCount) this.skipCount = 0;
-        this.skipCount++;
-        if (this.skipCount % 5 === 0) {
-            console.warn(`[PriceFetcher] WARNING: Skip count is ${this.skipCount}. Previous fetch is taking too long! Overlapping executions prevented.`);
-        }
-        return;
-    }
-    this.skipCount = 0;
-    // if (activeStrategies.size === 0) return; // This return is moved later
-
-    // --- STEP 0: Build Task Map ---
-    const tasks = {}; // { connectionId: { exchange: Set(tokens) } }
+async function runGlobalWebsocketSync() {
+    // --- Build Unified Task Map ---
     const unifiedTasks = {}; // { exchange: Set(tokens) }
 
     for (const [id, strategy] of activeStrategies) {
         if (strategy.status !== "IN_POSITION" || !strategy.legs) continue;
-        const connId = strategy.config.connectionId;
-        if (!tasks[connId]) tasks[connId] = {};
 
         for (const leg of strategy.legs) {
             if ((leg.exited && leg.state !== "WAITING_FOR_RECOST") || !leg.instrument) continue;
             const exch = leg.instrument.exch_seg;
             const token = leg.instrument.token;
 
-            if (!tasks[connId][exch]) tasks[connId][exch] = new Set();
-            tasks[connId][exch].add(token);
-
             if (!unifiedTasks[exch]) unifiedTasks[exch] = new Set();
             unifiedTasks[exch].add(token);
         }
     }
 
-    // --- STEP 1: WebSocket Sync (even if 0 active) ---
+    // --- WebSocket Sync (even if 0 active) ---
     // If no active strategies, unifiedTasks will be empty {}
     // syncSubscriptions will correctly unsubscribe from everything.
     marketSocketService.syncSubscriptions(unifiedTasks);
-
-    if (activeStrategies.size === 0 || Object.keys(tasks).length === 0) return;
-
-    if (isFetchingGlobalLtp) return;
-
-    isFetchingGlobalLtp = true;
-    const startTime = Date.now();
-    let totalTokens = 0;
-    let totalChunks = 0;
-    let successfulChunks = 0;
-    let failedChunks = 0;
-
-    try {
-        const chunkTasks = [];
-
-        for (const [connId, exchanges] of Object.entries(tasks)) {
-            // Handle stringified 'undefined' from Object.entries keys
-            const effectiveConnId = connId === "undefined" ? undefined : connId;
-
-            for (const [exch, tokensSet] of Object.entries(exchanges)) {
-                const allTokens = Array.from(tokensSet);
-                totalTokens += allTokens.length;
-
-                for (let i = 0; i < allTokens.length; i += 40) {
-                    const chunk = allTokens.slice(i, i + 40);
-                    totalChunks++;
-
-                    // Create a promise for each chunk to execute in parallel
-                    chunkTasks.push((async () => {
-                        try {
-                            const ltpRes = await marketService.getLTP({
-                                exchange: exch,
-                                symboltoken: chunk,
-                                connectionId: effectiveConnId
-                            });
-
-                            if (ltpRes?.status && ltpRes?.data?.fetched) {
-                                successfulChunks++;
-                                for (const item of ltpRes.data.fetched) {
-                                    const t = item.symbolToken || item.symboltoken;
-                                    if (t && item.ltp) {
-                                        globalLtpMap[`${exch}_${t}`] = item.ltp;
-                                    }
-                                }
-                            } else {
-                                failedChunks++;
-                                const msg = ltpRes?.message || "Unknown error status";
-                                console.error(`[PriceFetcher] SmartAPI Error for ${exch} (Conn: ${effectiveConnId}). Resp: ${JSON.stringify(ltpRes)}`);
-                                if (msg && typeof msg === 'string' && msg.toLowerCase().includes("rate limit")) {
-                                    console.error("[PriceFetcher] CRITICAL: Rate limited by AngelOne!");
-                                }
-                            }
-                        } catch (err) {
-                            failedChunks++;
-                            console.error(`[PriceFetcher] Exception fetching LTP for ${exch} (Conn: ${effectiveConnId}):`, err.message);
-                        }
-                    })());
-                }
-            }
-        }
-
-        // Parallelize all chunk requests
-        if (chunkTasks.length > 0) {
-            await Promise.all(chunkTasks);
-        }
-    } catch (globalErr) {
-        console.error("[PriceFetcher] Fatal crash in global price fetcher:", globalErr);
-    } finally {
-        const duration = Date.now() - startTime;
-        // if (duration > 1000 || failedChunks > 0 || totalChunks > 2) {
-        //     console.log(`[PriceFetcher] Done: ${totalTokens} tokens, ${totalChunks} chunks. Success: ${successfulChunks}, Failed: ${failedChunks}. Duration: ${duration}ms`);
-        // }
-        isFetchingGlobalLtp = false;
-    }
 }
 
-// Start price fetcher heartbeat once globally
-setInterval(runGlobalPriceFetcher, 1000);
+// Start websocket sync heartbeat once globally
+setInterval(runGlobalWebsocketSync, 1000);
 
 function loadInstruments() {
     if (instruments.length > 0) return;
@@ -206,7 +115,12 @@ function updateStrategyInMemory(executionId, data) {
 
     for (const key of Object.keys(data)) {
         if (['status', 'final_pnl_percent', 'totalPnlRupees', 'exit_type', 'execution_details'].includes(key)) continue;
-        updateData.execution_details[key] = data[key];
+
+        let val = data[key];
+        if (Array.isArray(val)) {
+            val = val.map(item => item === undefined ? null : item);
+        }
+        updateData.execution_details[key] = val;
     }
 
     if (data.status === "COMPLETED" || data.status === "FAILED" || data.status === "TERMINATED") {
@@ -293,9 +207,9 @@ function addStrategyLog(strategyId, message, level = "INFO") {
     marketSocketService.sendStrategyLog(strategyId, logEntry);
 
     // Only log to terminal if it's CRITICAL, ERROR, or process logs like re-entry, SL hits
-    const isCriticalProcess = level === "CRITICAL" || level === "ERROR" || 
-        message.toUpperCase().includes("REENTRY") || 
-        message.toUpperCase().includes("RE-COST") || 
+    const isCriticalProcess = level === "CRITICAL" || level === "ERROR" ||
+        message.toUpperCase().includes("REENTRY") ||
+        message.toUpperCase().includes("RE-COST") ||
         message.toUpperCase().includes("RE ASAP") ||
         message.toUpperCase().includes("STOP OUT") ||
         message.toUpperCase().includes("STOPPED OUT") ||
@@ -789,7 +703,7 @@ async function placeExitOrder({ config, leg, instrument, exitType }) {
                     // Missed price / Timeout
                     console.warn(`[Exit Poller] Order ${leg.exitOrderId} pending for 2s. Retrying via MARKET.`);
                     addStrategyLog(config.id || "system", `Exit order for ${instrument.symbol} pending for 2s. Escalating to Market order...`, "WARNING");
-                    
+
                     const api = await getAuthorizedInstance(config.connectionId);
                     await api.cancelOrder({ variety: "NORMAL", orderid: leg.exitOrderId });
 
@@ -806,7 +720,7 @@ async function placeExitOrder({ config, leg, instrument, exitType }) {
     } catch (error) {
         console.error(`[Exit] Failed to place exit order for ${instrument.symbol}:`, error.message);
         addStrategyLog(config.id || "system", `CRITICAL: Exit placement FAILED for ${instrument.symbol}: ${error.message}. Re-attempting...`, "ERROR");
-        
+
         leg.isExiting = false; // Allow monitor loop to re-attempt on next tick
         return null;
     }
@@ -1351,7 +1265,15 @@ async function executeStrategy(strategyId) {
                                     leg.uniqueOrderId,
                                     config.connectionId,
                                     config.is_paper_trading === true,
-                                    leg.instrument
+                                    leg.instrument,
+                                    60000,
+                                    2000,
+                                    { /* paperConfig */
+                                        side: leg.leg.side,
+                                        ordertype: config.ordertype,
+                                        price: parseFloat(leg.original_traded_price || config.price || 0),
+                                        triggerprice: parseFloat(leg.mntmTargetPrice || config.triggerprice || 0)
+                                    }
                                 );
                                 if (fillPrice) {
                                     leg.entryPrice = fillPrice;
@@ -1760,9 +1682,9 @@ async function executeStrategy(strategyId) {
                                                         config.connectionId,
                                                         config.is_paper_trading === true,
                                                         leg.instrument,
-                                                        28800000, 
-                                                        1000,     
-                                                        {         
+                                                        28800000,
+                                                        1000,
+                                                        {
                                                             side: side,
                                                             ordertype: ordertype,
                                                             price: parseFloat(finalPriceStr || 0),
@@ -1772,11 +1694,11 @@ async function executeStrategy(strategyId) {
                                                     leg.entryPrice = fill || currentTick;
                                                     leg.entryTime = getISTTime();
                                                     leg.original_traded_price = leg.entryPrice;
-                                                    leg.peakPrice = leg.entryPrice; 
+                                                    leg.peakPrice = leg.entryPrice;
                                                 } catch (e) {
                                                     leg.entryPrice = currentTick;
                                                     leg.entryTime = getISTTime();
-                                                    leg.peakPrice = leg.entryPrice; 
+                                                    leg.peakPrice = leg.entryPrice;
                                                 }
 
                                                 // Redeploy exchange SL if needed
@@ -2046,8 +1968,8 @@ async function executeStrategy(strategyId) {
                                         // We evaluate the validity of the trail, even if leg.slTriggerPrice isn't explicitly set yet (like in simple paper)
                                         if (isValidTrail) {
                                             const roundedTrigger = roundToTick(newTrigger);
-                                            const newLimit = roundToTick(leg.leg.side === "BUY" ? 
-                                                roundedTrigger - parseFloat(config.entry_limit_offset || 0) : 
+                                            const newLimit = roundToTick(leg.leg.side === "BUY" ?
+                                                roundedTrigger - parseFloat(config.entry_limit_offset || 0) :
                                                 roundedTrigger + parseFloat(config.entry_limit_offset || 0));
 
                                             // Attempt Exchange Modify if needed (only for live & exchange SL mode)
@@ -2067,7 +1989,7 @@ async function executeStrategy(strategyId) {
                                                         exchange: leg.instrument.exch_seg,
                                                         triggerprice: roundedTrigger.toString(),
                                                     };
-                                                    
+
                                                     const res = await api.modifyOrder(modParams);
                                                     if (res && res.status) {
                                                         console.log(`[TSL] Exchange SL Modified for ${leg.instrument.symbol}. Trigger: ${oldTrigger} -> ${roundedTrigger}`);
@@ -2096,15 +2018,15 @@ async function executeStrategy(strategyId) {
                                             // Always update memory state regardless of mode
                                             leg.slTriggerPrice = roundedTrigger;
                                             leg.slLimitPrice = newLimit;
-                                            
+
                                             // Step the reference price anchor so it resets for the NEXT step chunk calculation
-                                            leg.tslReferencePrice = leg.leg.side === "BUY" 
+                                            leg.tslReferencePrice = leg.leg.side === "BUY"
                                                 ? leg.tslReferencePrice + (steps * moveThreshold)
                                                 : leg.tslReferencePrice - (steps * moveThreshold);
                                         }
                                     }
                                 }
-                                
+
                                 // TSL evaluation mapping - if SL hits the local trailing values first
                                 if (leg.slTriggerPrice) {
                                     if (leg.leg.side === "BUY" && leg.currentLtp <= leg.slTriggerPrice) {
@@ -2156,7 +2078,7 @@ async function executeStrategy(strategyId) {
 
                             if (isHit) {
                                 console.log(`[${new Date().toISOString()}] ${exitReason} hit for leg ${leg.instrument.symbol}: PnL=${leg.pnlPercent.toFixed(2)}%`);
-                                
+
                                 // Clean up static Exchange SL order if we hit TSL (in case modify failed previously or it triggered locally first)
                                 if (config.variety === "STOPLOSS" && !config.is_paper_trading && leg.slOrderId) {
                                     try {
@@ -2596,21 +2518,21 @@ async function getActiveStrategies() {
 
 async function getExecutionHistory() {
     const executions = await prisma.strategy_executions.findMany({
-        where: { 
-            status: { 
-                in: ["COMPLETED", "FAILED", "TERMINATED", "CANCELLED", "STOPPED", "SQUARED_OFF"] 
-            } 
+        where: {
+            status: {
+                in: ["COMPLETED", "FAILED", "TERMINATED", "CANCELLED", "STOPPED", "SQUARED_OFF"]
+            }
         },
-        orderBy: { 
+        orderBy: {
             completed_at: { sort: "desc", nulls: "last" }
         },
-        include: { 
-            strategy: { 
-                select: { 
-                    name: true, 
-                    config: true 
-                } 
-            } 
+        include: {
+            strategy: {
+                select: {
+                    name: true,
+                    config: true
+                }
+            }
         },
         take: 50
     });
