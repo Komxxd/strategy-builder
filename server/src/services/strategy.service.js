@@ -443,7 +443,7 @@ function resolveUniversalOrderParams({ targetPrice, currentLtp, side, offset }) 
 async function waitForOrderFillPrice(uniqueOrderId, connectionId, isPaperTrading = false, instrument = null, timeoutMs = 60000, pollMs = 2000, paperConfig = null) {
     if (isPaperTrading) {
         // If no specifically monitored target price is provided, fill instantly at LTP (Standard Entry)
-        if (!paperConfig || paperConfig.ordertype === "MARKET") {
+        if (!paperConfig || paperConfig.ordertype === "MARKET" || paperConfig.ordertype === "LIMIT") {
             try {
                 if (instrument) {
                     const ltpRes = await marketService.getLTP({
@@ -453,7 +453,7 @@ async function waitForOrderFillPrice(uniqueOrderId, connectionId, isPaperTrading
                     });
                     if (ltpRes.status && ltpRes.data?.fetched?.[0]) {
                         const ltp = ltpRes.data.fetched[0].ltp;
-                        console.log(`[PAPER_FILL] Instant Market Fill for ${instrument.symbol} at ${ltp}`);
+                        console.log(`[PAPER_FILL] Instant Fill for ${instrument.symbol} at ${ltp} (${paperConfig?.ordertype || 'MARKET'})`);
                         return ltp;
                     }
                 }
