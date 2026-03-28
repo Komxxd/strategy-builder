@@ -4,6 +4,7 @@ const marketSocketService = require("./marketSocket.service");
 const prisma = require("../config/prisma");
 const fs = require("fs");
 const path = require("path");
+const redis = require("../config/redis");
 
 const INSTRUMENT_PATH = path.join(__dirname, "../data/instruments.json");
 let instruments = [];
@@ -221,19 +222,37 @@ function addStrategyLog(strategyId, message, level = "INFO") {
     }
 }
 
-function findOptionInstrument(indexName, optionType, strike) {
-    loadInstruments();
+async function findOptionInstrument(indexName, optionType, strike) {
+    let matches = [];
+    try {
+        const cacheKey = `instr:OPTIDX:${indexName}:${optionType}:${strike}`;
+        const cached = await redis.get(cacheKey);
+        
+        if (cached) {
+            matches = JSON.parse(cached);
+        } else {
+            loadInstruments();
+            matches = instruments.filter(inst =>
+                inst.name === indexName &&
+                inst.instrumenttype === "OPTIDX" &&
+                inst.symbol.endsWith(optionType) &&
+                (parseFloat(inst.strike) / 100) === strike
+            );
+            await redis.set(cacheKey, JSON.stringify(matches));
+        }
+    } catch (err) {
+        loadInstruments();
+        matches = instruments.filter(inst =>
+            inst.name === indexName &&
+            inst.instrumenttype === "OPTIDX" &&
+            inst.symbol.endsWith(optionType) &&
+            (parseFloat(inst.strike) / 100) === strike
+        );
+    }
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-
-    const matches = instruments.filter(inst =>
-        inst.name === indexName &&
-        inst.instrumenttype === "OPTIDX" &&
-        inst.symbol.endsWith(optionType) &&
-        (parseFloat(inst.strike) / 100) === strike &&
-        new Date(inst.expiry) >= today
-    );
+    matches = matches.filter(inst => new Date(inst.expiry) >= today);
 
     if (matches.length === 0) return null;
 
@@ -244,19 +263,38 @@ function findOptionInstrument(indexName, optionType, strike) {
 }
 
 async function findClosestPremiumInstrument(indexName, optionType, targetPremium, connectionId) {
-    loadInstruments();
     const exchange = indexName === "SENSEX" ? "BFO" : "NFO";
+    let matchesRaw = [];
+
+    try {
+        const cacheKey = `instr:OPTIDX:${indexName}:${optionType}:ALL`;
+        const cached = await redis.get(cacheKey);
+        
+        if (cached) {
+            matchesRaw = JSON.parse(cached);
+        } else {
+            loadInstruments();
+            matchesRaw = instruments.filter(inst =>
+                inst.name === indexName &&
+                inst.instrumenttype === "OPTIDX" &&
+                inst.symbol.endsWith(optionType)
+            );
+            await redis.set(cacheKey, JSON.stringify(matchesRaw));
+        }
+    } catch (err) {
+        loadInstruments();
+        matchesRaw = instruments.filter(inst =>
+            inst.name === indexName &&
+            inst.instrumenttype === "OPTIDX" &&
+            inst.symbol.endsWith(optionType)
+        );
+    }
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
     // 1. Get all options for this index and type
-    const matches = instruments.filter(inst =>
-        inst.name === indexName &&
-        inst.instrumenttype === "OPTIDX" &&
-        inst.symbol.endsWith(optionType) &&
-        new Date(inst.expiry) >= today
-    );
+    const matches = matchesRaw.filter(inst => new Date(inst.expiry) >= today);
 
     if (matches.length === 0) {
         throw new Error(`[Closest Premium] No ${optionType} instruments found for ${indexName} expiring after today.`);
@@ -1115,7 +1153,7 @@ async function executeStrategy(strategyId) {
                                 });
                                 // console.log(`Execution Search: Index=${config.index}, Spot=${spotPrice}, ATM=${atmStrike}, Selected=${strikeLabel}, TargetStrike=${targetStrike}, Type=${leg.option_type}`);
                                 addStrategyLog(strategyId, `Leg ${resolvedLegs.length + 1}: Selecting ${strikeLabel} (${leg.option_type}) at Strike ${targetStrike}.`, "INFO");
-                                targetInstrument = findOptionInstrument(config.index, leg.option_type, targetStrike);
+                                targetInstrument = await findOptionInstrument(config.index, leg.option_type, targetStrike);
                                 if (!targetInstrument) {
                                     throw new Error(`Could not find ${leg.option_type} instrument for ${strikeLabel}`);
                                 }
@@ -1403,7 +1441,7 @@ async function executeStrategy(strategyId) {
                                         targetInstrument = await findClosestPremiumInstrument(config.index, leg.leg.option_type, leg.leg.premium, config.connectionId);
                                     } else {
                                         const { targetStrike } = getLegStrikeSelection({ index: config.index, option_type: leg.leg.option_type, strike: leg.leg.strike, spotPrice });
-                                        targetInstrument = findOptionInstrument(config.index, leg.leg.option_type, targetStrike);
+                                        targetInstrument = await findOptionInstrument(config.index, leg.leg.option_type, targetStrike);
                                     }
 
                                     if (!targetInstrument) {
@@ -1477,7 +1515,7 @@ async function executeStrategy(strategyId) {
                                         targetInstrument = await findClosestPremiumInstrument(config.index, leg.leg.option_type, leg.leg.premium, config.connectionId);
                                     } else {
                                         const { targetStrike } = getLegStrikeSelection({ index: config.index, option_type: leg.leg.option_type, strike: leg.leg.strike, spotPrice });
-                                        targetInstrument = findOptionInstrument(config.index, leg.leg.option_type, targetStrike);
+                                        targetInstrument = await findOptionInstrument(config.index, leg.leg.option_type, targetStrike);
                                     }
 
                                     if (!targetInstrument) {
