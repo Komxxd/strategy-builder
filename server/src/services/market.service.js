@@ -1,4 +1,5 @@
 const { getAuthorizedInstance } = require("../config/smartapi");
+const redis = require("../config/redis");
 
 // Helper to prevent dangling promises if AngelOne doesn't close sockets
 const withTimeout = (promise, ms = 8000) => {
@@ -26,14 +27,30 @@ async function getLTP({ exchange, symboltoken, connectionId }) {
 
 async function getHistoricalData({ exchange, symboltoken, interval, fromdate, todate, connectionId }) {
     try {
+        const cacheKey = `candles:${exchange}:${symboltoken}:${interval}:${fromdate}:${todate}`;
+        try {
+            const cached = await redis.get(cacheKey);
+            if (cached) {
+                return JSON.parse(cached);
+            }
+        } catch (e) { /* Redis error, fallback to API */ }
+
         const api = await getAuthorizedInstance(connectionId);
-        return await withTimeout(api.getCandleData({
+        const data = await withTimeout(api.getCandleData({
             exchange,
             symboltoken,
             interval,
             fromdate,
             todate,
         }));
+
+        if (data && data.status) {
+            try {
+                await redis.setex(cacheKey, 86400, JSON.stringify(data)); // Cache for 24h
+            } catch (e) { /* Ignore */ }
+        }
+
+        return data;
     } catch (error) {
         console.error("SmartAPI getCandleData error:", error);
         throw error;
