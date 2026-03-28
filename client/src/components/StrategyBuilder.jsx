@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { StopCircle, Loader2, TrendingUp, Search, Timer, LayoutDashboard, Target, Save, Play, Plus, Trash2, ShieldCheck, Zap, Copy, MessageSquare, Ghost, X, Settings2, Clock, ChevronDown, ChevronUp } from 'lucide-react';
+import { StopCircle, Loader2, TrendingUp, Search, Timer, LayoutDashboard, Target, Save, Play, Plus, Trash2, ShieldCheck, Zap, Copy, MessageSquare, Ghost, X, Settings2, Clock, ChevronDown, ChevronUp, GripVertical } from 'lucide-react';
 import axios from 'axios';
 import { io } from 'socket.io-client';
 import { StrategyLogs } from './StrategyLogs';
@@ -1118,6 +1118,7 @@ export const StrategyBuilder = ({ isConnected }) => {
     const [viewStrategyName, setViewStrategyName] = useState('');
     const [searchTerm, setSearchTerm] = useState('');
     const [isConfigExpanded, setIsConfigExpanded] = useState(true);
+    const [collapsedSections, setCollapsedSections] = useState({});
 
     const [config, setConfig] = useState({
         name: '',
@@ -1145,7 +1146,22 @@ export const StrategyBuilder = ({ isConnected }) => {
     const fetchSavedStrategies = async () => {
         try {
             const res = await axios.get(`${API_BASE_URL}/strategy/user`);
-            setSavedStrategies(res.data?.data || []);
+            let fetchedData = res.data?.data || [];
+            
+            // Client-side ordering
+            const savedOrder = JSON.parse(localStorage.getItem('custom_strategy_order') || '[]');
+            if (savedOrder.length > 0) {
+                fetchedData.sort((a, b) => {
+                    const indexA = savedOrder.indexOf(a.id);
+                    const indexB = savedOrder.indexOf(b.id);
+                    if (indexA === -1 && indexB === -1) return 0;
+                    if (indexA === -1) return 1;
+                    if (indexB === -1) return -1;
+                    return indexA - indexB;
+                });
+            }
+            
+            setSavedStrategies(fetchedData);
         } catch (err) {
             console.error("Error fetching saved strategies:", err);
         }
@@ -1486,65 +1502,95 @@ export const StrategyBuilder = ({ isConnected }) => {
                 </Card >
 
                 {
-                    Object.entries(runningStrategies)
-                        .filter(([_, data]) => (activeTab === 'paper' ? data.config?.is_paper_trading : !data.config?.is_paper_trading))
-                        .map(([id, strategyData]) => (
-                            <Card key={id} className={`w-full border-border animate-in fade-in slide-in-from-bottom-4 duration-500 ${activeTab === 'paper' ? 'bg-blue-50/50' : 'bg-orange-50/50'}`}>
-                                <CardContent className="p-4 space-y-3">
-                                    <div className="flex items-center justify-between">
-                                        <div className="space-y-1">
-                                            <div className="flex items-center gap-2">
-                                                <div className="p-1.5 bg-muted rounded">
-                                                    <Timer className="h-3.5 w-3.5 text-primary" />
+                    Object.entries(runningStrategies).filter(([_, data]) => (activeTab === 'paper' ? data.config?.is_paper_trading : !data.config?.is_paper_trading)).length > 0 && (
+                        <div className="mt-6">
+                            <Card className="w-full border-border bg-card mb-4 overflow-hidden">
+                                <div 
+                                    className="border-b bg-muted/60 py-3 px-4 flex items-center justify-between cursor-pointer hover:bg-muted/80 transition-colors"
+                                    onClick={() => setCollapsedSections(prev => ({...prev, 'active-strategies': !prev['active-strategies']}))}
+                                >
+                                    <CardTitle className="flex items-center gap-2 text-base font-bold">
+                                         <Play className="h-4 w-4 text-primary" /> Active Executions
+                                    </CardTitle>
+                                    <Button variant="ghost" size="sm" className="h-8 w-8 p-0 shrink-0">
+                                        {collapsedSections['active-strategies'] ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
+                                    </Button>
+                                </div>
+                            </Card>
+                            {!collapsedSections['active-strategies'] && (
+                                <div className="space-y-4 animate-in fade-in slide-in-from-top-2 duration-200">
+                                    {Object.entries(runningStrategies)
+                                .filter(([_, data]) => (activeTab === 'paper' ? data.config?.is_paper_trading : !data.config?.is_paper_trading))
+                                .map(([id, strategyData]) => (
+                                    <Card key={id} className={`w-full border-border animate-in fade-in slide-in-from-bottom-4 duration-500 ${activeTab === 'paper' ? 'bg-blue-50/50' : 'bg-orange-50/50'}`}>
+                                <CardContent className="p-3 space-y-2">
+                                    <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3">
+                                        <div className="flex items-center gap-x-2.5 gap-y-1.5 flex-wrap">
+                                            <span className="relative flex h-2 w-2 shadow-[0_0_10px_rgba(34,197,94,0.3)] rounded-full mr-1">
+                                                <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${strategyData.status === 'FAILED' ? 'bg-red-400' : 'bg-green-400'} opacity-75`}></span>
+                                                <span className={`relative inline-flex rounded-full h-2 w-2 ${strategyData.status === 'FAILED' ? 'bg-red-500' : 'bg-green-500'}`}></span>
+                                            </span>
+                                            
+                                            <span className="text-[13px] font-bold text-slate-800">
+                                                {strategyData.name || strategyData.config?.name || 'Strategy Execution'} 
+                                                <span className="text-[10px] font-mono text-muted-foreground ml-1.5">#{id.split('-')[0] || id}</span>
+                                            </span>
+
+                                            <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded shadow-sm uppercase ${strategyData.config?.is_paper_trading ? 'bg-blue-100/80 text-blue-700 border border-blue-200' : 'bg-orange-100/80 text-orange-700 border border-orange-200'}`}>
+                                                {strategyData.status} • {strategyData.config?.is_paper_trading ? 'PAPER' : 'LIVE'} • {strategyData.config?.index}
+                                            </span>
+
+                                            {strategyData.status === 'WAITING' && strategyData.config?.entry_time && (
+                                                <EntryTimer entryTime={strategyData.config.entry_time} />
+                                            )}
+
+                                            {(strategyData?.status === "IN_POSITION" || strategyData?.status === "COMPLETED") && (
+                                                <div className="flex items-center gap-1.5 ml-1">
+                                                    <span className={`text-[11px] font-mono font-bold px-1.5 py-0.5 rounded border shadow-sm ${
+                                                        (strategyData.pnlPercent || 0) >= 0 
+                                                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200' 
+                                                        : 'bg-red-50 text-red-700 border-red-200'
+                                                    }`}>
+                                                        {(strategyData.pnlPercent || 0) > 0 ? '+' : ''}{(strategyData.pnlPercent || 0).toFixed(2)}% | {(strategyData.totalPnlRupees || 0) > 0 ? '+' : ''}₹{(strategyData.totalPnlRupees || 0).toFixed(2)}
+                                                    </span>
+                                                    <span className="text-[10px] font-mono font-semibold text-slate-500 bg-slate-50 border border-slate-200 px-1.5 py-0.5 shadow-sm rounded">
+                                                        Value: ₹{(strategyData.totalOriginalValue || 0).toFixed(2)}
+                                                    </span>
                                                 </div>
-                                                <p className="text-sm font-bold">{strategyData.name || strategyData.config?.name || 'Strategy Execution'} <span className="text-[10px] font-mono text-muted-foreground ml-1">#{id.split('-')[0] || id}</span></p>
-                                            </div>
-                                            <div className="flex items-center gap-2 mt-1">
-                                                <span className="relative flex h-2 w-2">
-                                                    <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${strategyData.status === 'FAILED' ? 'bg-red-400' : 'bg-green-400'} opacity-75`}></span>
-                                                    <span className={`relative inline-flex rounded-full h-2 w-2 ${strategyData.status === 'FAILED' ? 'bg-red-500' : 'bg-green-500'}`}></span>
-                                                </span>
-                                                <span className="text-[10px] font-bold uppercase tracking-tight">{strategyData.status}</span>
-                                                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${strategyData.config?.is_paper_trading ? 'bg-blue-100 text-blue-700' : 'bg-orange-100 text-orange-700'}`}>
-                                                    {strategyData.config?.is_paper_trading ? 'PAPER' : 'LIVE'}
-                                                </span>
-                                                <span className="text-[10px] font-bold text-muted-foreground ml-1">Index: {strategyData.config?.index}</span>
-                                                {strategyData.status === 'WAITING' && strategyData.config?.entry_time && (
-                                                    <EntryTimer entryTime={strategyData.config.entry_time} />
-                                                )}
-                                            </div>
+                                            )}
                                         </div>
-                                        <div className="flex items-center gap-2">
+
+                                        <div className="flex items-center gap-1.5 shrink-0 self-start xl:self-auto">
                                             <Button
-                                                size="sm"
-                                                variant="outline"
-                                                className="h-8 px-4 gap-1.5 rounded-lg text-xs font-bold border-indigo-500 hover:bg-indigo-50 text-indigo-600 shadow-sm"
+                                                size="icon"
+                                                variant="ghost"
+                                                className="h-8 w-8 rounded-md text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 border border-transparent hover:border-indigo-100"
+                                                title="View Config"
                                                 onClick={() => {
                                                     setViewConfig(strategyData.config);
                                                     setViewStrategyName(strategyData.name || strategyData.config?.name || 'Strategy');
                                                     setConfigWindowOpen(true);
                                                 }}
                                             >
-                                                <Settings2 className="h-3.5 w-3.5" />
-                                                View
+                                                <Settings2 className="h-4 w-4" />
                                             </Button>
                                             <Button
-                                                size="sm"
-                                                variant="outline"
-                                                className="h-8 px-4 gap-1.5 rounded-lg text-xs font-bold border-blue-500 hover:bg-blue-50 text-blue-600 shadow-sm"
+                                                size="icon"
+                                                variant="ghost"
+                                                className="h-8 w-8 rounded-md text-slate-500 hover:text-blue-600 hover:bg-blue-50 border border-transparent hover:border-blue-100"
+                                                title="View Logs"
                                                 onClick={() => {
                                                     setLogStrategyId(id);
                                                     setLogWindowOpen(true);
                                                 }}
                                             >
-                                                <MessageSquare className="h-3.5 w-3.5" />
-                                                Logs
+                                                <MessageSquare className="h-4 w-4" />
                                             </Button>
                                             {strategyData?.status === "IN_POSITION" && (
                                                 <Button
                                                     size="sm"
                                                     variant="outline"
-                                                    className="h-8 px-4 gap-1.5 rounded-lg text-xs font-bold border-orange-500 hover:bg-orange-50 text-orange-600 shadow-sm"
+                                                    className="h-8 px-3 gap-1 rounded-md text-[11px] font-bold border-orange-200 bg-orange-50/50 hover:bg-orange-100 text-orange-600 shadow-sm"
                                                     onClick={() => handleSquareOff(id)}
                                                 >
                                                     Square Off
@@ -1553,7 +1599,7 @@ export const StrategyBuilder = ({ isConnected }) => {
                                             <Button
                                                 size="sm"
                                                 variant="outline"
-                                                className="h-8 px-4 gap-1.5 rounded-lg text-xs font-bold border-destructive hover:bg-red-50 text-destructive shadow-sm"
+                                                className="h-8 px-3 gap-1 rounded-md text-[11px] font-bold border-red-200 bg-red-50/50 hover:bg-red-100 text-red-600 shadow-sm"
                                                 onClick={() => handleStop(id)}
                                             >
                                                 <StopCircle className="h-3.5 w-3.5" /> Terminate
@@ -1562,98 +1608,86 @@ export const StrategyBuilder = ({ isConnected }) => {
                                     </div>
 
                                     {strategyData?.status === "IN_POSITION" || strategyData?.status === "COMPLETED" ? (
-                                        <div className="space-y-3 pt-3 border-t border-border">
-                                            {/* Overall Strategy PnL Summary */}
-                                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                                                <div className={`p-2.5 rounded-lg flex flex-col justify-center items-center ${(strategyData.pnlPercent || 0) >= 0 ? 'bg-emerald-100/50' : 'bg-red-100/50'}`}>
-                                                    <span className="text-[10px] font-black uppercase text-muted-foreground mb-0.5">Return %</span>
-                                                    <span className={`text-lg font-mono font-black ${(strategyData.pnlPercent || 0) >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>
-                                                        {(strategyData.pnlPercent || 0) > 0 ? '+' : ''}{(strategyData.pnlPercent || 0).toFixed(3)}%
-                                                    </span>
-                                                </div>
-                                                <div className={`p-2.5 rounded-lg flex flex-col justify-center items-center ${(strategyData.totalPnlRupees || 0) >= 0 ? 'bg-emerald-100/50' : 'bg-red-100/50'}`}>
-                                                    <span className="text-[10px] font-black uppercase text-muted-foreground mb-0.5">PnL (₹)</span>
-                                                    <span className={`text-lg font-mono font-black ${(strategyData.totalPnlRupees || 0) >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>
-                                                        {(strategyData.totalPnlRupees || 0) > 0 ? '+' : ''}{(strategyData.totalPnlRupees || 0).toFixed(2)}
-                                                    </span>
-                                                </div>
-                                                <div className="p-2.5 rounded-lg flex flex-col justify-center items-center bg-slate-100 border border-slate-200">
-                                                    <span className="text-[10px] font-black uppercase text-muted-foreground mb-0.5">Entry Value</span>
-                                                    <span className="text-lg font-mono font-black text-slate-700">
-                                                        ₹{(strategyData.totalOriginalValue || 0).toFixed(2)}
-                                                    </span>
-                                                </div>
-                                            </div>
+                                        <div className="space-y-2 pt-2 border-t border-border mt-1">
+                                            {/* Strategy Legs */}
 
                                             {/* Running Legs */}
                                             {strategyData.legs?.filter(l => !l.exited || ["WAITING_FOR_RECOST", "WAITING_FOR_MNTM", "WAITING_FOR_RE_ASAP", "WAITING_FOR_LAZY"].includes(l.state)).length > 0 && (
                                                 <div className="space-y-2">
-                                                    <span className="text-xs font-bold uppercase text-muted-foreground">Running Legs</span>
-                                                    <div className="space-y-2">
+                                                    <div 
+                                                        className="flex items-center justify-between cursor-pointer group"
+                                                        onClick={() => setCollapsedSections(prev => ({...prev, [`${id}-running`]: !prev[`${id}-running`]}))}
+                                                    >
+                                                        <span className="text-xs font-bold uppercase text-muted-foreground group-hover:text-foreground transition-colors">Running Legs</span>
+                                                        <Button variant="ghost" size="sm" className="h-4 w-4 p-0 shrink-0 text-muted-foreground group-hover:text-foreground">
+                                                            {collapsedSections[`${id}-running`] ? <ChevronDown className="h-3 w-3" /> : <ChevronUp className="h-3 w-3" />}
+                                                        </Button>
+                                                    </div>
+                                                    {!collapsedSections[`${id}-running`] && (
+                                                    <div className="space-y-2 animate-in slide-in-from-top-2 duration-200">
                                                         {strategyData.legs.map((l, idx) => (!l.exited || ["WAITING_FOR_RECOST", "WAITING_FOR_MNTM", "WAITING_FOR_RE_ASAP", "WAITING_FOR_LAZY"].includes(l.state)) && (
-                                                            <div key={idx} className="flex items-center justify-between p-3 bg-white border border-border rounded-xl">
+                                                            <div key={idx} className="flex items-center justify-between p-2.5 bg-white border border-border rounded-xl">
                                                                 <div className="flex flex-col">
-                                                                    <div className="flex items-center gap-2">
+                                                                    <div className="flex items-center gap-1 flex-wrap">
                                                                         <span className="text-sm font-bold">{l.instrument?.symbol || "---"} ({l.leg?.side})</span>
-                                                                        <span className="px-2 py-0.5 bg-slate-100 text-[10px] font-bold text-slate-600 rounded">
+                                                                        <span className="text-[11px] font-bold text-slate-600">
                                                                             {l.leg?.lots} {l.leg?.lots > 1 ? 'Lots' : 'Lot'}
                                                                         </span>
-                                                                    </div>
-                                                                    <div className="flex items-center gap-2 mt-1 text-xs font-mono text-muted-foreground flex-wrap">
-                                                                        <span className="text-primary font-bold">{l.entryTime || "---"}</span>
-                                                                        <span>|</span>
-                                                                        <span>Entry: {(l.entryPrice || 0).toFixed(2)}</span>
-                                                                        <span>|</span>
-                                                                        <span className="animate-pulse text-blue-600 font-bold">LTP: {(l.currentLtp || 0).toFixed(2)}</span>
+                                                                        <span className="text-muted-foreground text-xs font-mono">|</span>
+                                                                        <span className="text-primary font-bold text-xs font-mono">{l.entryTime || "---"}</span>
+                                                                        <span className="text-muted-foreground text-xs font-mono">|</span>
+                                                                        <span className="text-xs font-mono text-muted-foreground">Entry: {(l.entryPrice || 0).toFixed(2)}</span>
+                                                                        <span className="text-muted-foreground text-xs font-mono">|</span>
+                                                                        <span className="text-xs font-mono animate-pulse text-blue-600 font-bold">LTP: {(l.currentLtp || 0).toFixed(2)}</span>
                                                                         {l.initialSlTriggerPrice != null && (
                                                                             <>
-                                                                                <span>|</span>
-                                                                                <span className="text-slate-500 font-bold">Init SL: {Number(l.initialSlTriggerPrice).toFixed(1)}</span>
+                                                                                <span className="text-muted-foreground text-xs font-mono">|</span>
+                                                                                <span className="text-slate-500 font-bold text-xs font-mono">Init SL: {Number(l.initialSlTriggerPrice).toFixed(1)}</span>
                                                                             </>
                                                                         )}
                                                                         {l.slTriggerPrice != null && (
                                                                             <>
-                                                                                <span>|</span>
-                                                                                <span className={`font-black ${Number(l.slTriggerPrice) !== Number(l.initialSlTriggerPrice) ? 'text-indigo-600 animate-pulse' : 'text-slate-800'}`}>
+                                                                                <span className="text-muted-foreground text-xs font-mono">|</span>
+                                                                                <span className={`text-xs font-mono font-black ${Number(l.slTriggerPrice) !== Number(l.initialSlTriggerPrice) ? 'text-indigo-600 animate-pulse' : 'text-slate-800'}`}>
                                                                                     Now SL: {Number(l.slTriggerPrice).toFixed(1)}
                                                                                 </span>
                                                                             </>
                                                                         )}
                                                                         {l.rtp != null && (
                                                                             <>
-                                                                                <span>|</span>
-                                                                                <span className="text-orange-500 font-bold">RTP: {l.rtp.toFixed(2)}</span>
+                                                                                <span className="text-muted-foreground text-xs font-mono">|</span>
+                                                                                <span className="text-orange-500 font-bold text-xs font-mono">RTP: {l.rtp.toFixed(2)}</span>
                                                                             </>
                                                                         )}
                                                                         {l.mtp != null && (
                                                                             <>
-                                                                                <span>|</span>
-                                                                                <span className="text-purple-500 font-bold">MTP: {l.mtp.toFixed(2)}</span>
+                                                                                <span className="text-muted-foreground text-xs font-mono">|</span>
+                                                                                <span className="text-purple-500 font-bold text-xs font-mono">MTP: {l.mtp.toFixed(2)}</span>
                                                                             </>
                                                                         )}
                                                                         {l.mntmTargetPrice != null && l.state === "WAITING_FOR_SIMPLE_MNTM" && (
                                                                             <>
-                                                                                <span>|</span>
-                                                                                <span className="text-blue-500 font-bold animate-pulse">Wait Target: ₹{l.mntmTargetPrice.toFixed(2)}</span>
+                                                                                <span className="text-muted-foreground text-xs font-mono">|</span>
+                                                                                <span className="text-blue-500 font-bold animate-pulse text-xs font-mono">Wait Target: ₹{l.mntmTargetPrice.toFixed(2)}</span>
                                                                             </>
                                                                         )}
                                                                         {l.state === "WAITING_FOR_RECOST" && (
-                                                                            <span className="px-2 py-0.5 ml-2 bg-yellow-100 text-yellow-700 font-bold rounded">Waiting Re-Entry (Price)</span>
+                                                                            <span className="px-2 py-0.5 ml-2 bg-yellow-100 text-yellow-700 font-bold rounded text-xs font-mono">Waiting Re-Entry (Price)</span>
                                                                         )}
                                                                         {l.state === "WAITING_FOR_RE_ASAP" && (
-                                                                            <span className="px-2 py-0.5 ml-2 bg-blue-100 text-blue-700 font-bold rounded">Waiting Re-Entry (ASAP)</span>
+                                                                            <span className="px-2 py-0.5 ml-2 bg-blue-100 text-blue-700 font-bold rounded text-xs font-mono">Waiting Re-Entry (ASAP)</span>
                                                                         )}
                                                                         {l.state === "WAITING_FOR_LAZY" && (
-                                                                            <span className="px-2 py-0.5 ml-2 bg-purple-100 text-purple-700 font-bold rounded">Initializing Lazy Leg</span>
+                                                                            <span className="px-2 py-0.5 ml-2 bg-purple-100 text-purple-700 font-bold rounded text-xs font-mono">Initializing Lazy Leg</span>
                                                                         )}
                                                                     </div>
                                                                 </div>
                                                                 <div className="flex items-center gap-4">
-                                                                    <div className="flex flex-col items-end">
+                                                                    <div className="flex items-center gap-3">
                                                                         <span className={`text-sm font-mono font-bold ${(l.currentActivePnlPercent || 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
                                                                             {(l.currentActivePnlPercent || 0) > 0 ? '+' : ''}{(l.currentActivePnlPercent || 0).toFixed(2)}%
                                                                         </span>
-                                                                        <span className={`text-xs font-mono font-bold ${(l.currentActivePnlRupees || 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                                                                        <span className={`text-sm font-mono font-bold ${(l.currentActivePnlRupees || 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
                                                                             {(l.currentActivePnlRupees || 0) > 0 ? '+' : ''}₹{(l.currentActivePnlRupees || 0).toFixed(2)}
                                                                         </span>
                                                                     </div>
@@ -1674,90 +1708,119 @@ export const StrategyBuilder = ({ isConnected }) => {
                                                             </div>
                                                         ))}
                                                     </div>
+                                                    )}
                                                 </div>
                                             )}
 
                                             {/* Closed Legs */}
                                             {strategyData.legs?.filter(l => l.exited).length > 0 && (
                                                 <div className="space-y-2">
-                                                    <span className="text-xs font-bold uppercase text-muted-foreground">Closed Legs</span>
-                                                    <div className="space-y-2">
+                                                    <div 
+                                                        className="flex items-center justify-between cursor-pointer group"
+                                                        onClick={() => setCollapsedSections(prev => ({...prev, [`${id}-closed`]: !prev[`${id}-closed`]}))}
+                                                    >
+                                                        <span className="text-xs font-bold uppercase text-muted-foreground group-hover:text-foreground transition-colors">Closed Legs</span>
+                                                        <Button variant="ghost" size="sm" className="h-4 w-4 p-0 shrink-0 text-muted-foreground group-hover:text-foreground">
+                                                            {collapsedSections[`${id}-closed`] ? <ChevronDown className="h-3 w-3" /> : <ChevronUp className="h-3 w-3" />}
+                                                        </Button>
+                                                    </div>
+                                                    {!collapsedSections[`${id}-closed`] && (
+                                                    <div className="space-y-2 animate-in slide-in-from-top-2 duration-200">
                                                         {strategyData.legs.map((l, idx) => l.exited && (
-                                                            <div key={idx} className="flex items-center justify-between p-3 bg-muted/50 border border-border/50 rounded-xl opacity-90">
-                                                                <div className="flex flex-col w-full">
-                                                                    <div className="flex items-center justify-between mb-2">
-                                                                        <div className="flex items-center gap-2">
-                                                                            <span className="text-sm font-bold text-muted-foreground">{l.instrument?.symbol || "---"} ({l.leg?.side})</span>
-                                                                            <span className="px-2 py-0.5 bg-slate-100 text-[10px] font-bold text-slate-400 rounded">
-                                                                                {l.leg?.lots} {l.leg?.lots > 1 ? 'Lots' : 'Lot'}
-                                                                            </span>
-                                                                        </div>
-                                                                        <div className="flex items-center gap-3">
-                                                                            <span className={`text-sm font-mono font-bold ${(l.pnlPercent || 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                                                                                {(l.pnlPercent || 0) > 0 ? '+' : ''}{(l.pnlPercent || 0).toFixed(2)}%
-                                                                            </span>
-                                                                            <span className={`text-sm font-mono font-bold ${(l.pnlRupees || 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                                                                                {(l.pnlRupees || 0) > 0 ? '+' : ''}₹{(l.pnlRupees || 0).toFixed(2)}
-                                                                            </span>
-                                                                            <span className="px-2 py-0.5 text-[10px] font-bold bg-slate-200 text-slate-500 rounded uppercase">Closed</span>
-                                                                        </div>
+                                                            <div key={idx} className="flex items-center justify-between p-2.5 bg-muted/50 border border-border/50 rounded-xl opacity-90">
+                                                                 <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between w-full gap-y-2 gap-x-4">
+                                                                    <div className="flex flex-1 items-center gap-1 flex-wrap">
+                                                                        <span className="text-sm font-bold text-muted-foreground">{l.instrument?.symbol || "---"} ({l.leg?.side})</span>
+                                                                        <span className="text-[11px] font-bold text-slate-400">
+                                                                            {l.leg?.lots} {l.leg?.lots > 1 ? 'Lots' : 'Lot'}
+                                                                        </span>
+                                                                        <span className="text-muted-foreground text-xs font-mono">|</span>
+                                                                        <span className="text-primary font-bold text-xs font-mono">{l.entryTime || "---"}</span>
+                                                                        <span className="text-muted-foreground text-xs font-mono">|</span>
+                                                                        <span className="text-xs font-mono text-muted-foreground">Entry: {(l.entryPrice || 0).toFixed(2)}</span>
+                                                                        <span className="text-muted-foreground text-xs font-mono">|</span>
+                                                                        <span className="text-red-500 font-bold text-xs font-mono">Exit: {l.exitTime || l.exitSnapshot?.exitTime || "---"}</span>
+                                                                        <span className="text-muted-foreground text-xs font-mono">|</span>
+                                                                        <span className="text-foreground text-xs font-mono">Price: {(l.exitSnapshot?.exitLtp || l.currentLtp || 0).toFixed(2)}</span>
+                                                                        <span className="text-muted-foreground text-xs font-mono">|</span>
+                                                                        <span className="text-slate-500 text-xs font-mono font-bold">Type: {l.exitType}</span>
+                                                                        {l.exitSnapshot?.slTriggerPrice != null && (
+                                                                            <>
+                                                                                <span className="text-muted-foreground text-xs font-mono">|</span>
+                                                                                <span className="text-red-500 font-bold text-xs font-mono">Initial SL: {Number(l.exitSnapshot.slTriggerPrice).toFixed(1)}</span>
+                                                                            </>
+                                                                        )}
+                                                                        {l.rtp != null && (
+                                                                            <>
+                                                                                <span className="text-muted-foreground text-xs font-mono">|</span>
+                                                                                <span className="text-orange-500 font-bold text-xs font-mono">RTP: {l.rtp.toFixed(2)}</span>
+                                                                            </>
+                                                                        )}
+                                                                        {l.mtp != null && (
+                                                                            <>
+                                                                                <span className="text-muted-foreground text-xs font-mono">|</span>
+                                                                                <span className="text-purple-600 font-bold text-xs font-mono">MTP: {l.mtp.toFixed(2)}</span>
+                                                                            </>
+                                                                        )}
                                                                     </div>
-                                                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-y-2 gap-x-4 text-[11px] font-mono text-muted-foreground">
-                                                                        <div className="flex items-center gap-2 p-1.5 bg-white/50 rounded-md">
-                                                                            <span className="text-primary font-bold">ENTRY: {l.entryTime || "---"}</span>
-                                                                            <span>@</span>
-                                                                            <span className="text-foreground">{(l.entryPrice || 0).toFixed(2)}</span>
-                                                                        </div>
-                                                                        <div className="flex items-center gap-2 p-1.5 bg-white/50 rounded-md">
-                                                                            <span className="text-red-500 font-bold">TRIGGERED SL: {l.exitTime || l.exitSnapshot?.exitTime || "---"}</span>
-                                                                            <span>@</span>
-                                                                            <span className="text-foreground">{(l.exitSnapshot?.exitLtp || l.currentLtp || 0).toFixed(2)}</span>
-                                                                        </div>
-                                                                        <div className="flex items-center gap-2 flex-wrap col-span-1 sm:col-span-2">
-                                                                            <span className="px-1.5 py-0.5 bg-slate-100 rounded text-slate-600">Type: {l.exitType}</span>
-                                                                            {l.exitSnapshot?.slTriggerPrice != null && (
-                                                                                <span className="px-1.5 py-0.5 bg-red-100 text-red-600 rounded">Initial SL: {l.exitSnapshot.slTriggerPrice.toFixed(2)}</span>
-                                                                            )}
-                                                                            {l.rtp != null && (
-                                                                                <span className="px-1.5 py-0.5 bg-orange-100 text-orange-600 rounded">RTP: {l.rtp.toFixed(2)}</span>
-                                                                            )}
-                                                                            {l.mtp != null && (
-                                                                                <span className="px-1.5 py-0.5 bg-purple-100 text-purple-600 rounded">MTP: {l.mtp.toFixed(2)}</span>
-                                                                            )}
-                                                                        </div>
+                                                                    <div className="flex items-center gap-3 shrink-0">
+                                                                        <span className={`text-sm font-mono font-bold ${(l.pnlPercent || 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                                                                            {(l.pnlPercent || 0) > 0 ? '+' : ''}{(l.pnlPercent || 0).toFixed(2)}%
+                                                                        </span>
+                                                                        <span className={`text-sm font-mono font-bold ${(l.pnlRupees || 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                                                                            {(l.pnlRupees || 0) > 0 ? '+' : ''}₹{(l.pnlRupees || 0).toFixed(2)}
+                                                                        </span>
+                                                                        <span className="px-2 py-0.5 text-[10px] font-bold bg-slate-200 text-slate-500 rounded uppercase">Closed</span>
                                                                     </div>
                                                                 </div>
                                                             </div>
                                                         ))}
                                                     </div>
+                                                    )}
                                                 </div>
                                             )}
                                         </div>
                                     ) : null}
                                 </CardContent>
                             </Card>
-                        ))
+                        ))}
+                                </div>
+                            )}
+                        </div>
+                    )
                 }
 
                 {
                     savedStrategies.length > 0 && (
-                        <Card className="w-full border-border bg-card mt-4">
-                            <CardHeader className="border-b py-2 px-4 bg-muted/30 flex flex-col md:flex-row items-center justify-between gap-2">
-                                <CardTitle className="text-sm font-bold flex items-center gap-2">
-                                    <Save className="h-3.5 w-3.5 text-primary" /> Saved Strategies (Templates)
+                        <Card className="w-full border-border bg-card mt-6">
+                            <div 
+                                className="border-b bg-muted/60 py-3 px-4 flex flex-col md:flex-row items-center justify-between gap-2 cursor-pointer hover:bg-muted/80 transition-colors"
+                                onClick={(e) => {
+                                    if(e.target.closest('input')) return;
+                                    setCollapsedSections(prev => ({...prev, 'saved-strategies': !prev['saved-strategies']}));
+                                }}
+                            >
+                                <CardTitle className="flex items-center gap-2 text-base font-bold">
+                                    <Save className="h-4 w-4 text-primary" /> Saved Strategies (Templates)
                                 </CardTitle>
-                                <div className="relative w-full md:w-64">
-                                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
-                                    <Input
-                                        type="text"
-                                        placeholder="Search by strategy name or ID..."
-                                        className="h-8 pl-8 pr-3 rounded-lg text-[10px] bg-white/50 border-none shadow-sm focus-visible:ring-1 focus-visible:ring-primary/20"
-                                        value={searchTerm}
-                                        onChange={(e) => setSearchTerm(e.target.value)}
-                                    />
+                                <div className="flex items-center gap-3 w-full md:w-auto">
+                                    <div className="relative w-full md:w-64" onClick={e => e.stopPropagation()}>
+                                        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
+                                        <Input
+                                            type="text"
+                                            placeholder="Search by strategy name or ID..."
+                                            className="h-8 pl-8 pr-3 rounded-lg text-[10px] bg-white/50 border-none shadow-sm focus-visible:ring-1 focus-visible:ring-primary/20"
+                                            value={searchTerm}
+                                            onChange={(e) => setSearchTerm(e.target.value)}
+                                        />
+                                    </div>
+                                    <Button variant="ghost" size="sm" className="h-8 w-8 p-0 shrink-0">
+                                        {collapsedSections['saved-strategies'] ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
+                                    </Button>
                                 </div>
-                            </CardHeader>
-                            <CardContent className="p-0">
+                            </div>
+                            {!collapsedSections['saved-strategies'] && (
+                            <CardContent className="p-0 animate-in fade-in slide-in-from-top-2 duration-200">
                                 <div className="overflow-x-auto">
                                     <table className="w-full text-xs">
                                         <thead className="bg-muted text-muted-foreground border-b">
@@ -1779,10 +1842,80 @@ export const StrategyBuilder = ({ isConnected }) => {
                                                     return name.includes(search) || id.includes(search);
                                                 })
                                                 .map((s) => (
-                                                    <tr key={s.id} className="hover:bg-muted/50 transition-colors">
-                                                        <td className="px-3 py-2 font-bold text-sm">
-                                                            {s.name || s.config?.name || 'Unnamed Strategy'}
-                                                            <div className="text-[9px] font-mono text-muted-foreground font-normal">ID: {s.id.split('-')[0] || s.id}</div>
+                                                    <tr 
+                                                        key={s.id} 
+                                                        className="hover:bg-muted/50 transition-colors cursor-grab active:cursor-grabbing border-b"
+                                                        draggable
+                                                        onDragStart={(e) => {
+                                                            e.dataTransfer.effectAllowed = 'move';
+                                                            e.dataTransfer.setData('text/plain', s.id);
+                                                            setTimeout(() => { if(e.target && e.target.classList) e.target.classList.add('opacity-40'); }, 0);
+                                                        }}
+                                                        onDragEnd={(e) => {
+                                                            if(e.target && e.target.classList) {
+                                                                e.target.classList.remove('opacity-40');
+                                                                e.target.classList.remove('border-t-2', 'border-b-2', 'border-primary', 'bg-muted/30');
+                                                            }
+                                                        }}
+                                                        onDragOver={(e) => {
+                                                            e.preventDefault();
+                                                            e.dataTransfer.dropEffect = 'move';
+                                                            if (e.currentTarget) {
+                                                                const rect = e.currentTarget.getBoundingClientRect();
+                                                                const isTopHalf = e.clientY < rect.top + rect.height / 2;
+                                                                e.currentTarget.classList.remove('border-t-2', 'border-b-2', 'border-primary');
+                                                                e.currentTarget.classList.add(isTopHalf ? 'border-t-2' : 'border-b-2', 'border-primary');
+                                                            }
+                                                        }}
+                                                        onDragEnter={(e) => {
+                                                            e.preventDefault();
+                                                            if(e.currentTarget && e.currentTarget.classList) e.currentTarget.classList.add('bg-muted/30');
+                                                        }}
+                                                        onDragLeave={(e) => {
+                                                            if(e.currentTarget && e.currentTarget.classList) {
+                                                                e.currentTarget.classList.remove('bg-muted/30', 'border-t-2', 'border-b-2', 'border-primary');
+                                                            }
+                                                        }}
+                                                        onDrop={(e) => {
+                                                            e.preventDefault();
+                                                            if(e.currentTarget && e.currentTarget.classList) {
+                                                                e.currentTarget.classList.remove('bg-muted/30', 'border-t-2', 'border-b-2', 'border-primary');
+                                                            }
+                                                            const sourceId = e.dataTransfer.getData('text/plain');
+                                                            if (!sourceId || sourceId === s.id) return;
+                                                            
+                                                            // Determine precise drop location
+                                                            const rect = e.currentTarget.getBoundingClientRect();
+                                                            const isTopHalf = e.clientY < rect.top + rect.height / 2;
+                                                            
+                                                            setSavedStrategies(prev => {
+                                                                const sourceIndex = prev.findIndex(item => item.id === sourceId);
+                                                                if (sourceIndex === -1) return prev;
+                                                                
+                                                                const next = [...prev];
+                                                                const [movedItem] = next.splice(sourceIndex, 1);
+                                                                
+                                                                // adjusted index after moving the item out
+                                                                let adjustedTargetIndex = next.findIndex(item => item.id === s.id);
+                                                                if (adjustedTargetIndex === -1) return prev; // Fallback
+                                                                
+                                                                // Insert before or after
+                                                                const insertIndex = isTopHalf ? adjustedTargetIndex : adjustedTargetIndex + 1;
+                                                                next.splice(insertIndex, 0, movedItem);
+                                                                
+                                                                localStorage.setItem('custom_strategy_order', JSON.stringify(next.map(item => item.id)));
+                                                                return next;
+                                                            });
+                                                        }}
+                                                    >
+                                                        <td className="px-3 py-2 font-bold text-sm flex items-center gap-2">
+                                                            <div className="p-1 rounded text-slate-400 hover:text-slate-700 transition-colors">
+                                                                <GripVertical className="h-4 w-4 shrink-0" />
+                                                            </div>
+                                                            <div>
+                                                                {s.name || s.config?.name || 'Unnamed Strategy'}
+                                                                <div className="text-[9px] font-mono text-muted-foreground font-normal">ID: {s.id.split('-')[0] || s.id}</div>
+                                                            </div>
                                                         </td>
                                                         <td className="px-3 py-2 font-mono text-[10px] text-muted-foreground">
                                                             {new Date(s.created_at).toLocaleDateString()} {new Date(s.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -1840,6 +1973,7 @@ export const StrategyBuilder = ({ isConnected }) => {
                                     </table>
                                 </div>
                             </CardContent>
+                            )}
                         </Card>
                     )}
                 <StrategyLogs

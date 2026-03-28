@@ -6,7 +6,7 @@ import {
   AlertCircle, CheckCircle2, Search, LayoutDashboard, Box,
   ShoppingCart, Users, MessageSquare, Mail, Zap, BarChart2,
   Share2, Share, Bell, Folder, Tag, HelpCircle, MessageCircle,
-  Settings, Rocket, ChevronRight, Menu, LogOut, Loader2, Lock, History
+  Settings, Rocket, ChevronRight, Menu, LogOut, Loader2, Lock, History, ChevronLeft
 } from 'lucide-react';
 import { logoutBackend, loginBackend } from './api';
 import { StrategyHistory } from './components/StrategyHistory';
@@ -25,6 +25,7 @@ function App() {
   const [logoutLoading, setLogoutLoading] = useState(false);
   const [loginLoading, setLoginLoading] = useState(false);
   const [activeTab, setActiveTab] = useState('strategies'); // strategies, history
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
   const handleAuthenticated = () => {
     const newKey = sessionStorage.getItem('app_api_key');
@@ -108,16 +109,17 @@ function App() {
     });
   }, []);
 
-  const SidebarItem = ({ icon: Icon, label, active, onClick, badge }) => (
+  const SidebarItem = ({ icon: Icon, label, active, onClick, badge, isCollapsed }) => (
     <button 
       onClick={onClick}
-      className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${active ? 'bg-secondary text-foreground' : 'text-muted-foreground hover:bg-secondary/50 hover:text-foreground'}`}
+      className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${active ? 'bg-secondary text-foreground' : 'text-muted-foreground hover:bg-secondary/50 hover:text-foreground'} ${isCollapsed ? 'justify-center' : ''}`}
+      title={isCollapsed ? label : ''}
     >
-      <div className="flex items-center gap-3">
-        <Icon className={`h-4 w-4 ${active ? 'text-primary' : ''}`} />
-        <span>{label}</span>
+      <div className={`flex items-center ${isCollapsed ? 'justify-center w-full' : 'gap-3'}`}>
+        <Icon className={`h-4 w-4 shrink-0 ${active ? 'text-primary' : ''}`} />
+        {!isCollapsed && <span className="whitespace-nowrap">{label}</span>}
       </div>
-      {badge && <span className="px-2 py-0.5 rounded-full bg-secondary text-muted-foreground text-[10px] font-bold">{badge}</span>}
+      {!isCollapsed && badge && <span className="px-2 py-0.5 rounded-full bg-secondary text-muted-foreground text-[10px] font-bold shrink-0">{badge}</span>}
     </button>
   );
 
@@ -133,46 +135,60 @@ function App() {
     <div className="flex h-screen w-full bg-[#fcfcfc] text-foreground font-sans overflow-hidden">
 
       {/* Sidebar */}
-      <aside className="w-[260px] flex-shrink-0 border-r bg-white h-full flex flex-col hidden md:flex">
-        <div className="h-[76px] px-4 border-b flex-shrink-0 flex items-center">
-          <div className="w-full flex items-center gap-3 px-2 py-1.5">
-            <div className="h-8 w-8 bg-black rounded-lg flex items-center justify-center text-white">
-              <Box className="h-5 w-5" />
+      <aside className={`${isSidebarCollapsed ? 'w-[80px]' : 'w-[260px]'} transition-all duration-300 flex-shrink-0 border-r bg-white h-full flex flex-col hidden md:flex`}>
+        <div className={`h-[76px] ${isSidebarCollapsed ? 'px-0 justify-center' : 'px-4 justify-between'} border-b flex-shrink-0 flex items-center overflow-hidden`}>
+          {!isSidebarCollapsed && (
+            <div className="flex items-center gap-3 px-2 py-1.5">
+              <div className="h-8 w-8 bg-black rounded-lg flex items-center justify-center text-white shrink-0">
+                <Box className="h-5 w-5" />
+              </div>
+              <div>
+                <h2 className="text-sm font-bold tracking-tight leading-tight whitespace-nowrap">CoreQuant</h2>
+              </div>
             </div>
-            <div>
-              <h2 className="text-sm font-bold tracking-tight leading-tight">CoreQuant</h2>
-            </div>
-          </div>
+          )}
+          <Button 
+            variant="ghost" 
+            size="icon" 
+            className="h-8 w-8 hidden md:flex text-muted-foreground hover:bg-slate-100 hover:text-foreground shrink-0" 
+            onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+          >
+            <Menu className="h-5 w-5" />
+          </Button>
         </div>
 
         <div className="flex-1 overflow-y-auto px-3 py-4 space-y-6 custom-scrollbar">
 
           <div className="space-y-1">
-            <p className="px-3 text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2">Main Menu</p>
+            {!isSidebarCollapsed && <p className="px-3 text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2 whitespace-nowrap">Main Menu</p>}
+            {isSidebarCollapsed && <div className="h-4"></div>}
             <SidebarItem 
               icon={LayoutDashboard} 
               label="Strategies" 
               active={activeTab === 'strategies'} 
               onClick={() => setActiveTab('strategies')}
+              isCollapsed={isSidebarCollapsed}
             />
             <SidebarItem 
               icon={History} 
               label="History" 
               active={activeTab === 'history'} 
               onClick={() => setActiveTab('history')}
+              isCollapsed={isSidebarCollapsed}
             />
           </div>
 
         </div>
 
-        <div className="p-4 border-t">
+        <div className="p-4 border-t flex flex-col items-center">
           <Button
             variant="ghost"
-            className="w-full justify-start gap-3 text-muted-foreground hover:text-foreground hover:bg-red-50 hover:text-red-600 transition-all rounded-xl"
+            className={`w-full ${isSidebarCollapsed ? 'justify-center px-0' : 'justify-start gap-3'} text-muted-foreground hover:text-foreground hover:bg-red-50 hover:text-red-600 transition-all rounded-xl`}
             onClick={handleLock}
+            title={isSidebarCollapsed ? "Lock Workspace" : ""}
           >
-            <Lock className="h-4 w-4" />
-            <span>Lock Workspace</span>
+            <Lock className="h-4 w-4 shrink-0" />
+            {!isSidebarCollapsed && <span className="whitespace-nowrap">Lock Workspace</span>}
           </Button>
         </div>
       </aside>
@@ -181,12 +197,12 @@ function App() {
       <main className="flex-1 flex flex-col h-full overflow-hidden bg-background md:bg-[#FAFAFA]">
 
         {/* Header */}
-        <header className="h-[76px] bg-white border-b flex items-center justify-between px-6 flex-shrink-0 z-10">
+        <header className="h-[76px] bg-white border-b flex items-center justify-between px-6 flex-shrink-0 z-10 transition-all">
           <div className="flex items-center gap-4">
-            <Button variant="ghost" size="icon" className="md:hidden">
+            <Button variant="ghost" size="icon" className="md:hidden" onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}>
               <Menu className="h-5 w-5" />
             </Button>
-            <h1 className="text-2xl font-bold tracking-tight text-foreground">
+            <h1 className="text-2xl font-bold tracking-tight text-foreground whitespace-nowrap">
               {activeTab === 'strategies' ? 'Strategies' : 'Execution History'}
             </h1>
           </div>
