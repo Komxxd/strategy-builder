@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { StopCircle, Loader2, TrendingUp, Search, Timer, LayoutDashboard, Target, Save, Play, Plus, Trash2, ShieldCheck, Zap, Copy, MessageSquare, Ghost, X, Settings2, Clock } from 'lucide-react';
+import { StopCircle, Loader2, TrendingUp, Search, Timer, LayoutDashboard, Target, Save, Play, Plus, Trash2, ShieldCheck, Zap, Copy, MessageSquare, Ghost, X, Settings2, Clock, ChevronDown, ChevronUp } from 'lucide-react';
 import axios from 'axios';
 import { io } from 'socket.io-client';
 import { StrategyLogs } from './StrategyLogs';
@@ -1117,6 +1117,7 @@ export const StrategyBuilder = ({ isConnected }) => {
     const [viewConfig, setViewConfig] = useState(null);
     const [viewStrategyName, setViewStrategyName] = useState('');
     const [searchTerm, setSearchTerm] = useState('');
+    const [isConfigExpanded, setIsConfigExpanded] = useState(true);
 
     const [config, setConfig] = useState({
         name: '',
@@ -1258,6 +1259,7 @@ export const StrategyBuilder = ({ isConnected }) => {
         setConfig(strategy.config);
         setEditingId(strategy.id);
         setActiveTab(strategy.config.is_paper_trading ? 'paper' : 'live');
+        setIsConfigExpanded(true);
         window.scrollTo({ top: 0, behavior: 'smooth' });
     };
 
@@ -1462,15 +1464,25 @@ export const StrategyBuilder = ({ isConnected }) => {
                 </TabsList>
 
                 <Card className="w-full border-border bg-card overflow-hidden">
-                    <CardHeader className="border-b bg-muted py-3 px-4">
-                        <CardTitle className="flex items-center gap-2 text-base font-bold">
-                            <Target className="h-4 w-4 text-primary" />
-                            Strategy Configuration
-                        </CardTitle>
+                    <CardHeader 
+                        className="border-b bg-muted py-3 px-4 cursor-pointer hover:bg-muted/80 transition-colors"
+                        onClick={() => setIsConfigExpanded(!isConfigExpanded)}
+                    >
+                        <div className="flex items-center justify-between">
+                            <CardTitle className="flex items-center gap-2 text-base font-bold">
+                                <Target className="h-4 w-4 text-primary" />
+                                Strategy Configuration
+                            </CardTitle>
+                            <Button variant="ghost" size="sm" className="h-8 w-8 p-0 shrink-0">
+                                {isConfigExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                            </Button>
+                        </div>
                     </CardHeader>
-                    <CardContent className="p-4">
-                        <StrategyFormContent config={config} setConfig={setConfig} editingId={editingId} setEditingId={setEditingId} loading={loading} handleSave={handleSave} isReadOnly={false} />
-                    </CardContent >
+                    {isConfigExpanded && (
+                        <CardContent className="p-4 animate-in slide-in-from-top-2 duration-200">
+                            <StrategyFormContent config={config} setConfig={setConfig} editingId={editingId} setEditingId={setEditingId} loading={loading} handleSave={handleSave} isReadOnly={false} />
+                        </CardContent >
+                    )}
                 </Card >
 
                 {
