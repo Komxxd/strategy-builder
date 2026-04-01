@@ -50,6 +50,29 @@ export async function logoutBackend() {
     return res.json();
 }
 
+export async function getConnectionStatus() {
+    const res = await fetch(`${API_BASE}/market-socket/status`, {
+        headers: getHeaders(),
+    });
+    return res.json();
+}
+
+export async function connectSocket() {
+    const res = await fetch(`${API_BASE}/market-socket/connect`, {
+        method: "POST",
+        headers: getHeaders(),
+    });
+    return res.json();
+}
+
+export async function disconnectSocket() {
+    const res = await fetch(`${API_BASE}/market-socket/disconnect`, {
+        method: "POST",
+        headers: getHeaders(),
+    });
+    return res.json();
+}
+
 export async function getLTP({ exchange, symboltoken, tradingsymbol, connectionId }) {
     const res = await fetch(`${API_BASE}/market/ltp`, {
         method: "POST",

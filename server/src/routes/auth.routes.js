@@ -1,5 +1,6 @@
 const express = require("express");
 const router = express.Router();
+const rateLimit = require("express-rate-limit");
 const authService = require("../services/auth.service");
 
 // Tier 1 - Rule 1 & Phase 2: Zero-Knowledge Frontend
@@ -24,7 +25,29 @@ router.post("/verify", (req, res) => {
     }
 });
 
-router.post("/login", async (req, res) => {
+/**
+ * Strict rate limiter for the Angel One login endpoint.
+ *
+ * The outer authLimiter in app.js (20 req / 15 min) is intentionally loose
+ * because it also covers /verify and /logout which are low-risk.
+ *
+ * /login is different — it calls Angel One's external API with a TOTP code.
+ * Angel One may lock the account after ~5 failed login attempts.
+ * 3 requests per minute is enough for any legitimate use case
+ * (you only ever click login once) while blocking brute-force attacks.
+ */
+const loginLimiter = rateLimit({
+    windowMs: 60 * 1000,  // 1 minute window
+    max: 3,               // 3 attempts per minute max
+    message: {
+        success: false,
+        message: "Too many login attempts. Please wait 1 minute before trying again."
+    },
+    standardHeaders: true,
+    legacyHeaders: false,
+});
+
+router.post("/login", loginLimiter, async (req, res) => {
     try {
         const session = await authService.login();
         res.json({
@@ -45,4 +68,3 @@ router.post("/logout", (req, res) => {
 });
 
 module.exports = router;
-

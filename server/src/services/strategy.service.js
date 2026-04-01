@@ -53,11 +53,80 @@ async function runGlobalDbWriter() {
 // Write to DB every 5 seconds
 setInterval(runGlobalDbWriter, 5000);
 
+/**
+ * Retries an async DB operation up to `maxRetries` times with exponential backoff.
+ * This prevents a sleeping Neon database from crashing a strategy on startup.
+ * @param {Function} fn - Async function to retry (e.g., () => prisma.xxx.findUnique(...))
+ * @param {number} maxRetries - Max number of attempts (default: 3)
+ * @param {number} baseDelayMs - Initial delay in ms, doubles each attempt (default: 1000ms)
+ * @returns {Promise<any>} - Result of the successful call
+ */
+async function withDbRetry(fn, maxRetries = 3, baseDelayMs = 1000) {
+    let lastError;
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+            return await fn();
+        } catch (err) {
+            lastError = err;
+            const isRetryable =
+                err.message.includes("Can't reach database") ||
+                err.message.includes("connection pool") ||
+                err.message.includes("ECONNREFUSED") ||
+                err.message.includes("Connection timed out");
+
+            if (!isRetryable || attempt === maxRetries) {
+                throw err; // Non-retryable error or out of attempts
+            }
+
+            const delay = baseDelayMs * Math.pow(2, attempt - 1); // 1s, 2s, 4s
+            console.warn(`[DbRetry] Attempt ${attempt}/${maxRetries} failed. Retrying in ${delay}ms... Error: ${err.message}`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+        }
+    }
+    throw lastError;
+}
+
+const INDEX_CONFIGS = {
+    "NIFTY": { token: "99926000", exchange: "NSE" },
+    "BANKNIFTY": { token: "99926009", exchange: "NSE" },
+    "FINNIFTY": { token: "99926037", exchange: "NSE" },
+    "SENSEX": { token: "99919000", exchange: "BSE" }
+};
+
+/**
+ * Enhanced LTP fetcher that prefers the local WebSocket cache (globalLtpMap).
+ * This eliminates the ~500ms REST latency and prevents 'Angel One disconnected' 
+ * issues caused by hitting REST rate limits every second.
+ */
+async function getLtpSecure({ exchange, symboltoken, connectionId }) {
+    const key = `${exchange}_${symboltoken}`;
+    if (globalLtpMap[key]) {
+        return {
+            status: true,
+            data: {
+                fetched: [{ exchange, symboltoken, ltp: globalLtpMap[key] }]
+            }
+        };
+    }
+    // Fallback to REST API if WebSocket tick hasn't arrived yet
+    return await marketService.getLTP({ exchange, symboltoken, connectionId });
+}
+
 async function runGlobalWebsocketSync() {
     // --- Build Unified Task Map ---
     const unifiedTasks = {}; // { exchange: Set(tokens) }
 
     for (const [id, strategy] of activeStrategies) {
+        // Optimization: Even if WAITING, subscribe to the Index price so it's
+        // ready in cache (globalLtpMap) for a zero-latency entry at 9:16 AM.
+        if (strategy.status === "WAITING" && strategy.config?.index) {
+            const idxConfig = INDEX_CONFIGS[strategy.config.index];
+            if (idxConfig) {
+                if (!unifiedTasks[idxConfig.exchange]) unifiedTasks[idxConfig.exchange] = new Set();
+                unifiedTasks[idxConfig.exchange].add(idxConfig.token);
+            }
+        }
+
         if (strategy.status !== "IN_POSITION" || !strategy.legs) continue;
 
         for (const leg of strategy.legs) {
@@ -70,9 +139,6 @@ async function runGlobalWebsocketSync() {
         }
     }
 
-    // --- WebSocket Sync (even if 0 active) ---
-    // If no active strategies, unifiedTasks will be empty {}
-    // syncSubscriptions will correctly unsubscribe from everything.
     marketSocketService.syncSubscriptions(unifiedTasks);
 }
 
@@ -322,7 +388,7 @@ async function findClosestPremiumInstrument(indexName, optionType, targetPremium
     for (let i = 0; i < tokenChunks.length; i++) {
         try {
             const chunk = tokenChunks[i];
-            const ltpRes = await marketService.getLTP({
+            const ltpRes = await getLtpSecure({
                 exchange,
                 symboltoken: chunk,
                 connectionId
@@ -484,7 +550,7 @@ async function waitForOrderFillPrice(uniqueOrderId, connectionId, isPaperTrading
         if (!paperConfig || paperConfig.ordertype === "MARKET" || paperConfig.ordertype === "LIMIT") {
             try {
                 if (instrument) {
-                    const ltpRes = await marketService.getLTP({
+                    const ltpRes = await getLtpSecure({
                         exchange: instrument.exch_seg,
                         symboltoken: instrument.token,
                         connectionId: connectionId
@@ -679,7 +745,7 @@ async function placeExitOrder({ config, leg, instrument, exitType }) {
         let finalPrice = "0";
 
         if (exitOrderType === "LIMIT") {
-            const ltpRes = await marketService.getLTP({
+            const ltpRes = await getLtpSecure({
                 exchange: instrument.exch_seg,
                 symboltoken: instrument.token,
                 connectionId: config.connectionId
@@ -1127,10 +1193,10 @@ async function executeStrategy(strategyId) {
                     }
 
                     // console.log(`Fetching LTP for ${config.index} (${indexExchange}:${indexToken})...`);
-                    const ltpRes = await marketService.getLTP({
+                    const ltpRes = await getLtpSecure({
                         exchange: indexExchange,
                         symboltoken: indexToken,
-                        connectionId: config.connectionId // PASS AUTH ALONG
+                        connectionId: config.connectionId
                     });
 
                     if (ltpRes.status && ltpRes.data && ltpRes.data.fetched && ltpRes.data.fetched.length > 0) {
@@ -1171,7 +1237,7 @@ async function executeStrategy(strategyId) {
 
                             // 1. Fetch current price for either Limit calculation or Simple Mntm snapshot
                             try {
-                                const instLtpRes = await marketService.getLTP({
+                                const instLtpRes = await getLtpSecure({
                                     exchange: item.instrument.exch_seg,
                                     symboltoken: item.instrument.token,
                                     connectionId: config.connectionId
@@ -1322,7 +1388,7 @@ async function executeStrategy(strategyId) {
                                     leg.tslReferencePrice = fillPrice; // Initialize step-based TSL anchor
                                     addStrategyLog(strategyId, `${leg.instrument.symbol} order filled at ₹${fillPrice}.`, "INFO");
                                 } else {
-                                    const optLtpRes = await marketService.getLTP({
+                                    const optLtpRes = await getLtpSecure({
                                         exchange: leg.instrument.exch_seg,
                                         symboltoken: leg.instrument.token,
                                         connectionId: config.connectionId
@@ -1432,7 +1498,7 @@ async function executeStrategy(strategyId) {
                                     else if (config.index === "FINNIFTY") indexToken = "99926037";
                                     else if (config.index === "SENSEX") { indexToken = "99919000"; indexExchange = "BSE"; }
 
-                                    const spotRes = await marketService.getLTP({ exchange: indexExchange, symboltoken: indexToken, connectionId: config.connectionId });
+                                    const spotRes = await getLtpSecure({ exchange: indexExchange, symboltoken: indexToken, connectionId: config.connectionId });
                                     if (!spotRes.status || !spotRes.data?.fetched?.[0]) continue;
                                     const spotPrice = spotRes.data.fetched[0].ltp;
 
@@ -1450,7 +1516,7 @@ async function executeStrategy(strategyId) {
                                     }
 
                                     leg.instrument = targetInstrument;
-                                    const instLtpRes = await marketService.getLTP({ exchange: targetInstrument.exch_seg, symboltoken: targetInstrument.token, connectionId: config.connectionId });
+                                    const instLtpRes = await getLtpSecure({ exchange: targetInstrument.exch_seg, symboltoken: targetInstrument.token, connectionId: config.connectionId });
                                     const instLtp = instLtpRes.data?.fetched?.[0]?.ltp || 0;
 
                                     if (leg.leg.simple_mntm_enabled) {
@@ -2306,20 +2372,24 @@ async function deleteStrategy(strategyId) {
 
 async function startStrategy(strategyId) {
     // strategyId is the template ID.
-    const template = await prisma.strategies.findUnique({
-        where: { id: strategyId }
-    });
+    // withDbRetry handles Neon's cold-start latency: retries up to 3x with backoff
+    // before throwing, so clicking "Start" never hard-crashes if the DB is waking up.
+    const template = await withDbRetry(() =>
+        prisma.strategies.findUnique({ where: { id: strategyId } })
+    );
 
     if (!template) throw new Error("Strategy template not found in DB");
 
-    // Insert a new execution
-    const execution = await prisma.strategy_executions.create({
-        data: {
-            strategy_id: template.id,
-            status: 'WAITING',
-            execution_details: {}
-        }
-    });
+    // Insert a new execution record (also retried in case of transient DB issues)
+    const execution = await withDbRetry(() =>
+        prisma.strategy_executions.create({
+            data: {
+                strategy_id: template.id,
+                status: 'WAITING',
+                execution_details: {}
+            }
+        })
+    );
 
     if (!execution) throw new Error("Failed to create execution record");
 
@@ -2332,6 +2402,7 @@ async function startStrategy(strategyId) {
     };
 
     activeStrategies.set(execution.id, runtimeStrategy);
+    // executeStrategy runs immediately — it is NOT blocked by any DB call
     executeStrategy(execution.id);
 
     return execution.id;
@@ -2475,10 +2546,13 @@ async function getStatus(strategyId) {
     }
 
     // Fallback to Prisma if execution not in active memory (e.g., cleared on restart)
-    const dbExec = await prisma.strategy_executions.findUnique({
-        where: { id: strategyId },
-        include: { strategy: { select: { name: true } } }
-    });
+    // withDbRetry handles transient DB failures gracefully instead of crashing
+    const dbExec = await withDbRetry(() =>
+        prisma.strategy_executions.findUnique({
+            where: { id: strategyId },
+            include: { strategy: { select: { name: true } } }
+        })
+    ).catch(() => null); // If all retries fail, return null gracefully
 
     if (!dbExec) return null;
 
@@ -2497,25 +2571,19 @@ async function getStatus(strategyId) {
 }
 
 async function initializeActiveStrategies() {
-    // console.log("Strategy Service: Initializing active strategies from DB...");
+    // This runs at server startup — Neon is most likely sleeping here.
+    // withDbRetry will wake it up before giving up.
     try {
-        const activeExecutions = await prisma.strategy_executions.findMany({
-            where: {
-                status: {
-                    in: ["WAITING", "IN_POSITION"]
-                }
-            },
-            include: {
-                strategy: true
-            }
-        });
-
-        // console.log(`Strategy Service: Found ${activeExecutions.length} active executions to restore`);
+        const activeExecutions = await withDbRetry(() =>
+            prisma.strategy_executions.findMany({
+                where: { status: { in: ["WAITING", "IN_POSITION"] } },
+                include: { strategy: true }
+            })
+        );
 
         for (const exec of activeExecutions) {
             if (!exec.strategy) continue;
 
-            // Use the config from the template
             const runtimeStrategy = {
                 id: exec.id,
                 config: exec.strategy.config,
@@ -2529,51 +2597,56 @@ async function initializeActiveStrategies() {
 
             activeStrategies.set(exec.id, runtimeStrategy);
             executeStrategy(exec.id);
-            // console.log(`Strategy Service: Restored strategy ${exec.id} (${exec.strategy.name}) in state ${exec.status}`);
         }
+        console.log(`[Init] Restored ${activeExecutions.length} active strategies from DB.`);
     } catch (err) {
-        console.error("Strategy Service: Error initializing active strategies:", err.message);
+        // Non-fatal: server still starts, just with no restored strategies
+        console.error("[Init] Could not restore active strategies from DB (will retry on next start):", err.message);
     }
 }
 
 async function getUserStrategies() {
-    const data = await prisma.strategies.findMany({
-        orderBy: { created_at: 'desc' }
-    });
+    const data = await withDbRetry(() =>
+        prisma.strategies.findMany({ orderBy: { created_at: 'desc' } })
+    );
     return data;
 }
 
 async function getActiveStrategies() {
-    const executions = await prisma.strategy_executions.findMany({
-        where: { status: { in: ['WAITING', 'IN_POSITION'] } },
-        orderBy: { started_at: 'desc' },
-        include: { strategy: { select: { name: true } } }
-    });
+    const executions = await withDbRetry(() =>
+        prisma.strategy_executions.findMany({
+            where: { status: { in: ['WAITING', 'IN_POSITION'] } },
+            orderBy: { started_at: 'desc' },
+            include: { strategy: { select: { name: true } } }
+        })
+    );
 
     return Promise.all(executions.map(exec => getStatus(exec.id)));
 }
 
 
 async function getExecutionHistory() {
-    const executions = await prisma.strategy_executions.findMany({
-        where: {
-            status: {
-                in: ["COMPLETED", "FAILED", "TERMINATED", "CANCELLED", "STOPPED", "SQUARED_OFF"]
-            }
-        },
-        orderBy: {
-            completed_at: { sort: "desc", nulls: "last" }
-        },
-        include: {
-            strategy: {
-                select: {
-                    name: true,
-                    config: true
+    const executions = await withDbRetry(() =>
+        prisma.strategy_executions.findMany({
+            where: {
+                status: {
+                    in: ["COMPLETED", "FAILED", "TERMINATED", "CANCELLED", "STOPPED", "SQUARED_OFF"]
                 }
-            }
-        },
-        take: 50
-    });
+            },
+            orderBy: {
+                completed_at: { sort: "desc", nulls: "last" }
+            },
+            include: {
+                strategy: {
+                    select: {
+                        name: true,
+                        config: true
+                    }
+                }
+            },
+            take: 50
+        })
+    );
 
     return executions.map(dbExec => ({
         id: dbExec.id,
@@ -2605,5 +2678,6 @@ module.exports = {
     getUserStrategies,
     getActiveStrategies,
     getExecutionHistory,
-    initializeActiveStrategies
+    initializeActiveStrategies,
+    flushPendingDbWrites: runGlobalDbWriter  // Exposed for graceful shutdown in server.js
 };

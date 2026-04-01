@@ -30,7 +30,9 @@ const authService = require("./services/auth.service");
 
 io.on("connection", (socket) => {
     console.log("Frontend connected:", socket.id);
+    // Emit both statuses independently so the UI can show two separate pills
     socket.emit("broker_status", { connected: !!authService.getSession() });
+    socket.emit("socket_status", { connected: marketSocketService.isSocketConnected() });
 
     socket.on("disconnect", () => {
         console.log("Frontend disconnected:", socket.id);
@@ -50,23 +52,66 @@ if (shouldDownload) {
         })
         .catch(err => console.error("Error downloading instruments:", err));
 }
+/**
+ * Graceful Shutdown Handler
+ *
+ * PM2 sends SIGTERM before restarting/stopping the process.
+ * Without this handler, the process exits immediately, which means:
+ *   - Pending DB writes (the 5s batch queue) are lost → trades show wrong final state
+ *   - The Angel One WebSocket is killed mid-heartbeat (causes a reconnect on restart)
+ *   - In-flight HTTP requests are dropped
+ *
+ * This handler gives the server a clean 10 seconds to finish up before forcing exit.
+ */
+async function gracefulShutdown(signal) {
+    console.log(`\n[Server] ${signal} received. Starting graceful shutdown...`);
 
-// Keep-Alive Ping for Render Free Tier
-const RENDER_EXTERNAL_URL = process.env.RENDER_EXTERNAL_URL;
-if (RENDER_EXTERNAL_URL) {
-    const https = require("https");
-    setInterval(() => {
-        console.log(`[Keep-Alive] Sending self-ping to: ${RENDER_EXTERNAL_URL}/api/health`);
-        https.get(`${RENDER_EXTERNAL_URL}/api/health`).on('error', (err) => {
-            console.error('[Keep-Alive] Ping failed:', err.message);
-        });
-    }, 10 * 60 * 1000); // 10 minutes
-    console.log(`Keep-alive interval started for ${RENDER_EXTERNAL_URL}`);
+    // Step 1: Stop accepting new HTTP connections
+    server.close(() => {
+        console.log("[Server] HTTP server closed. No new connections accepted.");
+    });
+
+    // Step 2: Flush any pending DB updates BEFORE disconnecting anything.
+    // The DbWriter batches updates every 5s — if we shut down between cycles,
+    // we lose the last batch. Calling flush ensures they're written to Neon first.
+    // Timeout: if Neon is unreachable (cold start), don't hold up the shutdown forever.
+    // PM2's kill_timeout is 1600ms by default — this gives us 8s before it force-kills.
+    try {
+        console.log("[Server] Flushing pending DB writes...");
+        const flushTimeout = new Promise(resolve => setTimeout(() => resolve("timeout"), 8000));
+        const result = await Promise.race([strategyService.flushPendingDbWrites(), flushTimeout]);
+        if (result === "timeout") {
+            console.warn("[Server] DB flush timed out after 8s — some pending writes may be lost.");
+        } else {
+            console.log("[Server] DB writes flushed ✅");
+        }
+    } catch (err) {
+        console.error("[Server] Failed to flush DB writes on shutdown:", err.message);
+    }
+
+    // Step 3: Disconnect the Angel One WebSocket cleanly
+    try {
+        marketSocketService.disconnectMarketSocket();
+        console.log("[Server] Angel One WebSocket disconnected ✅");
+    } catch (err) {
+        console.error("[Server] Error disconnecting WebSocket:", err.message);
+    }
+
+    console.log("[Server] Graceful shutdown complete. Exiting.");
+    process.exit(0);
 }
 
+// PM2 sends SIGTERM for restarts/stops
+process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+// Ctrl+C in development
+process.on("SIGINT",  () => gracefulShutdown("SIGINT"));
 
+// Catch unhandled promise rejections to prevent silent crashes
+process.on("unhandledRejection", (reason, promise) => {
+    console.error("[Server] Unhandled Promise Rejection:", reason);
+    // Don't exit — just log it. PM2 will restart if something truly breaks.
+});
 
 server.listen(PORT, async () => {
     console.log(`Server running on port ${PORT}`);
-
 });

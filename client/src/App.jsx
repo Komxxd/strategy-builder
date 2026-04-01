@@ -6,9 +6,10 @@ import {
   AlertCircle, CheckCircle2, Search, LayoutDashboard, Box,
   ShoppingCart, Users, MessageSquare, Mail, Zap, BarChart2,
   Share2, Share, Bell, Folder, Tag, HelpCircle, MessageCircle,
-  Settings, Rocket, ChevronRight, Menu, LogOut, Loader2, Lock, History, ChevronLeft
+  Settings, Rocket, ChevronRight, Menu, LogOut, Loader2, Lock, History, ChevronLeft,
+  Wifi, WifiOff
 } from 'lucide-react';
-import { logoutBackend, loginBackend } from './api';
+import { logoutBackend, loginBackend, connectSocket, disconnectSocket } from './api';
 import { StrategyHistory } from './components/StrategyHistory';
 import axios from 'axios';
 
@@ -19,12 +20,15 @@ function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(() => {
     return sessionStorage.getItem('app_authenticated') === 'true';
   });
-  const [isConnected, setIsConnected] = useState(false);
+  // Angel One API session state (login/logout)
+  const [isApiConnected, setIsApiConnected] = useState(false);
+  // WebSocket live data stream state
+  const [isSocketConnected, setIsSocketConnected] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
-  const [logoutLoading, setLogoutLoading] = useState(false);
-  const [loginLoading, setLoginLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState('strategies'); // strategies, history
+  const [apiLoading, setApiLoading] = useState(false);
+  const [socketLoading, setSocketLoading] = useState(false);
+  const [activeTab, setActiveTab] = useState('strategies');
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
   const handleAuthenticated = () => {
@@ -35,32 +39,73 @@ function App() {
     setSuccess("Access unlocked! Welcome back.");
   };
 
-  const handleToggleConnection = async () => {
-    if (isConnected) {
+  // --- Angel One API Pill Handler ---
+  const handleToggleApi = async () => {
+    if (isApiConnected) {
       try {
-        setLogoutLoading(true);
+        setApiLoading(true);
         await logoutBackend();
-        setIsConnected(false);
-        setSuccess("Successfully logged out and disconnected.");
+        setIsApiConnected(false);
+        setIsSocketConnected(false); // Socket dies when session dies
+        setSuccess("Logged out from Angel One.");
       } catch (err) {
         setError("Failed to logout: " + err.message);
       } finally {
-        setLogoutLoading(false);
+        setApiLoading(false);
       }
     } else {
       try {
-        setLoginLoading(true);
+        setApiLoading(true);
         const res = await loginBackend();
         if (res.success) {
-          setIsConnected(true);
-          setSuccess("Successfully connected to the live market!");
+          setIsApiConnected(true);
+          setSuccess("Angel One session started!");
         } else {
           setError(res.message || "Failed to connect to Angel One");
         }
       } catch (err) {
-        setError("Error connecting to broker service");
+        setError("Error connecting to Angel One");
       } finally {
-        setLoginLoading(false);
+        setApiLoading(false);
+      }
+    }
+  };
+
+  // --- WebSocket Pill Handler ---
+  const handleToggleSocket = async () => {
+    if (!isApiConnected) {
+      setError("Login to Angel One first before connecting WebSocket.");
+      return;
+    }
+    if (isSocketConnected) {
+      try {
+        setSocketLoading(true);
+        await disconnectSocket();
+        setIsSocketConnected(false);
+        setSuccess("WebSocket disconnected.");
+      } catch (err) {
+        setError("Failed to disconnect WebSocket: " + err.message);
+      } finally {
+        setSocketLoading(false);
+      }
+    } else {
+      try {
+        setSocketLoading(true);
+        const res = await connectSocket();
+        if (res.success) {
+          // Optimistic update: turn the pill blue immediately so the user
+          // knows their click registered. If the WebSocket actually fails to
+          // connect, the server will emit socket_status: false which will
+          // correct this back to grey automatically.
+          setIsSocketConnected(true);
+          setSuccess("WebSocket connecting...");
+        } else {
+          setError(res.message || "Failed to connect WebSocket");
+        }
+      } catch (err) {
+        setError("Error connecting WebSocket");
+      } finally {
+        setSocketLoading(false);
       }
     }
   };
@@ -81,33 +126,48 @@ function App() {
   }, [isAuthenticated]);
 
   useEffect(() => {
+    // Store cleanup in a closure variable so the outer useEffect return can reach it.
+    // The previous pattern returned cleanup from inside .then() which React never sees —
+    // that makes socket listeners stack on every mount (bad in React Strict Mode dev).
+    let cleanup = null;
+
     import('./api').then(({ initSocket }) => {
       const socket = initSocket();
 
+      // broker_status = Angel One API session (login/logout)
       const handleBrokerStatus = (data) => {
-        setIsConnected(data.connected);
-        if (!data.connected) {
-          console.log("Broker disconnected or server restarted.");
-        }
+        setIsApiConnected(data.connected);
+        if (!data.connected) setIsSocketConnected(false);
+      };
+
+      // socket_status = WebSocket data stream only
+      const handleSocketStatus = (data) => {
+        setIsSocketConnected(data.connected);
       };
 
       const handleStrategyAlert = (data) => {
-        if (data.type === 'success') {
-          setSuccess(data.message);
-        } else {
-          setError(data.message);
-        }
+        if (data.type === 'success') setSuccess(data.message);
+        else setError(data.message);
       };
 
       socket.on('broker_status', handleBrokerStatus);
+      socket.on('socket_status', handleSocketStatus);
       socket.on('strategy_alert', handleStrategyAlert);
 
-      return () => {
+      // Store cleanup for when React unmounts or re-runs the effect
+      cleanup = () => {
         socket.off('broker_status', handleBrokerStatus);
+        socket.off('socket_status', handleSocketStatus);
         socket.off('strategy_alert', handleStrategyAlert);
       };
     });
+
+    // This is what React actually calls on unmount — now it can reach the cleanup
+    return () => {
+      if (cleanup) cleanup();
+    };
   }, []);
+
 
   const SidebarItem = ({ icon: Icon, label, active, onClick, badge, isCollapsed }) => (
     <button 
@@ -207,28 +267,61 @@ function App() {
             </h1>
           </div>
 
-          <div className="flex items-center gap-4">
-            <div className="flex flex-col items-end gap-1">
-                <button
-                    onClick={handleToggleConnection}
-                    disabled={logoutLoading || loginLoading}
-                    className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold border transition-all cursor-pointer shadow-sm ${
-                        isConnected 
-                        ? "bg-green-50 text-green-700 border-green-200 hover:bg-red-50 hover:text-red-700 hover:border-red-200" 
-                        : "bg-red-50 text-red-600 border-red-200 hover:bg-green-50 hover:text-green-700 hover:border-green-200"
-                    } disabled:opacity-50 disabled:cursor-not-allowed`}
-                    title={isConnected ? "Click to Disconnect" : "Click to Connect"}
-                >
-                    {logoutLoading || loginLoading ? (
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : isConnected ? (
-                        <CheckCircle2 className="h-3.5 w-3.5" />
-                    ) : (
-                        <AlertCircle className="h-3.5 w-3.5" />
-                    )}
-                    {isConnected ? "Angel One Connected" : "Angel One Disconnected"}
-                </button>
-            </div>
+          {/* Two independent status pills */}
+          <div className="flex items-center gap-2">
+
+            {/* Pill 1: Angel One API Session */}
+            <button
+              id="angel-one-status-pill"
+              onClick={handleToggleApi}
+              disabled={apiLoading}
+              title={isApiConnected ? "Angel One session active. Click to logout." : "Click to login to Angel One"}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold border transition-all cursor-pointer shadow-sm ${
+                isApiConnected
+                  ? "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-red-50 hover:text-red-700 hover:border-red-200"
+                  : "bg-red-50 text-red-600 border-red-200 hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-200"
+              } disabled:opacity-50 disabled:cursor-not-allowed`}
+            >
+              {apiLoading ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : isApiConnected ? (
+                <CheckCircle2 className="h-3 w-3" />
+              ) : (
+                <AlertCircle className="h-3 w-3" />
+              )}
+              <span>Angel One</span>
+            </button>
+
+            {/* Pill 2: WebSocket Data Stream */}
+            <button
+              id="websocket-status-pill"
+              onClick={handleToggleSocket}
+              disabled={socketLoading || !isApiConnected}
+              title={
+                !isApiConnected
+                  ? "Login to Angel One first"
+                  : isSocketConnected
+                  ? "WebSocket streaming. Click to disconnect."
+                  : "Click to connect WebSocket data stream"
+              }
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold border transition-all shadow-sm ${
+                !isApiConnected
+                  ? "bg-slate-50 text-slate-400 border-slate-200 cursor-not-allowed"
+                  : isSocketConnected
+                  ? "bg-blue-50 text-blue-700 border-blue-200 hover:bg-red-50 hover:text-red-700 hover:border-red-200 cursor-pointer"
+                  : "bg-slate-50 text-slate-500 border-slate-200 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-200 cursor-pointer"
+              } disabled:opacity-50 disabled:cursor-not-allowed`}
+            >
+              {socketLoading ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : isSocketConnected ? (
+                <Wifi className="h-3 w-3" />
+              ) : (
+                <WifiOff className="h-3 w-3" />
+              )}
+              <span>WebSocket</span>
+            </button>
+
           </div>
         </header>
 
@@ -254,7 +347,7 @@ function App() {
 
             <div className="w-full animate-in fade-in duration-500 pb-20">
               {activeTab === 'strategies' ? (
-                <StrategyBuilder isConnected={isConnected} />
+                <StrategyBuilder isConnected={isApiConnected && isSocketConnected} />
               ) : (
                 <StrategyHistory />
               )}
