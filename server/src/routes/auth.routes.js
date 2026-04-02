@@ -67,4 +67,12 @@ router.post("/logout", (req, res) => {
     res.json({ success: true, message: "Logged out successfully" });
 });
 
+router.get("/status", (req, res) => {
+    const session = authService.getSession();
+    res.json({
+        success: true,
+        connected: !!session
+    });
+});
+
 module.exports = router;

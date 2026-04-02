@@ -9,7 +9,7 @@ import {
   Settings, Rocket, ChevronRight, Menu, LogOut, Loader2, Lock, History, ChevronLeft,
   Wifi, WifiOff
 } from 'lucide-react';
-import { logoutBackend, loginBackend, connectSocket, disconnectSocket } from './api';
+import { logoutBackend, loginBackend, connectSocket, disconnectSocket, getBrokerStatus, getConnectionStatus } from './api';
 import { StrategyHistory } from './components/StrategyHistory';
 import axios from 'axios';
 
@@ -122,6 +122,21 @@ function App() {
     // Ensure axios remains synced if someone refreshes while authenticated
     if (isAuthenticated) {
       axios.defaults.headers.common['x-api-key'] = sessionStorage.getItem('app_api_key');
+      
+      // Auto-sync status with backend on mount/refresh
+      const syncStatus = async () => {
+        try {
+          const res = await getConnectionStatus();
+          if (res.success) {
+            setIsApiConnected(res.apiConnected);
+            setIsSocketConnected(res.socketConnected);
+          }
+        } catch (err) {
+          console.error("Failed to sync initial status:", err);
+        }
+      };
+      
+      syncStatus();
     }
   }, [isAuthenticated]);
 

@@ -50,6 +50,13 @@ export async function logoutBackend() {
     return res.json();
 }
 
+export async function getBrokerStatus() {
+    const res = await fetch(`${API_BASE}/auth/status`, {
+        headers: getHeaders(),
+    });
+    return res.json();
+}
+
 export async function getConnectionStatus() {
     const res = await fetch(`${API_BASE}/market-socket/status`, {
         headers: getHeaders(),
