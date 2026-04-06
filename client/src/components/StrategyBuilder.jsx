@@ -7,6 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { StopCircle, Loader2, TrendingUp, Search, Timer, LayoutDashboard, Target, Save, Play, Plus, Trash2, ShieldCheck, Zap, Copy, MessageSquare, Ghost, X, Settings2, Clock, ChevronDown, ChevronUp, GripVertical } from 'lucide-react';
+import { Switch } from "@/components/ui/switch";
 import axios from 'axios';
 import { io } from 'socket.io-client';
 import { StrategyLogs } from './StrategyLogs';
@@ -32,6 +33,7 @@ const DEFAULT_LEG = {
     side: 'BUY',
     lots: 1,
     sl_type: 'PERCENTAGE',
+    sl_enabled: true,
     stop_loss: 10,
     simple_mntm_enabled: false,
     simple_mntm_mode: 'SIMPLE_PLUS_PCT',
@@ -201,7 +203,7 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
                 )}
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="flex flex-wrap items-end gap-x-3 gap-y-4">
                 <div className="space-y-2">
                     <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
                         <TrendingUp className="h-3 w-3" /> Option Type
@@ -210,12 +212,12 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
                         value={leg.option_type}
                         onValueChange={(v) => onChange({ ...leg, option_type: v })}
                     >
-                        <SelectTrigger className="h-9 rounded-lg text-sm">
+                        <SelectTrigger className="h-9 w-[120px] rounded-lg text-sm">
                             <SelectValue placeholder="Type" />
                         </SelectTrigger>
                         <SelectContent>
-                            <SelectItem value="CE">CE (Call)</SelectItem>
-                            <SelectItem value="PE">PE (Put)</SelectItem>
+                            <SelectItem value="CE">Call</SelectItem>
+                            <SelectItem value="PE">Put</SelectItem>
                         </SelectContent>
                     </Select>
                 </div>
@@ -228,7 +230,7 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
                         value={leg.strike_criteria || 'STRIKE_TYPE'}
                         onValueChange={(v) => onChange({ ...leg, strike_criteria: v })}
                     >
-                        <SelectTrigger className="h-9 rounded-lg text-sm">
+                        <SelectTrigger className="h-9 w-[180px] rounded-lg text-sm">
                             <SelectValue placeholder="Criteria" />
                         </SelectTrigger>
                         <SelectContent>
@@ -239,7 +241,7 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
                 </div>
 
                 {leg.strike_criteria === 'CLOSEST_PREMIUM' ? (
-                    <div className="space-y-1">
+                    <div className="space-y-1 w-[120px]">
                         <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
                             Premium (₹)
                         </Label>
@@ -265,236 +267,325 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
                             value={leg.strike}
                             onValueChange={(v) => onChange({ ...leg, strike: v })}
                         >
-                            <SelectTrigger className="h-9 rounded-lg text-sm">
+                            <SelectTrigger className="h-9 w-[100px] rounded-lg text-sm">
                                 <SelectValue placeholder="Select Strike" />
                             </SelectTrigger>
                             <SelectContent className="max-h-[300px]">
-                                <SelectItem value="ATM">ATM (At the Money)</SelectItem>
-                                {Array.from({ length: 40 }, (_, i) => i + 1).map(n => (
-                                    <SelectItem key={`${idPrefix}-otm-${n}`} value={`OTM${n}`}>OTM {n} strike{n > 1 ? 's' : ''} away</SelectItem>
+                                {Array.from({ length: 40 }, (_, i) => 40 - i).map(n => (
+                                    <SelectItem key={`${idPrefix}-itm-${n}`} value={`ITM${n}`}>ITM {n}</SelectItem>
                                 ))}
+                                <SelectItem value="ATM">ATM</SelectItem>
                                 {Array.from({ length: 40 }, (_, i) => i + 1).map(n => (
-                                    <SelectItem key={`${idPrefix}-itm-${n}`} value={`ITM${n}`}>ITM {n} strike{n > 1 ? 's' : ''} away</SelectItem>
+                                    <SelectItem key={`${idPrefix}-otm-${n}`} value={`OTM${n}`}>OTM {n}</SelectItem>
                                 ))}
                             </SelectContent>
                         </Select>
                     </div>
                 )}
 
-                <div className="space-y-1">
-                    <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Side</Label>
-                    <Select
-                        value={leg.side}
-                        onValueChange={(v) => onChange({ ...leg, side: v })}
-                    >
-                        <SelectTrigger className="h-9 rounded-lg text-sm">
-                            <SelectValue placeholder="Side" />
-                        </SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value="BUY">BUY</SelectItem>
-                            <SelectItem value="SELL">SELL</SelectItem>
-                        </SelectContent>
-                    </Select>
-                </div>
-
-                <div className="space-y-1">
-                    <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Lots</Label>
-                    <Input
-                        className="h-9 rounded-lg text-sm"
-                        type="number"
-                        value={leg.lots}
-                        onChange={(e) => onChange({ ...leg, lots: parseInt(e.target.value) })}
-                    />
-                </div>
-
-                <div className="space-y-1">
-                    <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">SL Type</Label>
-                    <Select
-                        value={leg.sl_type || 'PERCENTAGE'}
-                        onValueChange={(v) => onChange({ ...leg, sl_type: v })}
-                    >
-                        <SelectTrigger className="h-9 rounded-lg text-sm">
-                            <SelectValue placeholder="SL Type" />
-                        </SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value="PERCENTAGE">Percentage (%)</SelectItem>
-                            <SelectItem value="POINTS">Points (Pts)</SelectItem>
-                        </SelectContent>
-                    </Select>
-                </div>
-
-                <div className="space-y-1">
-                    <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                        Stop Loss {leg.sl_type === 'POINTS' ? '(Pts)' : '(%)'}
-                    </Label>
-                    <Input
-                        className="h-9 rounded-lg text-sm"
-                        type="number"
-                        value={leg.stop_loss}
-                        onChange={(e) => onChange({ ...leg, stop_loss: parseFloat(e.target.value) })}
-                    />
-                </div>
-
-                <div className="space-y-1 md:col-span-2 lg:col-span-2">
-                    <div className="flex items-center justify-between mb-0.5">
-                        <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Trailing Stop Loss</Label>
-                        <div className="flex items-center gap-1.5">
-                            <input
-                                type="checkbox"
-                                id={`tsl-enabled-${idPrefix}`}
-                                className="w-3 h-3 rounded text-blue-600 cursor-pointer"
-                                checked={leg.tsl_enabled || false}
-                                onChange={(e) => onChange({ ...leg, tsl_enabled: e.target.checked })}
-                            />
-                            <Label htmlFor={`tsl-enabled-${idPrefix}`} className="text-[9px] font-bold tracking-wide cursor-pointer uppercase">
-                                Enable
-                            </Label>
-                        </div>
-                    </div>
-                    <div className="flex gap-2">
+                <div className="flex items-end gap-2">
+                    <div className="space-y-1 w-[100px]">
+                        <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Side</Label>
                         <Select
-                            value={leg.tsl_type || 'PERCENTAGE'}
-                            onValueChange={(v) => onChange({ ...leg, tsl_type: v })}
-                            disabled={!leg.tsl_enabled}
+                            value={leg.side}
+                            onValueChange={(v) => onChange({ ...leg, side: v })}
                         >
-                            <SelectTrigger className="h-9 rounded-md w-[30%] text-xs">
-                                <SelectValue placeholder="Type" />
+                            <SelectTrigger className="h-9 rounded-lg text-sm">
+                                <SelectValue placeholder="Side" />
                             </SelectTrigger>
                             <SelectContent>
-                                <SelectItem value="PERCENTAGE">Percentage (%)</SelectItem>
-                                <SelectItem value="POINTS">Points</SelectItem>
+                                <SelectItem value="BUY">BUY</SelectItem>
+                                <SelectItem value="SELL">SELL</SelectItem>
                             </SelectContent>
                         </Select>
+                    </div>
 
-                        <div className="flex-1 relative">
-                            <Input
-                                className="h-9 rounded-md w-full text-xs"
-                                type="number"
-                                placeholder="Move"
-                                value={leg.tsl_value === 0 ? '' : (leg.tsl_value !== undefined ? leg.tsl_value : '')}
-                                onChange={(e) => {
-                                    const val = e.target.value;
-                                    onChange({ ...leg, tsl_value: val === '' ? 0 : parseFloat(val) });
-                                }}
-                                disabled={!leg.tsl_enabled}
-                                title={`TSL Move (${leg.tsl_type === 'POINTS' ? 'Pts' : '%'})`}
-                            />
-                        </div>
-
-                        <div className="flex-1 relative">
-                            <Input
-                                className="h-9 rounded-md w-full text-xs"
-                                type="number"
-                                placeholder="Trail"
-                                value={leg.tsl_trail === 0 ? '' : (leg.tsl_trail !== undefined ? leg.tsl_trail : '')}
-                                onChange={(e) => {
-                                    const val = e.target.value;
-                                    onChange({ ...leg, tsl_trail: val === '' ? 0 : parseFloat(val) });
-                                }}
-                                disabled={!leg.tsl_enabled}
-                                title={`TSL Trail (${leg.tsl_type === 'POINTS' ? 'Pts' : '%'})`}
-                            />
-                        </div>
+                    <div className="space-y-1 w-[80px]">
+                        <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Lots</Label>
+                        <Input
+                            className="h-9 rounded-lg text-sm"
+                            type="number"
+                            value={leg.lots}
+                            onChange={(e) => onChange({ ...leg, lots: parseInt(e.target.value) })}
+                        />
                     </div>
                 </div>
 
-                <div className="md:col-span-2 space-y-3 pt-3 border-t border-dashed mt-1">
-                    <div className="flex items-center gap-2">
-                        <input
-                            type="checkbox"
-                            id={`simple-mntm-${idPrefix}`}
-                            className="w-3.5 h-3.5 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
-                            checked={leg.simple_mntm_enabled || false}
-                            onChange={(e) => onChange({
-                                ...leg,
-                                simple_mntm_enabled: e.target.checked,
-                                simple_mntm_mode: leg.simple_mntm_mode || 'SIMPLE_PLUS_PCT',
-                                simple_mntm_value: leg.simple_mntm_value || 0
-                            })}
-                        />
-                        <Label htmlFor={`simple-mntm-${idPrefix}`} className="text-[11px] font-bold tracking-wide text-foreground cursor-pointer flex items-center gap-1.5">
-                            Simple Momentum
-                        </Label>
+                {/* Risk Management Section */}
+                <div className="w-full flex items-start gap-10 pt-4 border-t border-dashed border-gray-100 mt-4 overflow-x-auto no-scrollbar">
+                    <div className="flex-1 min-w-[240px] space-y-2.5">
+                        <div className="flex items-center justify-between max-w-[280px]">
+                            <Label className="text-[13px] font-semibold text-gray-700">Stop Loss</Label>
+                            <Switch 
+                                checked={leg.sl_enabled !== false} 
+                                onCheckedChange={(val) => onChange({ ...leg, sl_enabled: val })}
+                            />
+                        </div>
+                        
+                        {leg.sl_enabled !== false && (
+                            <div className="flex items-center gap-2 animate-in fade-in slide-in-from-top-1">
+                                <div className="flex-1 min-w-[120px]">
+                                    <Select
+                                        value={leg.sl_type || 'PERCENTAGE'}
+                                        onValueChange={(v) => onChange({ ...leg, sl_type: v })}
+                                    >
+                                        <SelectTrigger className="h-9 rounded-lg text-sm bg-background border-input">
+                                            <SelectValue placeholder="Type" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="PERCENTAGE">Percentage (%)</SelectItem>
+                                            <SelectItem value="POINTS">Points (Pts)</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+
+                                <div className="w-[80px] shrink-0">
+                                    <Input
+                                        className="h-9 rounded-lg text-sm transition-all focus:ring-emerald-500"
+                                        type="number"
+                                        value={leg.stop_loss}
+                                        onChange={(e) => onChange({ ...leg, stop_loss: parseFloat(e.target.value) })}
+                                    />
+                                </div>
+                            </div>
+                        )}
                     </div>
 
-                    {leg.simple_mntm_enabled && (
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pl-5 animate-in slide-in-from-top-2">
-                            <div className="space-y-1">
-                                <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Simple Mntm Mode</Label>
-                                <Select
-                                    value={leg.simple_mntm_mode || 'SIMPLE_PLUS_PCT'}
-                                    onValueChange={(v) => onChange({ ...leg, simple_mntm_mode: v })}
-                                >
-                                    <SelectTrigger className="h-9 rounded-lg text-xs">
-                                        <SelectValue placeholder="Mode" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="SIMPLE_PLUS_PCT">SIMPLE + %</SelectItem>
-                                        <SelectItem value="SIMPLE_PLUS_PTS">SIMPLE + Pts</SelectItem>
-                                        <SelectItem value="SIMPLE_MINUS_PCT">SIMPLE - %</SelectItem>
-                                        <SelectItem value="SIMPLE_MINUS_PTS">SIMPLE - Pts</SelectItem>
-                                    </SelectContent>
-                                </Select>
-                            </div>
-                            <div className="space-y-1">
-                                <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                                    Mntm Value {leg.simple_mntm_mode && leg.simple_mntm_mode.includes('PCT') ? '(%)' : '(Pts)'}
-                                </Label>
-                                <Input
-                                    className="h-9 rounded-lg text-xs"
-                                    type="text"
-                                    value={leg.simple_mntm_value === undefined ? '' : leg.simple_mntm_value}
-                                    onChange={(e) => {
-                                        const val = e.target.value;
-                                        if (val === '' || /^\d*\.?\d*$/.test(val)) {
-                                            onChange({ ...leg, simple_mntm_value: val });
-                                        }
-                                    }}
-                                    onBlur={(e) => onChange({ ...leg, simple_mntm_value: parseFloat(e.target.value) || 0 })}
-                                />
-                            </div>
+                    <div className="flex-1 min-w-[340px] space-y-2.5">
+                        <div className="flex items-center justify-between max-w-[280px]">
+                            <Label className="text-[13px] font-semibold text-gray-700">Trailing Stop Loss</Label>
+                            <Switch 
+                                checked={leg.tsl_enabled || false} 
+                                onCheckedChange={(val) => onChange({ ...leg, tsl_enabled: val })}
+                            />
                         </div>
-                    )}
+                        
+                        {leg.tsl_enabled && (
+                            <div className="flex items-center gap-2 animate-in fade-in slide-in-from-top-1">
+                                <div className="flex-1 min-w-[120px]">
+                                    <Select
+                                        value={leg.tsl_type || 'PERCENTAGE'}
+                                        onValueChange={(v) => onChange({ ...leg, tsl_type: v })}
+                                    >
+                                        <SelectTrigger className="h-9 rounded-lg text-sm bg-background border-input">
+                                            <SelectValue placeholder="Type" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="PERCENTAGE">Percentage (%)</SelectItem>
+                                            <SelectItem value="POINTS">Points (Pts)</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                </div>
 
-                    <div className="h-2"></div>
+                                <div className="w-[80px] shrink-0">
+                                    <Input
+                                        className="h-9 rounded-lg text-sm focus:ring-emerald-500"
+                                        type="number"
+                                        placeholder="Move"
+                                        value={leg.tsl_move === 0 ? '' : (leg.tsl_move !== undefined ? leg.tsl_move : '')}
+                                        onChange={(e) => {
+                                            const val = e.target.value;
+                                            onChange({ ...leg, tsl_move: val === '' ? 0 : parseFloat(val) });
+                                        }}
+                                    />
+                                </div>
 
-                    {/* Exclusivity: RE-ASAP, RE-COST, LAZY LEG */}
-                    <div className="grid grid-cols-1 gap-4">
-                        {/* RE-ASAP */}
-                        <div className={`space-y-3 pt-3 border-t transition-all duration-300 ${(leg.recost_enabled || leg.lazy_leg_enabled) ? 'opacity-40 grayscale pointer-events-none' : ''}`}>
-                            <div className="flex items-center gap-2">
-                                <input
-                                    type="checkbox"
-                                    id={`re-asap-${idPrefix}`}
-                                    className="w-3.5 h-3.5 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
-                                    checked={leg.re_asap_enabled || false}
-                                    disabled={leg.recost_enabled || leg.lazy_leg_enabled}
-                                    onChange={(e) => onChange({
-                                        ...leg,
-                                        re_asap_enabled: e.target.checked,
-                                        re_asap_max_entries: leg.re_asap_max_entries || 1,
-                                        recost_enabled: false,
-                                        lazy_leg_enabled: false
-                                    })}
-                                />
-                                <Label htmlFor={`re-asap-${idPrefix}`} className={`text-[11px] font-bold tracking-wide text-foreground flex items-center gap-1.5 ${(leg.recost_enabled || leg.lazy_leg_enabled) ? 'cursor-not-allowed' : 'cursor-pointer'}`}>
-                                    RE-ASAP
-                                </Label>
+                                <div className="w-[80px] shrink-0">
+                                    <Input
+                                        className="h-9 rounded-lg text-sm focus:ring-emerald-500"
+                                        type="number"
+                                        placeholder="Trail"
+                                        value={leg.tsl_trail === 0 ? '' : (leg.tsl_trail !== undefined ? leg.tsl_trail : '')}
+                                        onChange={(e) => {
+                                            const val = e.target.value;
+                                            onChange({ ...leg, tsl_trail: val === '' ? 0 : parseFloat(val) });
+                                        }}
+                                    />
+                                </div>
                             </div>
-                            {leg.re_asap_enabled && (
-                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pl-5 animate-in slide-in-from-top-2">
+                        )}
+                    </div>
+                </div>
+
+                {/* Advanced Execution Management (Momentum & ASAP Re-entry) */}
+                <div className="w-full flex items-start gap-10 pt-4 border-t border-dashed border-gray-100 mt-1">
+                    {/* Simple Momentum */}
+                    <div className="flex-1 min-w-[280px] space-y-2.5">
+                        <div className="flex items-center justify-between max-w-[280px]">
+                            <Label className="text-[13px] font-semibold text-gray-700">Simple Momentum</Label>
+                            <Switch 
+                                checked={leg.simple_mntm_enabled || false} 
+                                onCheckedChange={(val) => onChange({ ...leg, simple_mntm_enabled: val })}
+                            />
+                        </div>
+                        
+                        {leg.simple_mntm_enabled && (
+                            <div className="flex items-center gap-2 animate-in fade-in slide-in-from-top-1">
+                                <div className="flex-1 min-w-[120px]">
+                                    <Select
+                                        value={leg.simple_mntm_mode || 'SIMPLE_PLUS_PCT'}
+                                        onValueChange={(v) => onChange({ ...leg, simple_mntm_mode: v })}
+                                    >
+                                        <SelectTrigger className="h-9 rounded-lg text-sm bg-background border-input">
+                                            <SelectValue placeholder="Mode" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="SIMPLE_PLUS_PCT">+ Percentage (%)</SelectItem>
+                                            <SelectItem value="SIMPLE_PLUS_PTS">+ Points (Pts)</SelectItem>
+                                            <SelectItem value="SIMPLE_MINUS_PCT">- Percentage (%)</SelectItem>
+                                            <SelectItem value="SIMPLE_MINUS_PTS">- Points (Pts)</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+
+                                <div className="w-[80px] shrink-0">
+                                    <Input
+                                        className="h-9 rounded-lg text-sm transition-all focus:ring-emerald-500"
+                                        type="number"
+                                        placeholder="Value"
+                                        value={leg.simple_mntm_value === 0 ? '' : (leg.simple_mntm_value !== undefined ? leg.simple_mntm_value : '')}
+                                        onChange={(e) => {
+                                            const val = e.target.value;
+                                            onChange({ ...leg, simple_mntm_value: val === '' ? 0 : parseFloat(val) });
+                                        }}
+                                    />
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* RE-ENTRY */}
+                    <div className="flex-1 min-w-[240px] space-y-2.5">
+                        <div className="flex items-center justify-between max-w-[280px]">
+                            <Label className="text-[13px] font-semibold text-gray-700">RE-ENTRY</Label>
+                            <Switch 
+                                checked={leg.re_asap_enabled || leg.recost_enabled || leg.lazy_leg_enabled || false} 
+                                onCheckedChange={(val) => {
+                                    if (val) {
+                                        onChange({
+                                            ...leg,
+                                            re_asap_enabled: true,
+                                            recost_enabled: false,
+                                            lazy_leg_enabled: false,
+                                            re_asap_max_entries: leg.re_asap_max_entries || 1
+                                        });
+                                    } else {
+                                        onChange({
+                                            ...leg,
+                                            re_asap_enabled: false,
+                                            recost_enabled: false,
+                                            lazy_leg_enabled: false
+                                        });
+                                    }
+                                }}
+                            />
+                        </div>
+
+                        {(leg.re_asap_enabled || leg.recost_enabled || leg.lazy_leg_enabled) && (
+                            <div className="animate-in fade-in slide-in-from-top-1">
+                                <div className="w-[150px]">
+                                    <Select
+                                        value={leg.lazy_leg_enabled ? 'LAZY_LEG' : (leg.recost_enabled ? 'RE_COST' : 'RE_ASAP')}
+                                        onValueChange={(v) => {
+                                            onChange({
+                                                ...leg,
+                                                re_asap_enabled: v === 'RE_ASAP',
+                                                recost_enabled: v === 'RE_COST',
+                                                lazy_leg_enabled: v === 'LAZY_LEG',
+                                                lazy_leg: v === 'LAZY_LEG' ? (leg.lazy_leg || { ...DEFAULT_LEG }) : leg.lazy_leg
+                                            });
+                                        }}
+                                    >
+                                        <SelectTrigger className="h-9 rounded-lg text-sm bg-background border-input">
+                                            <SelectValue placeholder="Type" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="RE_ASAP">RE ASAP</SelectItem>
+                                            <SelectItem value="RE_COST">RE COST</SelectItem>
+                                            <SelectItem value="LAZY_LEG">LAZY LEG</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                </div>
+
+                {/* Re-Entry Configurations */}
+                {(leg.re_asap_enabled || leg.recost_enabled || leg.lazy_leg_enabled) && (
+                    <div className="w-full pt-4 border-t border-dashed border-gray-100 mt-4 animate-in fade-in slide-in-from-top-2">
+                        {leg.re_asap_enabled && (
+                            <div className="space-y-3">
+                                <div className="w-[150px]">
+                                    <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground block mb-2">Max Entries</Label>
+                                    <Select
+                                        value={(leg.re_asap_max_entries || 1).toString()}
+                                        onValueChange={(v) => onChange({ ...leg, re_asap_max_entries: parseInt(v) })}
+                                    >
+                                        <SelectTrigger className="h-9 rounded-lg text-sm bg-background border-input">
+                                            <SelectValue placeholder="Max Entries" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {Array.from({ length: 20 }, (_, i) => i + 1).map(num => (
+                                                <SelectItem key={`${idPrefix}-max-re-asap-${num}`} value={num.toString()}>
+                                                    {num}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                            </div>
+                        )}
+
+                        {leg.recost_enabled && (
+                            <div className="space-y-4">
+                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                                     <div className="space-y-1">
-                                        <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Max Entries</Label>
+                                        <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground block mb-2">Re-Cost Mode</Label>
                                         <Select
-                                            value={(leg.re_asap_max_entries || 1).toString()}
-                                            onValueChange={(v) => onChange({ ...leg, re_asap_max_entries: parseInt(v) })}
+                                            value={leg.recost_mode || 'RECOST_PLUS_PCT'}
+                                            onValueChange={(v) => onChange({ ...leg, recost_mode: v })}
+                                        >
+                                            <SelectTrigger className="h-9 rounded-lg text-xs">
+                                                <SelectValue placeholder="Mode" />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="RECOST_PLUS_PCT">RECOST + %</SelectItem>
+                                                <SelectItem value="RECOST_PLUS_PTS">RECOST + Pts</SelectItem>
+                                                <SelectItem value="RECOST_MINUS_PCT">RECOST - %</SelectItem>
+                                                <SelectItem value="RECOST_MINUS_PTS">RECOST - Pts</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                    <div className="space-y-1">
+                                        <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2 mb-2">
+                                            Value {leg.recost_mode && leg.recost_mode.includes('PCT') ? '(%)' : '(Pts)'}
+                                        </Label>
+                                        <Input
+                                            className="h-9 rounded-lg text-xs"
+                                            type="text"
+                                            value={leg.recost_value === undefined ? '' : leg.recost_value}
+                                            onChange={(e) => {
+                                                const val = e.target.value;
+                                                if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                                                    onChange({ ...leg, recost_value: val });
+                                                }
+                                            }}
+                                            onBlur={(e) => onChange({ ...leg, recost_value: parseFloat(e.target.value) || 0 })}
+                                        />
+                                    </div>
+                                    <div className="space-y-1">
+                                        <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground block mb-2">Max Entries</Label>
+                                        <Select
+                                            value={(leg.max_reentry || 1).toString()}
+                                            onValueChange={(v) => onChange({ ...leg, max_reentry: parseInt(v) })}
                                         >
                                             <SelectTrigger className="h-9 rounded-lg text-xs">
                                                 <SelectValue placeholder="Entries" />
                                             </SelectTrigger>
                                             <SelectContent className="max-h-[250px]">
                                                 {Array.from({ length: 20 }, (_, i) => i + 1).map(num => (
-                                                    <SelectItem key={`${idPrefix}-max-re-asap-${num}`} value={num.toString()}>
+                                                    <SelectItem key={`${idPrefix}-max-recost-${num}`} value={num.toString()}>
                                                         {num} {num === 1 ? 'Entry' : 'Entries'}
                                                     </SelectItem>
                                                 ))}
@@ -502,247 +593,138 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
                                         </Select>
                                     </div>
                                 </div>
-                            )}
-                        </div>
 
-                        {/* RE-COST */}
-                        <div className={`space-y-3 pt-3 border-t transition-all duration-300 ${(leg.re_asap_enabled || leg.lazy_leg_enabled) ? 'opacity-40 grayscale pointer-events-none' : ''}`}>
-                            <div className="flex items-center gap-2">
-                                <input
-                                    type="checkbox"
-                                    id={`recost-${idPrefix}`}
-                                    className="w-3.5 h-3.5 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
-                                    checked={leg.recost_enabled || false}
-                                    disabled={leg.re_asap_enabled || leg.lazy_leg_enabled}
-                                    onChange={(e) => onChange({
-                                        ...leg,
-                                        recost_enabled: e.target.checked,
-                                        re_asap_enabled: false,
-                                        lazy_leg_enabled: false,
-                                        recost_mode: leg.recost_mode || 'RECOST_PLUS_PCT',
-                                        recost_value: leg.recost_value || 0,
-                                        max_reentry: leg.max_reentry || 1,
-                                        reentry_sl_enabled: leg.reentry_sl_enabled || false,
-                                        reentry_sl_type: leg.reentry_sl_type || 'PERCENTAGE',
-                                        reentry_sl_value: leg.reentry_sl_value || leg.stop_loss || 0
-                                    })}
-                                />
-                                <Label htmlFor={`recost-${idPrefix}`} className={`text-[11px] font-bold tracking-wide text-foreground ${(leg.re_asap_enabled || leg.lazy_leg_enabled) ? 'cursor-not-allowed' : 'cursor-pointer'}`}>
-                                    RE-COST
-                                </Label>
-                            </div>
-                            {leg.recost_enabled && (
-                                <div className="space-y-3 pl-5 animate-in slide-in-from-top-2">
-                                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                                        <div className="space-y-1">
-                                            <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Re-Cost Mode</Label>
-                                            <Select
-                                                value={leg.recost_mode || 'RECOST_PLUS_PCT'}
-                                                onValueChange={(v) => onChange({ ...leg, recost_mode: v })}
-                                            >
-                                                <SelectTrigger className="h-9 rounded-lg text-xs">
-                                                    <SelectValue placeholder="Mode" />
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                    <SelectItem value="RECOST_PLUS_PCT">RECOST + %</SelectItem>
-                                                    <SelectItem value="RECOST_PLUS_PTS">RECOST + Pts</SelectItem>
-                                                    <SelectItem value="RECOST_MINUS_PCT">RECOST - %</SelectItem>
-                                                    <SelectItem value="RECOST_MINUS_PTS">RECOST - Pts</SelectItem>
-                                                </SelectContent>
-                                            </Select>
-                                        </div>
-                                        <div className="space-y-1">
-                                            <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
-                                                Value {leg.recost_mode && leg.recost_mode.includes('PCT') ? '(%)' : '(Pts)'}
-                                            </Label>
-                                            <Input
-                                                className="h-9 rounded-lg text-xs"
-                                                type="text"
-                                                value={leg.recost_value === undefined ? '' : leg.recost_value}
-                                                onChange={(e) => {
-                                                    const val = e.target.value;
-                                                    if (val === '' || /^\d*\.?\d*$/.test(val)) {
-                                                        onChange({ ...leg, recost_value: val });
-                                                    }
-                                                }}
-                                                onBlur={(e) => onChange({ ...leg, recost_value: parseFloat(e.target.value) || 0 })}
-                                            />
-                                        </div>
-                                        <div className="space-y-1">
-                                            <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Max Entries</Label>
-                                            <Select
-                                                value={(leg.max_reentry || 1).toString()}
-                                                onValueChange={(v) => onChange({ ...leg, max_reentry: parseInt(v) })}
-                                            >
-                                                <SelectTrigger className="h-9 rounded-lg text-xs">
-                                                    <SelectValue placeholder="Entries" />
-                                                </SelectTrigger>
-                                                <SelectContent className="max-h-[250px]">
-                                                    {Array.from({ length: 20 }, (_, i) => i + 1).map(num => (
-                                                        <SelectItem key={`${idPrefix}-max-recost-${num}`} value={num.toString()}>
-                                                            {num} {num === 1 ? 'Entry' : 'Entries'}
-                                                        </SelectItem>
-                                                    ))}
-                                                </SelectContent>
-                                            </Select>
-                                        </div>
+                                <div className="space-y-4 pt-2">
+                                    <div className="flex items-center gap-2">
+                                        <input
+                                            type="checkbox"
+                                            id={`reentry-mntm-${idPrefix}`}
+                                            className="w-3.5 h-3.5 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                            checked={leg.recost_mntm_enabled || false}
+                                            onChange={(e) => onChange({
+                                                ...leg,
+                                                recost_mntm_enabled: e.target.checked,
+                                                recost_mntm_mode: leg.recost_mntm_mode || 'RECOST_PLUS_PCT',
+                                                recost_mntm_value: leg.recost_mntm_value || 0
+                                            })}
+                                        />
+                                        <Label htmlFor={`reentry-mntm-${idPrefix}`} className="text-[10px] font-bold tracking-wide text-foreground cursor-pointer uppercase">
+                                            Re Entry Mntm
+                                        </Label>
                                     </div>
-
-                                    <div className="space-y-3">
-                                        <div className="flex items-center gap-2">
-                                            <input
-                                                type="checkbox"
-                                                id={`reentry-mntm-${idPrefix}`}
-                                                className="w-3.5 h-3.5 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
-                                                checked={leg.recost_mntm_enabled || false}
-                                                onChange={(e) => onChange({
-                                                    ...leg,
-                                                    recost_mntm_enabled: e.target.checked,
-                                                    recost_mntm_mode: leg.recost_mntm_mode || 'RECOST_PLUS_PCT',
-                                                    recost_mntm_value: leg.recost_mntm_value || 0
-                                                })}
-                                            />
-                                            <Label htmlFor={`reentry-mntm-${idPrefix}`} className="text-[10px] font-bold tracking-wide text-foreground cursor-pointer uppercase">
-                                                Re Entry Mntm
-                                            </Label>
-                                        </div>
-                                        {leg.recost_mntm_enabled && (
-                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pl-5 animate-in slide-in-from-top-2 border-l-2 border-primary/20">
-                                                <div className="space-y-1">
-                                                    <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Mntm Mode</Label>
-                                                    <Select
-                                                        value={leg.recost_mntm_mode || 'RECOST_PLUS_PCT'}
-                                                        onValueChange={(v) => onChange({ ...leg, recost_mntm_mode: v })}
-                                                    >
-                                                        <SelectTrigger className="h-9 rounded-lg text-xs">
-                                                            <SelectValue placeholder="Mode" />
-                                                        </SelectTrigger>
-                                                        <SelectContent>
-                                                            <SelectItem value="RECOST_PLUS_PCT">RTP + %</SelectItem>
-                                                            <SelectItem value="RECOST_PLUS_PTS">RTP + Pts</SelectItem>
-                                                            <SelectItem value="RECOST_MINUS_PCT">RTP - %</SelectItem>
-                                                            <SelectItem value="RECOST_MINUS_PTS">RTP - Pts</SelectItem>
-                                                        </SelectContent>
-                                                    </Select>
-                                                </div>
-                                                <div className="space-y-1">
-                                                    <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                                                        Value {leg.recost_mntm_mode && leg.recost_mntm_mode.includes('PCT') ? '(%)' : '(Pts)'}
-                                                    </Label>
-                                                    <Input
-                                                        className="h-9 rounded-lg text-xs"
-                                                        type="text"
-                                                        value={leg.recost_mntm_value === undefined ? '' : leg.recost_mntm_value}
-                                                        onChange={(e) => {
-                                                            const val = e.target.value;
-                                                            if (val === '' || /^\d*\.?\d*$/.test(val)) {
-                                                                onChange({ ...leg, recost_mntm_value: val });
-                                                            }
-                                                        }}
-                                                        onBlur={(e) => onChange({ ...leg, recost_mntm_value: parseFloat(e.target.value) || 0 })}
-                                                    />
-                                                </div>
+                                    {leg.recost_mntm_enabled && (
+                                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pl-5 animate-in slide-in-from-top-2 border-l-2 border-primary/20">
+                                            <div className="space-y-1">
+                                                <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground block mb-2">Mntm Mode</Label>
+                                                <Select
+                                                    value={leg.recost_mntm_mode || 'RECOST_PLUS_PCT'}
+                                                    onValueChange={(v) => onChange({ ...leg, recost_mntm_mode: v })}
+                                                >
+                                                    <SelectTrigger className="h-9 rounded-lg text-xs">
+                                                        <SelectValue placeholder="Mode" />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        <SelectItem value="RECOST_PLUS_PCT">RTP + %</SelectItem>
+                                                        <SelectItem value="RECOST_PLUS_PTS">RTP + Pts</SelectItem>
+                                                        <SelectItem value="RECOST_MINUS_PCT">RTP - %</SelectItem>
+                                                        <SelectItem value="RECOST_MINUS_PTS">RTP - Pts</SelectItem>
+                                                    </SelectContent>
+                                                </Select>
                                             </div>
-                                        )}
-
-                                        <div className="flex items-center gap-2">
-                                            <input
-                                                type="checkbox"
-                                                id={`reentry-sl-${idPrefix}`}
-                                                className="w-3.5 h-3.5 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
-                                                checked={leg.reentry_sl_enabled || false}
-                                                onChange={(e) => onChange({ ...leg, reentry_sl_enabled: e.target.checked })}
-                                            />
-                                            <Label htmlFor={`reentry-sl-${idPrefix}`} className="text-[10px] font-bold tracking-wide text-foreground cursor-pointer uppercase">
-                                                Override SL on Re-Entry
-                                            </Label>
-                                        </div>
-                                        {leg.reentry_sl_enabled && (
-                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pl-5 animate-in slide-in-from-top-2 border-l-2 border-primary/20">
-                                                <div className="space-y-1">
-                                                    <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">SL Type</Label>
-                                                    <Select
-                                                        value={leg.reentry_sl_type || 'PERCENTAGE'}
-                                                        onValueChange={(v) => onChange({ ...leg, reentry_sl_type: v })}
-                                                    >
-                                                        <SelectTrigger className="h-9 rounded-lg text-xs">
-                                                            <SelectValue placeholder="SL Type" />
-                                                        </SelectTrigger>
-                                                        <SelectContent>
-                                                            <SelectItem value="PERCENTAGE">Percentage (%)</SelectItem>
-                                                            <SelectItem value="POINTS">Points (Pts)</SelectItem>
-                                                        </SelectContent>
-                                                    </Select>
-                                                </div>
-                                                <div className="space-y-1">
-                                                    <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
-                                                        Value {leg.reentry_sl_type === 'POINTS' ? '(Pts)' : '(%)'}
-                                                    </Label>
-                                                    <Input
-                                                        className="h-9 rounded-lg text-xs"
-                                                        type="number"
-                                                        value={leg.reentry_sl_value !== undefined ? leg.reentry_sl_value : (leg.stop_loss || 0)}
-                                                        onChange={(e) => onChange({ ...leg, reentry_sl_value: parseFloat(e.target.value) })}
-                                                    />
-                                                </div>
+                                            <div className="space-y-1">
+                                                <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground block mb-2">
+                                                    Value {leg.recost_mntm_mode && leg.recost_mntm_mode.includes('PCT') ? '(%)' : '(Pts)'}
+                                                </Label>
+                                                <Input
+                                                    className="h-9 rounded-lg text-xs"
+                                                    type="text"
+                                                    value={leg.recost_mntm_value === undefined ? '' : leg.recost_mntm_value}
+                                                    onChange={(e) => {
+                                                        const val = e.target.value;
+                                                        if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                                                            onChange({ ...leg, recost_mntm_value: val });
+                                                        }
+                                                    }}
+                                                    onBlur={(e) => onChange({ ...leg, recost_mntm_value: parseFloat(e.target.value) || 0 })}
+                                                />
                                             </div>
-                                        )}
+                                        </div>
+                                    )}
+
+                                    <div className="flex items-center gap-2">
+                                        <input
+                                            type="checkbox"
+                                            id={`reentry-sl-${idPrefix}`}
+                                            className="w-3.5 h-3.5 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                            checked={leg.reentry_sl_enabled || false}
+                                            onChange={(e) => onChange({ ...leg, reentry_sl_enabled: e.target.checked })}
+                                        />
+                                        <Label htmlFor={`reentry-sl-${idPrefix}`} className="text-[10px] font-bold tracking-wide text-foreground cursor-pointer uppercase">
+                                            Override SL on Re-Entry
+                                        </Label>
                                     </div>
+                                    {leg.reentry_sl_enabled && (
+                                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pl-5 animate-in slide-in-from-top-2 border-l-2 border-primary/20">
+                                            <div className="space-y-1">
+                                                <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground block mb-2">SL Type</Label>
+                                                <Select
+                                                    value={leg.reentry_sl_type || 'PERCENTAGE'}
+                                                    onValueChange={(v) => onChange({ ...leg, reentry_sl_type: v })}
+                                                >
+                                                    <SelectTrigger className="h-9 rounded-lg text-xs">
+                                                        <SelectValue placeholder="SL Type" />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        <SelectItem value="PERCENTAGE">Percentage (%)</SelectItem>
+                                                        <SelectItem value="POINTS">Points (Pts)</SelectItem>
+                                                    </SelectContent>
+                                                </Select>
+                                            </div>
+                                            <div className="space-y-1">
+                                                <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2 mb-2">
+                                                    Value {leg.reentry_sl_type === 'POINTS' ? '(Pts)' : '(%)'}
+                                                </Label>
+                                                <Input
+                                                    className="h-9 rounded-lg text-xs"
+                                                    type="number"
+                                                    value={leg.reentry_sl_value !== undefined ? leg.reentry_sl_value : (leg.stop_loss || 0)}
+                                                    onChange={(e) => onChange({ ...leg, reentry_sl_value: parseFloat(e.target.value) })}
+                                                />
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
-                            )}
-                        </div>
-
-                        {/* LAZY LEG */}
-                        <div className={`space-y-3 pt-3 border-t transition-all duration-300 ${(leg.re_asap_enabled || leg.recost_enabled) ? 'opacity-40 grayscale pointer-events-none' : ''}`}>
-                            <div className="flex items-center gap-2">
-                                <input
-                                    type="checkbox"
-                                    id={`lazy-leg-${idPrefix}`}
-                                    className="w-3.5 h-3.5 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
-                                    checked={leg.lazy_leg_enabled || false}
-                                    disabled={leg.re_asap_enabled || leg.recost_enabled}
-                                    onChange={(e) => onChange({
-                                        ...leg,
-                                        lazy_leg_enabled: e.target.checked,
-                                        re_asap_enabled: false,
-                                        recost_enabled: false,
-                                        lazy_leg: e.target.checked ? (leg.lazy_leg || { ...DEFAULT_LEG }) : leg.lazy_leg
-                                    })}
-                                />
-                                <Label htmlFor={`lazy-leg-${idPrefix}`} className={`text-[11px] font-bold tracking-wide text-foreground flex items-center gap-1.5 ${(leg.re_asap_enabled || leg.recost_enabled) ? 'cursor-not-allowed' : 'cursor-pointer'}`}>
-                                    LAZY LEG
-                                </Label>
                             </div>
+                        )}
 
-                            {leg.lazy_leg_enabled && leg.lazy_leg && (
-                                <div className="animate-in slide-in-from-top-2">
-                                    <div className="flex items-center justify-between p-2.5 bg-orange-50/50 border border-orange-200 rounded-lg group hover:border-orange-300 transition-all cursor-pointer" onClick={() => setIsLazyModalOpen(true)}>
-                                        <div className="flex items-center gap-2">
-                                            <div className="h-8 w-8 bg-orange-500/10 text-orange-600 rounded flex items-center justify-center">
-                                                <Ghost className="h-4 w-4" />
-                                            </div>
-                                            <div>
-                                                <p className="text-[9px] font-black text-orange-600 uppercase tracking-widest">Lazy Leg Lvl {level + 1}</p>
-                                                <p className="text-xs font-bold text-slate-700">{getLegSummary(leg.lazy_leg)}</p>
-                                            </div>
+                        {leg.lazy_leg_enabled && leg.lazy_leg && (
+                            <div className="animate-in slide-in-from-top-2">
+                                <div className="flex items-center justify-between p-2.5 bg-orange-50/50 border border-orange-200 rounded-lg group hover:border-orange-300 transition-all cursor-pointer" onClick={() => setIsLazyModalOpen(true)}>
+                                    <div className="flex items-center gap-2">
+                                        <div className="h-8 w-8 bg-orange-500/10 text-orange-600 rounded flex items-center justify-center">
+                                            <Ghost className="h-4 w-4" />
                                         </div>
-                                        <Button variant="ghost" size="sm" className="h-7 rounded-md text-[10px] group-hover:bg-orange-100/50">
-                                            <Settings2 className="h-3.5 w-3.5 mr-1" /> Config
-                                        </Button>
+                                        <div>
+                                            <p className="text-[9px] font-black text-orange-600 uppercase tracking-widest">Lazy Leg Lvl {level + 1}</p>
+                                            <p className="text-xs font-bold text-slate-700">{getLegSummary(leg.lazy_leg)}</p>
+                                        </div>
                                     </div>
-                                    <LazyLegModal
-                                        isOpen={isLazyModalOpen}
-                                        onClose={() => setIsLazyModalOpen(false)}
-                                        leg={leg.lazy_leg}
-                                        onChange={(newLazyLeg) => onChange({ ...leg, lazy_leg: newLazyLeg })}
-                                        legIndex={legIndex}
-                                        level={level + 1}
-                                    />
+                                    <Button variant="ghost" size="sm" className="h-7 rounded-md text-[10px] group-hover:bg-orange-100/50">
+                                        <Settings2 className="h-3.5 w-3.5 mr-1" /> Config
+                                    </Button>
                                 </div>
-                            )}
-                        </div>
+                                <LazyLegModal
+                                    isOpen={isLazyModalOpen}
+                                    onClose={() => setIsLazyModalOpen(false)}
+                                    leg={leg.lazy_leg}
+                                    onChange={(newLazyLeg) => onChange({ ...leg, lazy_leg: newLazyLeg })}
+                                    legIndex={legIndex}
+                                    level={level + 1}
+                                />
+                            </div>
+                        )}
                     </div>
-                </div>
+                )}
             </div>
         </div>
     );
@@ -813,8 +795,8 @@ export const StrategyFormContent = ({ config, setConfig, editingId, setEditingId
                     display: none !important;
                 }
             `}</style>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                <div className="space-y-1 lg:col-span-1">
+            <div className="flex flex-wrap items-end justify-between gap-4 px-1 w-full">
+                <div className="space-y-1 w-full max-w-sm">
                     <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
                         <Target className="h-3 w-3" /> Strategy Name
                     </Label>
@@ -826,7 +808,7 @@ export const StrategyFormContent = ({ config, setConfig, editingId, setEditingId
                         onChange={(e) => setConfig({ ...config, name: e.target.value })}
                     />
                 </div>
-                <div className="space-y-1">
+                <div className="space-y-1 w-[150px]">
                     <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
                         <LayoutDashboard className="h-3 w-3" /> Index
                     </Label>
@@ -836,11 +818,143 @@ export const StrategyFormContent = ({ config, setConfig, editingId, setEditingId
                         </SelectTrigger>
                         <SelectContent>
                             <SelectItem value="NIFTY">NIFTY</SelectItem>
-                            <SelectItem value="BANKNIFTY">BANKNIFTY</SelectItem>
-                            <SelectItem value="FINNIFTY">FINNIFTY</SelectItem>
-                            <SelectItem value="SENSEX">SENSEX (BSE)</SelectItem>
+                            <SelectItem value="SENSEX">SENSEX</SelectItem>
                         </SelectContent>
                     </Select>
+                </div>
+                <div className="space-y-1 w-[120px]">
+                    <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+                        Limit Offset
+                    </Label>
+                    <Input
+                        className="h-9 rounded-lg text-sm"
+                        type="text"
+                        placeholder="0.0"
+                        value={config.entry_limit_offset}
+                        onChange={(e) => {
+                            const val = e.target.value;
+                            if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                                setConfig({ ...config, entry_limit_offset: val });
+                            }
+                        }}
+                        onBlur={(e) => {
+                            setConfig({ ...config, entry_limit_offset: parseFloat(e.target.value) || 0 });
+                        }}
+                    />
+                </div>
+                <div className="space-y-1 w-[150px]">
+                    <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+                        <Timer className="h-3 w-3" /> Entry Time
+                    </Label>
+                    <Input
+                        className="h-9 rounded-lg text-sm"
+                        type="time"
+                        step="1"
+                        value={config.entry_time}
+                        onChange={(e) => setConfig({ ...config, entry_time: e.target.value })}
+                    />
+                </div>
+                <div className="space-y-1 w-[150px]">
+                    <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+                        <Timer className="h-3 w-3" /> Exit Time
+                    </Label>
+                    <Input
+                        className="h-9 rounded-lg text-sm"
+                        type="time"
+                        step="1"
+                        value={config.exit_time}
+                        onChange={(e) => setConfig({ ...config, exit_time: e.target.value })}
+                    />
+                </div>
+            </div>
+
+            <div className="flex flex-wrap items-start gap-12 px-1 w-full pt-4 border-t border-gray-50 mt-4 mb-2">
+                {/* Overall Stop Loss */}
+                <div className="space-y-3 min-w-[280px]">
+                    <div className="flex items-center justify-between">
+                        <Label className="text-[13px] font-semibold text-gray-700">Overall Stop Loss</Label>
+                        <Switch
+                            checked={config.overall_sl_enabled}
+                            onCheckedChange={(val) => setConfig({ ...config, overall_sl_enabled: val })}
+                        />
+                    </div>
+                    {config.overall_sl_enabled && (
+                        <div className="flex items-center gap-2 animate-in fade-in slide-in-from-top-1 duration-300">
+                            <div className="flex flex-col gap-1">
+                                <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Type</Label>
+                                <Select value={config.overall_sl_type || 'PERCENTAGE'} onValueChange={(v) => setConfig({ ...config, overall_sl_type: v })}>
+                                    <SelectTrigger className="h-9 w-44 rounded-lg text-sm bg-background border-input">
+                                        <SelectValue placeholder="Type" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="PERCENTAGE">Percentage (%)</SelectItem>
+                                        <SelectItem value="AMOUNT">Amount (₹)</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                            <div className="flex flex-col gap-1">
+                                <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Value</Label>
+                                <Input
+                                    className="h-9 w-28 rounded-lg text-sm border-input bg-background focus:ring-emerald-500 focus:border-emerald-500"
+                                    type="text"
+                                    value={config.overall_sl_value}
+                                    onChange={(e) => {
+                                        const val = e.target.value;
+                                        if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                                            setConfig({ ...config, overall_sl_value: val });
+                                        }
+                                    }}
+                                    onBlur={(e) => {
+                                        setConfig({ ...config, overall_sl_value: parseFloat(e.target.value) || 0 });
+                                    }}
+                                />
+                            </div>
+                        </div>
+                    )}
+                </div>
+
+                {/* Overall Target */}
+                <div className="space-y-3 min-w-[280px]">
+                    <div className="flex items-center justify-between">
+                        <Label className="text-[13px] font-semibold text-gray-700">Overall Target</Label>
+                        <Switch
+                            checked={config.overall_target_enabled}
+                            onCheckedChange={(val) => setConfig({ ...config, overall_target_enabled: val })}
+                        />
+                    </div>
+                    {config.overall_target_enabled && (
+                        <div className="flex items-center gap-2 animate-in fade-in slide-in-from-top-1 duration-300">
+                            <div className="flex flex-col gap-1">
+                                <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Type</Label>
+                                <Select value={config.overall_target_type || 'PERCENTAGE'} onValueChange={(v) => setConfig({ ...config, overall_target_type: v })}>
+                                    <SelectTrigger className="h-9 w-44 rounded-lg text-sm bg-background border-input">
+                                        <SelectValue placeholder="Type" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="PERCENTAGE">Percentage (%)</SelectItem>
+                                        <SelectItem value="AMOUNT">Amount (₹)</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                            <div className="flex flex-col gap-1">
+                                <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Value</Label>
+                                <Input
+                                    className="h-9 w-28 rounded-lg text-sm border-input bg-background focus:ring-emerald-500 focus:border-emerald-500"
+                                    type="text"
+                                    value={config.overall_target_value}
+                                    onChange={(e) => {
+                                        const val = e.target.value;
+                                        if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                                            setConfig({ ...config, overall_target_value: val });
+                                        }
+                                    }}
+                                    onBlur={(e) => {
+                                        setConfig({ ...config, overall_target_value: parseFloat(e.target.value) || 0 });
+                                    }}
+                                />
+                            </div>
+                        </div>
+                    )}
                 </div>
             </div>
 
@@ -886,173 +1000,10 @@ export const StrategyFormContent = ({ config, setConfig, editingId, setEditingId
                 ))}
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 pt-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 pt-4">
 
-                <div className="space-y-1">
-                    <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Variety</Label>
-                    <Select value={config.variety} onValueChange={(v) => setConfig({ ...config, variety: v })}>
-                        <SelectTrigger className="h-9 rounded-lg text-sm">
-                            <SelectValue placeholder="Variety" />
-                        </SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value="STOPLOSS">STOPLOSS</SelectItem>
-                        </SelectContent>
-                    </Select>
-                </div>
 
-                <div className="space-y-1">
-                    <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Product Type</Label>
-                    <Select value={config.producttype} onValueChange={(v) => setConfig({ ...config, producttype: v })}>
-                        <SelectTrigger className="h-9 rounded-lg text-sm">
-                            <SelectValue placeholder="Product" />
-                        </SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value="CARRYFORWARD">CARRYFORWARD (NRML)</SelectItem>
-                            <SelectItem value="INTRADAY">INTRADAY (MIS)</SelectItem>
-                        </SelectContent>
-                    </Select>
-                </div>
-
-                <div className="space-y-1">
-                    <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Order Type</Label>
-                    <Select value={config.ordertype} onValueChange={(v) => setConfig({ ...config, ordertype: v })}>
-                        <SelectTrigger className="h-9 rounded-lg text-sm">
-                            <SelectValue placeholder="Order Type" />
-                        </SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value="MARKET">MARKET</SelectItem>
-                            <SelectItem value="LIMIT">LIMIT</SelectItem>
-                        </SelectContent>
-                    </Select>
-                </div>
-
-                <div className="space-y-1">
-                    <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Duration</Label>
-                    <Select value={config.duration} onValueChange={(v) => setConfig({ ...config, duration: v })}>
-                        <SelectTrigger className="h-9 rounded-lg text-sm">
-                            <SelectValue placeholder="Duration" />
-                        </SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value="DAY">DAY</SelectItem>
-                        </SelectContent>
-                    </Select>
-                </div>
-
-                <div className="space-y-1">
-                    <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
-                        <Timer className="h-3 w-3" /> Entry Time
-                    </Label>
-                    <Input
-                        className="h-9 rounded-lg text-sm"
-                        type="time"
-                        step="1"
-                        value={config.entry_time}
-                        onChange={(e) => setConfig({ ...config, entry_time: e.target.value })}
-                    />
-                </div>
-
-                <div className="space-y-1">
-                    <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
-                        <Timer className="h-3 w-3" /> Exit Time
-                    </Label>
-                    <Input
-                        className="h-9 rounded-lg text-sm"
-                        type="time"
-                        step="1"
-                        value={config.exit_time}
-                        onChange={(e) => setConfig({ ...config, exit_time: e.target.value })}
-                    />
-                </div>
-
-                <div className="space-y-1">
-                    <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
-                        Overall SL Type
-                    </Label>
-                    <Select value={config.overall_sl_type || 'PERCENTAGE'} onValueChange={(v) => setConfig({ ...config, overall_sl_type: v })}>
-                        <SelectTrigger className="h-9 rounded-lg text-sm">
-                            <SelectValue placeholder="SL Type" />
-                        </SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value="PERCENTAGE">Percentage (%)</SelectItem>
-                            <SelectItem value="AMOUNT">Amount (₹)</SelectItem>
-                        </SelectContent>
-                    </Select>
-                </div>
-
-                <div className="space-y-1">
-                    <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
-                        Overall SL {config.overall_sl_type === 'AMOUNT' ? '(₹)' : '(%)'}
-                    </Label>
-                    <Input
-                        className="h-9 rounded-lg text-sm"
-                        type="text"
-                        value={config.overall_sl_value}
-                        onChange={(e) => {
-                            const val = e.target.value;
-                            if (val === '' || /^\d*\.?\d*$/.test(val)) {
-                                setConfig({ ...config, overall_sl_value: val });
-                            }
-                        }}
-                        onBlur={(e) => {
-                            setConfig({ ...config, overall_sl_value: parseFloat(e.target.value) || 0 });
-                        }}
-                    />
-                </div>
-
-                <div className="space-y-1">
-                    <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
-                        Overall Target Type
-                    </Label>
-                    <Select value={config.overall_target_type || 'PERCENTAGE'} onValueChange={(v) => setConfig({ ...config, overall_target_type: v })}>
-                        <SelectTrigger className="h-9 rounded-lg text-sm">
-                            <SelectValue placeholder="Target Type" />
-                        </SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value="PERCENTAGE">Percentage (%)</SelectItem>
-                            <SelectItem value="AMOUNT">Amount (₹)</SelectItem>
-                        </SelectContent>
-                    </Select>
-                </div>
-
-                <div className="space-y-1">
-                    <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
-                        Overall Target {config.overall_target_type === 'AMOUNT' ? '(₹)' : '(%)'}
-                    </Label>
-                    <Input
-                        className="h-9 rounded-lg text-sm"
-                        type="text"
-                        value={config.overall_target_value}
-                        onChange={(e) => {
-                            const val = e.target.value;
-                            if (val === '' || /^\d*\.?\d*$/.test(val)) {
-                                setConfig({ ...config, overall_target_value: val });
-                            }
-                        }}
-                        onBlur={(e) => {
-                            setConfig({ ...config, overall_target_value: parseFloat(e.target.value) || 0 });
-                        }}
-                    />
-                </div>
-
-                {config.ordertype === 'LIMIT' ? (
-                    <div className="space-y-1">
-                        <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Limit Offset (LTP + )</Label>
-                        <Input
-                            className="h-9 rounded-lg text-sm"
-                            type="text"
-                            value={config.entry_limit_offset}
-                            onChange={(e) => {
-                                const val = e.target.value;
-                                if (val === '' || /^\d*\.?\d*$/.test(val)) {
-                                    setConfig({ ...config, entry_limit_offset: val });
-                                }
-                            }}
-                            onBlur={(e) => {
-                                setConfig({ ...config, entry_limit_offset: parseFloat(e.target.value) || 0 });
-                            }}
-                        />
-                    </div>
-                ) : (config.ordertype !== 'MARKET' && config.ordertype !== 'STOPLOSS_MARKET' && (
+                {config.ordertype !== 'LIMIT' && (config.ordertype !== 'MARKET' && config.ordertype !== 'STOPLOSS_MARKET' && (
                     <div className="space-y-1">
                         <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Price</Label>
                         <Input
@@ -1135,8 +1086,10 @@ export const StrategyBuilder = ({ isConnected }) => {
         stoploss: '0',
         overall_sl_type: 'PERCENTAGE',
         overall_sl_value: 0,
+        overall_sl_enabled: false,
         overall_target_type: 'PERCENTAGE',
         overall_target_value: 0,
+        overall_target_enabled: false,
         entry_limit_offset: 0,
         legs: [
             { strike_criteria: 'STRIKE_TYPE', option_type: 'CE', strike: 'ATM', premium: 0, side: 'BUY', lots: 1, sl_type: 'PERCENTAGE', stop_loss: 10, simple_mntm_enabled: false, simple_mntm_mode: 'SIMPLE_PLUS_PCT', simple_mntm_value: 0, recost_enabled: false, recost_mode: 'RECOST_PLUS_PCT', recost_value: 0, max_reentry: 1, reentry_sl_enabled: false, reentry_sl_type: 'PERCENTAGE', reentry_sl_value: 10, re_asap_enabled: false, re_asap_max_entries: 1, lazy_leg_enabled: false, lazy_leg: null, tsl_enabled: false, tsl_type: 'PERCENTAGE', tsl_value: 0 }
@@ -1147,7 +1100,7 @@ export const StrategyBuilder = ({ isConnected }) => {
         try {
             const res = await axios.get(`${API_BASE_URL}/strategy/user`);
             let fetchedData = res.data?.data || [];
-            
+
             // Client-side ordering
             const savedOrder = JSON.parse(localStorage.getItem('custom_strategy_order') || '[]');
             if (savedOrder.length > 0) {
@@ -1160,7 +1113,7 @@ export const StrategyBuilder = ({ isConnected }) => {
                     return indexA - indexB;
                 });
             }
-            
+
             setSavedStrategies(fetchedData);
         } catch (err) {
             console.error("Error fetching saved strategies:", err);
@@ -1195,8 +1148,27 @@ export const StrategyBuilder = ({ isConnected }) => {
     }, [isConnected]);
 
     const handleSave = async () => {
+        // Prevent duplicate strategy names
+        if (config.name) {
+            const isDuplicate = savedStrategies.find(s =>
+                s.name.trim().toLowerCase() === config.name.trim().toLowerCase() &&
+                s.id !== editingId
+            );
+            if (isDuplicate) {
+                alert(`A strategy named "${config.name}" already exists. Please choose a different name.`);
+                return;
+            }
+        }
+
         setLoading(true);
-        const finalConfig = { ...config, is_paper_trading: activeTab === 'paper' };
+        const finalConfig = {
+            ...config,
+            is_paper_trading: activeTab === 'paper',
+            variety: 'STOPLOSS',
+            producttype: 'CARRYFORWARD',
+            ordertype: 'LIMIT',
+            duration: 'DAY'
+        };
         try {
             if (editingId) {
                 await axios.put(`${API_BASE_URL}/strategy/update/${editingId}`, finalConfig);
@@ -1272,9 +1244,18 @@ export const StrategyBuilder = ({ isConnected }) => {
     };
 
     const handleEdit = (strategy) => {
-        setConfig(strategy.config);
+        const conf = strategy.config;
+        setConfig({
+            ...conf,
+            variety: 'STOPLOSS',
+            producttype: 'CARRYFORWARD',
+            ordertype: 'LIMIT',
+            duration: 'DAY',
+            overall_sl_enabled: conf.overall_sl_enabled || (conf.overall_sl_value > 0),
+            overall_target_enabled: conf.overall_target_enabled || (conf.overall_target_value > 0)
+        });
         setEditingId(strategy.id);
-        setActiveTab(strategy.config.is_paper_trading ? 'paper' : 'live');
+        setActiveTab(conf.is_paper_trading ? 'paper' : 'live');
         setIsConfigExpanded(true);
         window.scrollTo({ top: 0, behavior: 'smooth' });
     };
@@ -1480,7 +1461,7 @@ export const StrategyBuilder = ({ isConnected }) => {
                 </TabsList>
 
                 <Card className="w-full border-border bg-card overflow-hidden">
-                    <CardHeader 
+                    <CardHeader
                         className="border-b bg-muted py-3 px-4 cursor-pointer hover:bg-muted/80 transition-colors"
                         onClick={() => setIsConfigExpanded(!isConfigExpanded)}
                     >
@@ -1505,12 +1486,12 @@ export const StrategyBuilder = ({ isConnected }) => {
                     Object.entries(runningStrategies).filter(([_, data]) => (activeTab === 'paper' ? data.config?.is_paper_trading : !data.config?.is_paper_trading)).length > 0 && (
                         <div className="mt-6">
                             <Card className="w-full border-border bg-card mb-4 overflow-hidden">
-                                <div 
+                                <div
                                     className="border-b bg-muted/60 py-3 px-4 flex items-center justify-between cursor-pointer hover:bg-muted/80 transition-colors"
-                                    onClick={() => setCollapsedSections(prev => ({...prev, 'active-strategies': !prev['active-strategies']}))}
+                                    onClick={() => setCollapsedSections(prev => ({ ...prev, 'active-strategies': !prev['active-strategies'] }))}
                                 >
                                     <CardTitle className="flex items-center gap-2 text-base font-bold">
-                                         <Play className="h-4 w-4 text-primary" /> Active Executions
+                                        <Play className="h-4 w-4 text-primary" /> Active Executions
                                     </CardTitle>
                                     <Button variant="ghost" size="sm" className="h-8 w-8 p-0 shrink-0">
                                         {collapsedSections['active-strategies'] ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
@@ -1520,270 +1501,269 @@ export const StrategyBuilder = ({ isConnected }) => {
                             {!collapsedSections['active-strategies'] && (
                                 <div className="space-y-4 animate-in fade-in slide-in-from-top-2 duration-200">
                                     {Object.entries(runningStrategies)
-                                .filter(([_, data]) => (activeTab === 'paper' ? data.config?.is_paper_trading : !data.config?.is_paper_trading))
-                                .map(([id, strategyData]) => (
-                                    <Card key={id} className={`w-full border-border animate-in fade-in slide-in-from-bottom-4 duration-500 ${activeTab === 'paper' ? 'bg-blue-50/50' : 'bg-orange-50/50'}`}>
-                                <CardContent className="p-3 space-y-2">
-                                    <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3">
-                                        <div className="flex items-center gap-x-2.5 gap-y-1.5 flex-wrap">
-                                            <span className="relative flex h-2 w-2 shadow-[0_0_10px_rgba(34,197,94,0.3)] rounded-full mr-1">
-                                                <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${strategyData.status === 'FAILED' ? 'bg-red-400' : 'bg-green-400'} opacity-75`}></span>
-                                                <span className={`relative inline-flex rounded-full h-2 w-2 ${strategyData.status === 'FAILED' ? 'bg-red-500' : 'bg-green-500'}`}></span>
-                                            </span>
-                                            
-                                            <span className="text-[13px] font-bold text-slate-800">
-                                                {strategyData.name || strategyData.config?.name || 'Strategy Execution'} 
-                                                <span className="text-[10px] font-mono text-muted-foreground ml-1.5">#{id.split('-')[0] || id}</span>
-                                            </span>
+                                        .filter(([_, data]) => (activeTab === 'paper' ? data.config?.is_paper_trading : !data.config?.is_paper_trading))
+                                        .map(([id, strategyData]) => (
+                                            <Card key={id} className={`w-full border-border animate-in fade-in slide-in-from-bottom-4 duration-500 ${activeTab === 'paper' ? 'bg-blue-50/50' : 'bg-orange-50/50'}`}>
+                                                <CardContent className="p-3 space-y-2">
+                                                    <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3">
+                                                        <div className="flex items-center gap-x-2.5 gap-y-1.5 flex-wrap">
+                                                            <span className="relative flex h-2 w-2 shadow-[0_0_10px_rgba(34,197,94,0.3)] rounded-full mr-1">
+                                                                <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${strategyData.status === 'FAILED' ? 'bg-red-400' : 'bg-green-400'} opacity-75`}></span>
+                                                                <span className={`relative inline-flex rounded-full h-2 w-2 ${strategyData.status === 'FAILED' ? 'bg-red-500' : 'bg-green-500'}`}></span>
+                                                            </span>
 
-                                            <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded shadow-sm uppercase ${strategyData.config?.is_paper_trading ? 'bg-blue-100/80 text-blue-700 border border-blue-200' : 'bg-orange-100/80 text-orange-700 border border-orange-200'}`}>
-                                                {strategyData.status} • {strategyData.config?.is_paper_trading ? 'PAPER' : 'LIVE'} • {strategyData.config?.index}
-                                            </span>
+                                                            <span className="text-[13px] font-bold text-slate-800">
+                                                                {strategyData.name || strategyData.config?.name || 'Strategy Execution'}
+                                                                <span className="text-[10px] font-mono text-muted-foreground ml-1.5">#{id.split('-')[0] || id}</span>
+                                                            </span>
 
-                                            {strategyData.status === 'WAITING' && strategyData.config?.entry_time && (
-                                                <EntryTimer entryTime={strategyData.config.entry_time} />
-                                            )}
+                                                            <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded shadow-sm uppercase ${strategyData.config?.is_paper_trading ? 'bg-blue-100/80 text-blue-700 border border-blue-200' : 'bg-orange-100/80 text-orange-700 border border-orange-200'}`}>
+                                                                {strategyData.status} • {strategyData.config?.is_paper_trading ? 'PAPER' : 'LIVE'} • {strategyData.config?.index}
+                                                            </span>
 
-                                            {(strategyData?.status === "IN_POSITION" || strategyData?.status === "COMPLETED") && (
-                                                <div className="flex items-center gap-1.5 ml-1">
-                                                    <span className={`text-[11px] font-mono font-bold px-1.5 py-0.5 rounded border shadow-sm ${
-                                                        (strategyData.pnlPercent || 0) >= 0 
-                                                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200' 
-                                                        : 'bg-red-50 text-red-700 border-red-200'
-                                                    }`}>
-                                                        {(strategyData.pnlPercent || 0) > 0 ? '+' : ''}{(strategyData.pnlPercent || 0).toFixed(2)}% | {(strategyData.totalPnlRupees || 0) > 0 ? '+' : ''}₹{(strategyData.totalPnlRupees || 0).toFixed(2)}
-                                                    </span>
-                                                    <span className="text-[10px] font-mono font-semibold text-slate-500 bg-slate-50 border border-slate-200 px-1.5 py-0.5 shadow-sm rounded">
-                                                        Value: ₹{(strategyData.totalOriginalValue || 0).toFixed(2)}
-                                                    </span>
-                                                </div>
-                                            )}
-                                        </div>
+                                                            {strategyData.status === 'WAITING' && strategyData.config?.entry_time && (
+                                                                <EntryTimer entryTime={strategyData.config.entry_time} />
+                                                            )}
 
-                                        <div className="flex items-center gap-1.5 shrink-0 self-start xl:self-auto">
-                                            <Button
-                                                size="icon"
-                                                variant="ghost"
-                                                className="h-8 w-8 rounded-md text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 border border-transparent hover:border-indigo-100"
-                                                title="View Config"
-                                                onClick={() => {
-                                                    setViewConfig(strategyData.config);
-                                                    setViewStrategyName(strategyData.name || strategyData.config?.name || 'Strategy');
-                                                    setConfigWindowOpen(true);
-                                                }}
-                                            >
-                                                <Settings2 className="h-4 w-4" />
-                                            </Button>
-                                            <Button
-                                                size="icon"
-                                                variant="ghost"
-                                                className="h-8 w-8 rounded-md text-slate-500 hover:text-blue-600 hover:bg-blue-50 border border-transparent hover:border-blue-100"
-                                                title="View Logs"
-                                                onClick={() => {
-                                                    setLogStrategyId(id);
-                                                    setLogWindowOpen(true);
-                                                }}
-                                            >
-                                                <MessageSquare className="h-4 w-4" />
-                                            </Button>
-                                            {strategyData?.status === "IN_POSITION" && (
-                                                <Button
-                                                    size="sm"
-                                                    variant="outline"
-                                                    className="h-8 px-3 gap-1 rounded-md text-[11px] font-bold border-orange-200 bg-orange-50/50 hover:bg-orange-100 text-orange-600 shadow-sm"
-                                                    onClick={() => handleSquareOff(id)}
-                                                >
-                                                    Square Off
-                                                </Button>
-                                            )}
-                                            <Button
-                                                size="sm"
-                                                variant="outline"
-                                                className="h-8 px-3 gap-1 rounded-md text-[11px] font-bold border-red-200 bg-red-50/50 hover:bg-red-100 text-red-600 shadow-sm"
-                                                onClick={() => handleStop(id)}
-                                            >
-                                                <StopCircle className="h-3.5 w-3.5" /> Terminate
-                                            </Button>
-                                        </div>
-                                    </div>
-
-                                    {strategyData?.status === "IN_POSITION" || strategyData?.status === "COMPLETED" ? (
-                                        <div className="space-y-2 pt-2 border-t border-border mt-1">
-                                            {/* Strategy Legs */}
-
-                                            {/* Running Legs */}
-                                            {strategyData.legs?.filter(l => !l.exited || ["WAITING_FOR_RECOST", "WAITING_FOR_MNTM", "WAITING_FOR_RE_ASAP", "WAITING_FOR_LAZY"].includes(l.state)).length > 0 && (
-                                                <div className="space-y-2">
-                                                    <div 
-                                                        className="flex items-center justify-between cursor-pointer group"
-                                                        onClick={() => setCollapsedSections(prev => ({...prev, [`${id}-running`]: !prev[`${id}-running`]}))}
-                                                    >
-                                                        <span className="text-xs font-bold uppercase text-muted-foreground group-hover:text-foreground transition-colors">Running Legs</span>
-                                                        <Button variant="ghost" size="sm" className="h-4 w-4 p-0 shrink-0 text-muted-foreground group-hover:text-foreground">
-                                                            {collapsedSections[`${id}-running`] ? <ChevronDown className="h-3 w-3" /> : <ChevronUp className="h-3 w-3" />}
-                                                        </Button>
-                                                    </div>
-                                                    {!collapsedSections[`${id}-running`] && (
-                                                    <div className="space-y-2 animate-in slide-in-from-top-2 duration-200">
-                                                        {strategyData.legs.map((l, idx) => (!l.exited || ["WAITING_FOR_RECOST", "WAITING_FOR_MNTM", "WAITING_FOR_RE_ASAP", "WAITING_FOR_LAZY"].includes(l.state)) && (
-                                                            <div key={idx} className="flex items-center justify-between p-2.5 bg-white border border-border rounded-xl">
-                                                                <div className="flex flex-col">
-                                                                    <div className="flex items-center gap-1 flex-wrap">
-                                                                        <span className="text-sm font-bold">{l.instrument?.symbol || "---"} ({l.leg?.side})</span>
-                                                                        <span className="text-[11px] font-bold text-slate-600">
-                                                                            {l.leg?.lots} {l.leg?.lots > 1 ? 'Lots' : 'Lot'}
-                                                                        </span>
-                                                                        <span className="text-muted-foreground text-xs font-mono">|</span>
-                                                                        <span className="text-primary font-bold text-xs font-mono">{l.entryTime || "---"}</span>
-                                                                        <span className="text-muted-foreground text-xs font-mono">|</span>
-                                                                        <span className="text-xs font-mono text-muted-foreground">Entry: {(l.entryPrice || 0).toFixed(2)}</span>
-                                                                        <span className="text-muted-foreground text-xs font-mono">|</span>
-                                                                        <span className="text-xs font-mono animate-pulse text-blue-600 font-bold">LTP: {(l.currentLtp || 0).toFixed(2)}</span>
-                                                                        {l.initialSlTriggerPrice != null && (
-                                                                            <>
-                                                                                <span className="text-muted-foreground text-xs font-mono">|</span>
-                                                                                <span className="text-slate-500 font-bold text-xs font-mono">Init SL: {Number(l.initialSlTriggerPrice).toFixed(1)}</span>
-                                                                            </>
-                                                                        )}
-                                                                        {l.slTriggerPrice != null && (
-                                                                            <>
-                                                                                <span className="text-muted-foreground text-xs font-mono">|</span>
-                                                                                <span className={`text-xs font-mono font-black ${Number(l.slTriggerPrice) !== Number(l.initialSlTriggerPrice) ? 'text-indigo-600 animate-pulse' : 'text-slate-800'}`}>
-                                                                                    Now SL: {Number(l.slTriggerPrice).toFixed(1)}
-                                                                                </span>
-                                                                            </>
-                                                                        )}
-                                                                        {l.rtp != null && (
-                                                                            <>
-                                                                                <span className="text-muted-foreground text-xs font-mono">|</span>
-                                                                                <span className="text-orange-500 font-bold text-xs font-mono">RTP: {l.rtp.toFixed(2)}</span>
-                                                                            </>
-                                                                        )}
-                                                                        {l.mtp != null && (
-                                                                            <>
-                                                                                <span className="text-muted-foreground text-xs font-mono">|</span>
-                                                                                <span className="text-purple-500 font-bold text-xs font-mono">MTP: {l.mtp.toFixed(2)}</span>
-                                                                            </>
-                                                                        )}
-                                                                        {l.mntmTargetPrice != null && l.state === "WAITING_FOR_SIMPLE_MNTM" && (
-                                                                            <>
-                                                                                <span className="text-muted-foreground text-xs font-mono">|</span>
-                                                                                <span className="text-blue-500 font-bold animate-pulse text-xs font-mono">Wait Target: ₹{l.mntmTargetPrice.toFixed(2)}</span>
-                                                                            </>
-                                                                        )}
-                                                                        {l.state === "WAITING_FOR_RECOST" && (
-                                                                            <span className="px-2 py-0.5 ml-2 bg-yellow-100 text-yellow-700 font-bold rounded text-xs font-mono">Waiting Re-Entry (Price)</span>
-                                                                        )}
-                                                                        {l.state === "WAITING_FOR_RE_ASAP" && (
-                                                                            <span className="px-2 py-0.5 ml-2 bg-blue-100 text-blue-700 font-bold rounded text-xs font-mono">Waiting Re-Entry (ASAP)</span>
-                                                                        )}
-                                                                        {l.state === "WAITING_FOR_LAZY" && (
-                                                                            <span className="px-2 py-0.5 ml-2 bg-purple-100 text-purple-700 font-bold rounded text-xs font-mono">Initializing Lazy Leg</span>
-                                                                        )}
-                                                                    </div>
+                                                            {(strategyData?.status === "IN_POSITION" || strategyData?.status === "COMPLETED") && (
+                                                                <div className="flex items-center gap-1.5 ml-1">
+                                                                    <span className={`text-[11px] font-mono font-bold px-1.5 py-0.5 rounded border shadow-sm ${(strategyData.pnlPercent || 0) >= 0
+                                                                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                                                        : 'bg-red-50 text-red-700 border-red-200'
+                                                                        }`}>
+                                                                        {(strategyData.pnlPercent || 0) > 0 ? '+' : ''}{(strategyData.pnlPercent || 0).toFixed(2)}% | {(strategyData.totalPnlRupees || 0) > 0 ? '+' : ''}₹{(strategyData.totalPnlRupees || 0).toFixed(2)}
+                                                                    </span>
+                                                                    <span className="text-[10px] font-mono font-semibold text-slate-500 bg-slate-50 border border-slate-200 px-1.5 py-0.5 shadow-sm rounded">
+                                                                        Value: ₹{(strategyData.totalOriginalValue || 0).toFixed(2)}
+                                                                    </span>
                                                                 </div>
-                                                                <div className="flex items-center gap-4">
-                                                                    <div className="flex items-center gap-3">
-                                                                        <span className={`text-sm font-mono font-bold ${(l.currentActivePnlPercent || 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                                                                            {(l.currentActivePnlPercent || 0) > 0 ? '+' : ''}{(l.currentActivePnlPercent || 0).toFixed(2)}%
-                                                                        </span>
-                                                                        <span className={`text-sm font-mono font-bold ${(l.currentActivePnlRupees || 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                                                                            {(l.currentActivePnlRupees || 0) > 0 ? '+' : ''}₹{(l.currentActivePnlRupees || 0).toFixed(2)}
-                                                                        </span>
-                                                                    </div>
-                                                                    <Button
-                                                                        size="sm"
-                                                                        variant="outline"
-                                                                        className="rounded-lg border-orange-500 hover:bg-orange-50 text-orange-600 text-xs font-bold px-3 h-8"
-                                                                        onClick={() => handleSquareOffLeg(id, idx)}
-                                                                        disabled={l.isExiting}
+                                                            )}
+                                                        </div>
+
+                                                        <div className="flex items-center gap-1.5 shrink-0 self-start xl:self-auto">
+                                                            <Button
+                                                                size="icon"
+                                                                variant="ghost"
+                                                                className="h-8 w-8 rounded-md text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 border border-transparent hover:border-indigo-100"
+                                                                title="View Config"
+                                                                onClick={() => {
+                                                                    setViewConfig(strategyData.config);
+                                                                    setViewStrategyName(strategyData.name || strategyData.config?.name || 'Strategy');
+                                                                    setConfigWindowOpen(true);
+                                                                }}
+                                                            >
+                                                                <Settings2 className="h-4 w-4" />
+                                                            </Button>
+                                                            <Button
+                                                                size="icon"
+                                                                variant="ghost"
+                                                                className="h-8 w-8 rounded-md text-slate-500 hover:text-blue-600 hover:bg-blue-50 border border-transparent hover:border-blue-100"
+                                                                title="View Logs"
+                                                                onClick={() => {
+                                                                    setLogStrategyId(id);
+                                                                    setLogWindowOpen(true);
+                                                                }}
+                                                            >
+                                                                <MessageSquare className="h-4 w-4" />
+                                                            </Button>
+                                                            {strategyData?.status === "IN_POSITION" && (
+                                                                <Button
+                                                                    size="sm"
+                                                                    variant="outline"
+                                                                    className="h-8 px-3 gap-1 rounded-md text-[11px] font-bold border-orange-200 bg-orange-50/50 hover:bg-orange-100 text-orange-600 shadow-sm"
+                                                                    onClick={() => handleSquareOff(id)}
+                                                                >
+                                                                    Square Off
+                                                                </Button>
+                                                            )}
+                                                            <Button
+                                                                size="sm"
+                                                                variant="outline"
+                                                                className="h-8 px-3 gap-1 rounded-md text-[11px] font-bold border-red-200 bg-red-50/50 hover:bg-red-100 text-red-600 shadow-sm"
+                                                                onClick={() => handleStop(id)}
+                                                            >
+                                                                <StopCircle className="h-3.5 w-3.5" /> Terminate
+                                                            </Button>
+                                                        </div>
+                                                    </div>
+
+                                                    {strategyData?.status === "IN_POSITION" || strategyData?.status === "COMPLETED" ? (
+                                                        <div className="space-y-2 pt-2 border-t border-border mt-1">
+                                                            {/* Strategy Legs */}
+
+                                                            {/* Running Legs */}
+                                                            {strategyData.legs?.filter(l => !l.exited || ["WAITING_FOR_RECOST", "WAITING_FOR_MNTM", "WAITING_FOR_RE_ASAP", "WAITING_FOR_LAZY"].includes(l.state)).length > 0 && (
+                                                                <div className="space-y-2">
+                                                                    <div
+                                                                        className="flex items-center justify-between cursor-pointer group"
+                                                                        onClick={() => setCollapsedSections(prev => ({ ...prev, [`${id}-running`]: !prev[`${id}-running`] }))}
                                                                     >
-                                                                        {l.isExiting ? "Exiting..." :
-                                                                            (l.state === "WAITING_FOR_RECOST" || l.state === "WAITING_FOR_MNTM") ? "Cancel Re-Cost" :
-                                                                                (l.state === "WAITING_FOR_RE_ASAP") ? "Cancel Re-Entry" :
-                                                                                    (l.state === "WAITING_FOR_LAZY") ? "Cancel Lazy Leg" :
-                                                                                        "Square Off"}
-                                                                    </Button>
+                                                                        <span className="text-xs font-bold uppercase text-muted-foreground group-hover:text-foreground transition-colors">Running Legs</span>
+                                                                        <Button variant="ghost" size="sm" className="h-4 w-4 p-0 shrink-0 text-muted-foreground group-hover:text-foreground">
+                                                                            {collapsedSections[`${id}-running`] ? <ChevronDown className="h-3 w-3" /> : <ChevronUp className="h-3 w-3" />}
+                                                                        </Button>
+                                                                    </div>
+                                                                    {!collapsedSections[`${id}-running`] && (
+                                                                        <div className="space-y-2 animate-in slide-in-from-top-2 duration-200">
+                                                                            {strategyData.legs.map((l, idx) => (!l.exited || ["WAITING_FOR_RECOST", "WAITING_FOR_MNTM", "WAITING_FOR_RE_ASAP", "WAITING_FOR_LAZY"].includes(l.state)) && (
+                                                                                <div key={idx} className="flex items-center justify-between p-2.5 bg-white border border-border rounded-xl">
+                                                                                    <div className="flex flex-col">
+                                                                                        <div className="flex items-center gap-1 flex-wrap">
+                                                                                            <span className="text-sm font-bold">{l.instrument?.symbol || "---"} ({l.leg?.side})</span>
+                                                                                            <span className="text-[11px] font-bold text-slate-600">
+                                                                                                {l.leg?.lots} {l.leg?.lots > 1 ? 'Lots' : 'Lot'}
+                                                                                            </span>
+                                                                                            <span className="text-muted-foreground text-xs font-mono">|</span>
+                                                                                            <span className="text-primary font-bold text-xs font-mono">{l.entryTime || "---"}</span>
+                                                                                            <span className="text-muted-foreground text-xs font-mono">|</span>
+                                                                                            <span className="text-xs font-mono text-muted-foreground">Entry: {(l.entryPrice || 0).toFixed(2)}</span>
+                                                                                            <span className="text-muted-foreground text-xs font-mono">|</span>
+                                                                                            <span className="text-xs font-mono animate-pulse text-blue-600 font-bold">LTP: {(l.currentLtp || 0).toFixed(2)}</span>
+                                                                                            {l.initialSlTriggerPrice != null && (
+                                                                                                <>
+                                                                                                    <span className="text-muted-foreground text-xs font-mono">|</span>
+                                                                                                    <span className="text-slate-500 font-bold text-xs font-mono">Init SL: {Number(l.initialSlTriggerPrice).toFixed(1)}</span>
+                                                                                                </>
+                                                                                            )}
+                                                                                            {l.slTriggerPrice != null && (
+                                                                                                <>
+                                                                                                    <span className="text-muted-foreground text-xs font-mono">|</span>
+                                                                                                    <span className={`text-xs font-mono font-black ${Number(l.slTriggerPrice) !== Number(l.initialSlTriggerPrice) ? 'text-indigo-600 animate-pulse' : 'text-slate-800'}`}>
+                                                                                                        Now SL: {Number(l.slTriggerPrice).toFixed(1)}
+                                                                                                    </span>
+                                                                                                </>
+                                                                                            )}
+                                                                                            {l.rtp != null && (
+                                                                                                <>
+                                                                                                    <span className="text-muted-foreground text-xs font-mono">|</span>
+                                                                                                    <span className="text-orange-500 font-bold text-xs font-mono">RTP: {l.rtp.toFixed(2)}</span>
+                                                                                                </>
+                                                                                            )}
+                                                                                            {l.mtp != null && (
+                                                                                                <>
+                                                                                                    <span className="text-muted-foreground text-xs font-mono">|</span>
+                                                                                                    <span className="text-purple-500 font-bold text-xs font-mono">MTP: {l.mtp.toFixed(2)}</span>
+                                                                                                </>
+                                                                                            )}
+                                                                                            {l.mntmTargetPrice != null && l.state === "WAITING_FOR_SIMPLE_MNTM" && (
+                                                                                                <>
+                                                                                                    <span className="text-muted-foreground text-xs font-mono">|</span>
+                                                                                                    <span className="text-blue-500 font-bold animate-pulse text-xs font-mono">Wait Target: ₹{l.mntmTargetPrice.toFixed(2)}</span>
+                                                                                                </>
+                                                                                            )}
+                                                                                            {l.state === "WAITING_FOR_RECOST" && (
+                                                                                                <span className="px-2 py-0.5 ml-2 bg-yellow-100 text-yellow-700 font-bold rounded text-xs font-mono">Waiting Re-Entry (Price)</span>
+                                                                                            )}
+                                                                                            {l.state === "WAITING_FOR_RE_ASAP" && (
+                                                                                                <span className="px-2 py-0.5 ml-2 bg-blue-100 text-blue-700 font-bold rounded text-xs font-mono">Waiting Re-Entry (ASAP)</span>
+                                                                                            )}
+                                                                                            {l.state === "WAITING_FOR_LAZY" && (
+                                                                                                <span className="px-2 py-0.5 ml-2 bg-purple-100 text-purple-700 font-bold rounded text-xs font-mono">Initializing Lazy Leg</span>
+                                                                                            )}
+                                                                                        </div>
+                                                                                    </div>
+                                                                                    <div className="flex items-center gap-4">
+                                                                                        <div className="flex items-center gap-3">
+                                                                                            <span className={`text-sm font-mono font-bold ${(l.currentActivePnlPercent || 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                                                                                                {(l.currentActivePnlPercent || 0) > 0 ? '+' : ''}{(l.currentActivePnlPercent || 0).toFixed(2)}%
+                                                                                            </span>
+                                                                                            <span className={`text-sm font-mono font-bold ${(l.currentActivePnlRupees || 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                                                                                                {(l.currentActivePnlRupees || 0) > 0 ? '+' : ''}₹{(l.currentActivePnlRupees || 0).toFixed(2)}
+                                                                                            </span>
+                                                                                        </div>
+                                                                                        <Button
+                                                                                            size="sm"
+                                                                                            variant="outline"
+                                                                                            className="rounded-lg border-orange-500 hover:bg-orange-50 text-orange-600 text-xs font-bold px-3 h-8"
+                                                                                            onClick={() => handleSquareOffLeg(id, idx)}
+                                                                                            disabled={l.isExiting}
+                                                                                        >
+                                                                                            {l.isExiting ? "Exiting..." :
+                                                                                                (l.state === "WAITING_FOR_RECOST" || l.state === "WAITING_FOR_MNTM") ? "Cancel Re-Cost" :
+                                                                                                    (l.state === "WAITING_FOR_RE_ASAP") ? "Cancel Re-Entry" :
+                                                                                                        (l.state === "WAITING_FOR_LAZY") ? "Cancel Lazy Leg" :
+                                                                                                            "Square Off"}
+                                                                                        </Button>
+                                                                                    </div>
+                                                                                </div>
+                                                                            ))}
+                                                                        </div>
+                                                                    )}
                                                                 </div>
-                                                            </div>
-                                                        ))}
-                                                    </div>
-                                                    )}
-                                                </div>
-                                            )}
+                                                            )}
 
-                                            {/* Closed Legs */}
-                                            {strategyData.legs?.filter(l => l.exited).length > 0 && (
-                                                <div className="space-y-2">
-                                                    <div 
-                                                        className="flex items-center justify-between cursor-pointer group"
-                                                        onClick={() => setCollapsedSections(prev => ({...prev, [`${id}-closed`]: !prev[`${id}-closed`]}))}
-                                                    >
-                                                        <span className="text-xs font-bold uppercase text-muted-foreground group-hover:text-foreground transition-colors">Closed Legs</span>
-                                                        <Button variant="ghost" size="sm" className="h-4 w-4 p-0 shrink-0 text-muted-foreground group-hover:text-foreground">
-                                                            {collapsedSections[`${id}-closed`] ? <ChevronDown className="h-3 w-3" /> : <ChevronUp className="h-3 w-3" />}
-                                                        </Button>
-                                                    </div>
-                                                    {!collapsedSections[`${id}-closed`] && (
-                                                    <div className="space-y-2 animate-in slide-in-from-top-2 duration-200">
-                                                        {strategyData.legs.map((l, idx) => l.exited && (
-                                                            <div key={idx} className="flex items-center justify-between p-2.5 bg-muted/50 border border-border/50 rounded-xl opacity-90">
-                                                                 <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between w-full gap-y-2 gap-x-4">
-                                                                    <div className="flex flex-1 items-center gap-1 flex-wrap">
-                                                                        <span className="text-sm font-bold text-muted-foreground">{l.instrument?.symbol || "---"} ({l.leg?.side})</span>
-                                                                        <span className="text-[11px] font-bold text-slate-400">
-                                                                            {l.leg?.lots} {l.leg?.lots > 1 ? 'Lots' : 'Lot'}
-                                                                        </span>
-                                                                        <span className="text-muted-foreground text-xs font-mono">|</span>
-                                                                        <span className="text-primary font-bold text-xs font-mono">{l.entryTime || "---"}</span>
-                                                                        <span className="text-muted-foreground text-xs font-mono">|</span>
-                                                                        <span className="text-xs font-mono text-muted-foreground">Entry: {(l.entryPrice || 0).toFixed(2)}</span>
-                                                                        <span className="text-muted-foreground text-xs font-mono">|</span>
-                                                                        <span className="text-red-500 font-bold text-xs font-mono">Exit: {l.exitTime || l.exitSnapshot?.exitTime || "---"}</span>
-                                                                        <span className="text-muted-foreground text-xs font-mono">|</span>
-                                                                        <span className="text-foreground text-xs font-mono">Price: {(l.exitSnapshot?.exitLtp || l.currentLtp || 0).toFixed(2)}</span>
-                                                                        <span className="text-muted-foreground text-xs font-mono">|</span>
-                                                                        <span className="text-slate-500 text-xs font-mono font-bold">Type: {l.exitType}</span>
-                                                                        {l.exitSnapshot?.slTriggerPrice != null && (
-                                                                            <>
-                                                                                <span className="text-muted-foreground text-xs font-mono">|</span>
-                                                                                <span className="text-red-500 font-bold text-xs font-mono">Initial SL: {Number(l.exitSnapshot.slTriggerPrice).toFixed(1)}</span>
-                                                                            </>
-                                                                        )}
-                                                                        {l.rtp != null && (
-                                                                            <>
-                                                                                <span className="text-muted-foreground text-xs font-mono">|</span>
-                                                                                <span className="text-orange-500 font-bold text-xs font-mono">RTP: {l.rtp.toFixed(2)}</span>
-                                                                            </>
-                                                                        )}
-                                                                        {l.mtp != null && (
-                                                                            <>
-                                                                                <span className="text-muted-foreground text-xs font-mono">|</span>
-                                                                                <span className="text-purple-600 font-bold text-xs font-mono">MTP: {l.mtp.toFixed(2)}</span>
-                                                                            </>
-                                                                        )}
+                                                            {/* Closed Legs */}
+                                                            {strategyData.legs?.filter(l => l.exited).length > 0 && (
+                                                                <div className="space-y-2">
+                                                                    <div
+                                                                        className="flex items-center justify-between cursor-pointer group"
+                                                                        onClick={() => setCollapsedSections(prev => ({ ...prev, [`${id}-closed`]: !prev[`${id}-closed`] }))}
+                                                                    >
+                                                                        <span className="text-xs font-bold uppercase text-muted-foreground group-hover:text-foreground transition-colors">Closed Legs</span>
+                                                                        <Button variant="ghost" size="sm" className="h-4 w-4 p-0 shrink-0 text-muted-foreground group-hover:text-foreground">
+                                                                            {collapsedSections[`${id}-closed`] ? <ChevronDown className="h-3 w-3" /> : <ChevronUp className="h-3 w-3" />}
+                                                                        </Button>
                                                                     </div>
-                                                                    <div className="flex items-center gap-3 shrink-0">
-                                                                        <span className={`text-sm font-mono font-bold ${(l.pnlPercent || 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                                                                            {(l.pnlPercent || 0) > 0 ? '+' : ''}{(l.pnlPercent || 0).toFixed(2)}%
-                                                                        </span>
-                                                                        <span className={`text-sm font-mono font-bold ${(l.pnlRupees || 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                                                                            {(l.pnlRupees || 0) > 0 ? '+' : ''}₹{(l.pnlRupees || 0).toFixed(2)}
-                                                                        </span>
-                                                                        <span className="px-2 py-0.5 text-[10px] font-bold bg-slate-200 text-slate-500 rounded uppercase">Closed</span>
-                                                                    </div>
+                                                                    {!collapsedSections[`${id}-closed`] && (
+                                                                        <div className="space-y-2 animate-in slide-in-from-top-2 duration-200">
+                                                                            {strategyData.legs.map((l, idx) => l.exited && (
+                                                                                <div key={idx} className="flex items-center justify-between p-2.5 bg-muted/50 border border-border/50 rounded-xl opacity-90">
+                                                                                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between w-full gap-y-2 gap-x-4">
+                                                                                        <div className="flex flex-1 items-center gap-1 flex-wrap">
+                                                                                            <span className="text-sm font-bold text-muted-foreground">{l.instrument?.symbol || "---"} ({l.leg?.side})</span>
+                                                                                            <span className="text-[11px] font-bold text-slate-400">
+                                                                                                {l.leg?.lots} {l.leg?.lots > 1 ? 'Lots' : 'Lot'}
+                                                                                            </span>
+                                                                                            <span className="text-muted-foreground text-xs font-mono">|</span>
+                                                                                            <span className="text-primary font-bold text-xs font-mono">{l.entryTime || "---"}</span>
+                                                                                            <span className="text-muted-foreground text-xs font-mono">|</span>
+                                                                                            <span className="text-xs font-mono text-muted-foreground">Entry: {(l.entryPrice || 0).toFixed(2)}</span>
+                                                                                            <span className="text-muted-foreground text-xs font-mono">|</span>
+                                                                                            <span className="text-red-500 font-bold text-xs font-mono">Exit: {l.exitTime || l.exitSnapshot?.exitTime || "---"}</span>
+                                                                                            <span className="text-muted-foreground text-xs font-mono">|</span>
+                                                                                            <span className="text-foreground text-xs font-mono">Price: {(l.exitSnapshot?.exitLtp || l.currentLtp || 0).toFixed(2)}</span>
+                                                                                            <span className="text-muted-foreground text-xs font-mono">|</span>
+                                                                                            <span className="text-slate-500 text-xs font-mono font-bold">Type: {l.exitType}</span>
+                                                                                            {l.exitSnapshot?.slTriggerPrice != null && (
+                                                                                                <>
+                                                                                                    <span className="text-muted-foreground text-xs font-mono">|</span>
+                                                                                                    <span className="text-red-500 font-bold text-xs font-mono">Initial SL: {Number(l.exitSnapshot.slTriggerPrice).toFixed(1)}</span>
+                                                                                                </>
+                                                                                            )}
+                                                                                            {l.rtp != null && (
+                                                                                                <>
+                                                                                                    <span className="text-muted-foreground text-xs font-mono">|</span>
+                                                                                                    <span className="text-orange-500 font-bold text-xs font-mono">RTP: {l.rtp.toFixed(2)}</span>
+                                                                                                </>
+                                                                                            )}
+                                                                                            {l.mtp != null && (
+                                                                                                <>
+                                                                                                    <span className="text-muted-foreground text-xs font-mono">|</span>
+                                                                                                    <span className="text-purple-600 font-bold text-xs font-mono">MTP: {l.mtp.toFixed(2)}</span>
+                                                                                                </>
+                                                                                            )}
+                                                                                        </div>
+                                                                                        <div className="flex items-center gap-3 shrink-0">
+                                                                                            <span className={`text-sm font-mono font-bold ${(l.pnlPercent || 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                                                                                                {(l.pnlPercent || 0) > 0 ? '+' : ''}{(l.pnlPercent || 0).toFixed(2)}%
+                                                                                            </span>
+                                                                                            <span className={`text-sm font-mono font-bold ${(l.pnlRupees || 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                                                                                                {(l.pnlRupees || 0) > 0 ? '+' : ''}₹{(l.pnlRupees || 0).toFixed(2)}
+                                                                                            </span>
+                                                                                            <span className="px-2 py-0.5 text-[10px] font-bold bg-slate-200 text-slate-500 rounded uppercase">Closed</span>
+                                                                                        </div>
+                                                                                    </div>
+                                                                                </div>
+                                                                            ))}
+                                                                        </div>
+                                                                    )}
                                                                 </div>
-                                                            </div>
-                                                        ))}
-                                                    </div>
-                                                    )}
-                                                </div>
-                                            )}
-                                        </div>
-                                    ) : null}
-                                </CardContent>
-                            </Card>
-                        ))}
+                                                            )}
+                                                        </div>
+                                                    ) : null}
+                                                </CardContent>
+                                            </Card>
+                                        ))}
                                 </div>
                             )}
                         </div>
@@ -1793,11 +1773,11 @@ export const StrategyBuilder = ({ isConnected }) => {
                 {
                     savedStrategies.length > 0 && (
                         <Card className="w-full border-border bg-card mt-6">
-                            <div 
+                            <div
                                 className="border-b bg-muted/60 py-3 px-4 flex flex-col md:flex-row items-center justify-between gap-2 cursor-pointer hover:bg-muted/80 transition-colors"
                                 onClick={(e) => {
-                                    if(e.target.closest('input')) return;
-                                    setCollapsedSections(prev => ({...prev, 'saved-strategies': !prev['saved-strategies']}));
+                                    if (e.target.closest('input')) return;
+                                    setCollapsedSections(prev => ({ ...prev, 'saved-strategies': !prev['saved-strategies'] }));
                                 }}
                             >
                                 <CardTitle className="flex items-center gap-2 text-base font-bold">
@@ -1820,159 +1800,159 @@ export const StrategyBuilder = ({ isConnected }) => {
                                 </div>
                             </div>
                             {!collapsedSections['saved-strategies'] && (
-                            <CardContent className="p-0 animate-in fade-in slide-in-from-top-2 duration-200">
-                                <div className="overflow-x-auto">
-                                    <table className="w-full text-xs">
-                                        <thead className="bg-muted text-muted-foreground border-b">
-                                            <tr>
-                                                <th className="px-3 py-2 text-left font-bold text-[10px] uppercase tracking-wider">Name</th>
-                                                <th className="px-3 py-2 text-left font-bold text-[10px] uppercase tracking-wider">Date Created</th>
-                                                <th className="px-3 py-2 text-left font-bold text-[10px] uppercase tracking-wider">Index</th>
-                                                <th className="px-3 py-2 text-left font-bold text-[10px] uppercase tracking-wider">Type</th>
-                                                <th className="px-3 py-2 text-right font-bold text-[10px] uppercase tracking-wider">Actions</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody className="divide-y border-t">
-                                            {savedStrategies
-                                                .filter(s => (activeTab === 'paper' ? s.config?.is_paper_trading : !s.config?.is_paper_trading))
-                                                .filter(s => {
-                                                    const name = (s.name || s.config?.name || '').toLowerCase();
-                                                    const id = (s.id || '').toLowerCase();
-                                                    const search = searchTerm.toLowerCase();
-                                                    return name.includes(search) || id.includes(search);
-                                                })
-                                                .map((s) => (
-                                                    <tr 
-                                                        key={s.id} 
-                                                        className="hover:bg-muted/50 transition-colors cursor-grab active:cursor-grabbing border-b"
-                                                        draggable
-                                                        onDragStart={(e) => {
-                                                            e.dataTransfer.effectAllowed = 'move';
-                                                            e.dataTransfer.setData('text/plain', s.id);
-                                                            setTimeout(() => { if(e.target && e.target.classList) e.target.classList.add('opacity-40'); }, 0);
-                                                        }}
-                                                        onDragEnd={(e) => {
-                                                            if(e.target && e.target.classList) {
-                                                                e.target.classList.remove('opacity-40');
-                                                                e.target.classList.remove('border-t-2', 'border-b-2', 'border-primary', 'bg-muted/30');
-                                                            }
-                                                        }}
-                                                        onDragOver={(e) => {
-                                                            e.preventDefault();
-                                                            e.dataTransfer.dropEffect = 'move';
-                                                            if (e.currentTarget) {
+                                <CardContent className="p-0 animate-in fade-in slide-in-from-top-2 duration-200">
+                                    <div className="overflow-x-auto">
+                                        <table className="w-full text-xs">
+                                            <thead className="bg-muted text-muted-foreground border-b">
+                                                <tr>
+                                                    <th className="px-3 py-2 text-left font-bold text-[10px] uppercase tracking-wider">Name</th>
+                                                    <th className="px-3 py-2 text-left font-bold text-[10px] uppercase tracking-wider">Date Created</th>
+                                                    <th className="px-3 py-2 text-left font-bold text-[10px] uppercase tracking-wider">Index</th>
+                                                    <th className="px-3 py-2 text-left font-bold text-[10px] uppercase tracking-wider">Type</th>
+                                                    <th className="px-3 py-2 text-right font-bold text-[10px] uppercase tracking-wider">Actions</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y border-t">
+                                                {savedStrategies
+                                                    .filter(s => (activeTab === 'paper' ? s.config?.is_paper_trading : !s.config?.is_paper_trading))
+                                                    .filter(s => {
+                                                        const name = (s.name || s.config?.name || '').toLowerCase();
+                                                        const id = (s.id || '').toLowerCase();
+                                                        const search = searchTerm.toLowerCase();
+                                                        return name.includes(search) || id.includes(search);
+                                                    })
+                                                    .map((s) => (
+                                                        <tr
+                                                            key={s.id}
+                                                            className="hover:bg-muted/50 transition-colors cursor-grab active:cursor-grabbing border-b"
+                                                            draggable
+                                                            onDragStart={(e) => {
+                                                                e.dataTransfer.effectAllowed = 'move';
+                                                                e.dataTransfer.setData('text/plain', s.id);
+                                                                setTimeout(() => { if (e.target && e.target.classList) e.target.classList.add('opacity-40'); }, 0);
+                                                            }}
+                                                            onDragEnd={(e) => {
+                                                                if (e.target && e.target.classList) {
+                                                                    e.target.classList.remove('opacity-40');
+                                                                    e.target.classList.remove('border-t-2', 'border-b-2', 'border-primary', 'bg-muted/30');
+                                                                }
+                                                            }}
+                                                            onDragOver={(e) => {
+                                                                e.preventDefault();
+                                                                e.dataTransfer.dropEffect = 'move';
+                                                                if (e.currentTarget) {
+                                                                    const rect = e.currentTarget.getBoundingClientRect();
+                                                                    const isTopHalf = e.clientY < rect.top + rect.height / 2;
+                                                                    e.currentTarget.classList.remove('border-t-2', 'border-b-2', 'border-primary');
+                                                                    e.currentTarget.classList.add(isTopHalf ? 'border-t-2' : 'border-b-2', 'border-primary');
+                                                                }
+                                                            }}
+                                                            onDragEnter={(e) => {
+                                                                e.preventDefault();
+                                                                if (e.currentTarget && e.currentTarget.classList) e.currentTarget.classList.add('bg-muted/30');
+                                                            }}
+                                                            onDragLeave={(e) => {
+                                                                if (e.currentTarget && e.currentTarget.classList) {
+                                                                    e.currentTarget.classList.remove('bg-muted/30', 'border-t-2', 'border-b-2', 'border-primary');
+                                                                }
+                                                            }}
+                                                            onDrop={(e) => {
+                                                                e.preventDefault();
+                                                                if (e.currentTarget && e.currentTarget.classList) {
+                                                                    e.currentTarget.classList.remove('bg-muted/30', 'border-t-2', 'border-b-2', 'border-primary');
+                                                                }
+                                                                const sourceId = e.dataTransfer.getData('text/plain');
+                                                                if (!sourceId || sourceId === s.id) return;
+
+                                                                // Determine precise drop location
                                                                 const rect = e.currentTarget.getBoundingClientRect();
                                                                 const isTopHalf = e.clientY < rect.top + rect.height / 2;
-                                                                e.currentTarget.classList.remove('border-t-2', 'border-b-2', 'border-primary');
-                                                                e.currentTarget.classList.add(isTopHalf ? 'border-t-2' : 'border-b-2', 'border-primary');
-                                                            }
-                                                        }}
-                                                        onDragEnter={(e) => {
-                                                            e.preventDefault();
-                                                            if(e.currentTarget && e.currentTarget.classList) e.currentTarget.classList.add('bg-muted/30');
-                                                        }}
-                                                        onDragLeave={(e) => {
-                                                            if(e.currentTarget && e.currentTarget.classList) {
-                                                                e.currentTarget.classList.remove('bg-muted/30', 'border-t-2', 'border-b-2', 'border-primary');
-                                                            }
-                                                        }}
-                                                        onDrop={(e) => {
-                                                            e.preventDefault();
-                                                            if(e.currentTarget && e.currentTarget.classList) {
-                                                                e.currentTarget.classList.remove('bg-muted/30', 'border-t-2', 'border-b-2', 'border-primary');
-                                                            }
-                                                            const sourceId = e.dataTransfer.getData('text/plain');
-                                                            if (!sourceId || sourceId === s.id) return;
-                                                            
-                                                            // Determine precise drop location
-                                                            const rect = e.currentTarget.getBoundingClientRect();
-                                                            const isTopHalf = e.clientY < rect.top + rect.height / 2;
-                                                            
-                                                            setSavedStrategies(prev => {
-                                                                const sourceIndex = prev.findIndex(item => item.id === sourceId);
-                                                                if (sourceIndex === -1) return prev;
-                                                                
-                                                                const next = [...prev];
-                                                                const [movedItem] = next.splice(sourceIndex, 1);
-                                                                
-                                                                // adjusted index after moving the item out
-                                                                let adjustedTargetIndex = next.findIndex(item => item.id === s.id);
-                                                                if (adjustedTargetIndex === -1) return prev; // Fallback
-                                                                
-                                                                // Insert before or after
-                                                                const insertIndex = isTopHalf ? adjustedTargetIndex : adjustedTargetIndex + 1;
-                                                                next.splice(insertIndex, 0, movedItem);
-                                                                
-                                                                localStorage.setItem('custom_strategy_order', JSON.stringify(next.map(item => item.id)));
-                                                                return next;
-                                                            });
-                                                        }}
-                                                    >
-                                                        <td className="px-3 py-2 font-bold text-sm flex items-center gap-2">
-                                                            <div className="p-1 rounded text-slate-400 hover:text-slate-700 transition-colors">
-                                                                <GripVertical className="h-4 w-4 shrink-0" />
-                                                            </div>
-                                                            <div>
-                                                                {s.name || s.config?.name || 'Unnamed Strategy'}
-                                                                <div className="text-[9px] font-mono text-muted-foreground font-normal">ID: {s.id.split('-')[0] || s.id}</div>
-                                                            </div>
-                                                        </td>
-                                                        <td className="px-3 py-2 font-mono text-[10px] text-muted-foreground">
-                                                            {new Date(s.created_at).toLocaleDateString()} {new Date(s.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                                        </td>
-                                                        <td className="px-3 py-2 font-bold text-xs">{s.config?.index}</td>
-                                                        <td className="px-3 py-2">
-                                                            <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-slate-100 text-slate-700">
-                                                                {s.config?.legs?.map((l) => `${l.side} ${l.option_type} (${l.lots} ${l.lots > 1 ? 'L' : 'L'})`).join(' | ') || '---'}
-                                                            </span>
-                                                        </td>
-                                                        <td className="px-3 py-2 text-right">
-                                                            <div className="flex items-center justify-end gap-1.5">
-                                                                <Button
-                                                                    size="sm"
-                                                                    className={`h-7 px-3 gap-1 rounded-md text-[10px] font-bold shadow-sm ${!isConnected ? 'opacity-50 grayscale cursor-not-allowed' : ''}`}
-                                                                    onClick={() => handleExecute(s.id)}
-                                                                    disabled={!isConnected}
-                                                                    title={!isConnected ? "Please connect to Angel One to execute strategies" : ""}
-                                                                >
-                                                                    <Play className="h-3 w-3 fill-current" /> Deploy
-                                                                </Button>
-                                                                <Button
-                                                                    size="sm"
-                                                                    variant="outline"
-                                                                    className="h-7 px-3 gap-1 rounded-md text-[10px] font-bold border-indigo-500 hover:bg-indigo-50 text-indigo-600 shadow-sm"
-                                                                    onClick={() => {
-                                                                        setViewConfig(s.config);
-                                                                        setViewStrategyName(s.name || s.config?.name || 'Strategy');
-                                                                        setConfigWindowOpen(true);
-                                                                    }}
-                                                                >
-                                                                    <Settings2 className="h-3 w-3" /> View
-                                                                </Button>
-                                                                <Button
-                                                                    size="sm"
-                                                                    variant="outline"
-                                                                    className="h-7 px-2.5 rounded-md text-[10px]"
-                                                                    onClick={() => handleEdit(s)}
-                                                                >
-                                                                    Edit
-                                                                </Button>
-                                                                <Button
-                                                                    size="sm"
-                                                                    variant="ghost"
-                                                                    className="h-7 px-2 rounded-md text-[10px] text-destructive hover:text-destructive hover:bg-red-50"
-                                                                    onClick={() => handleDelete(s.id)}
-                                                                >
-                                                                    <Trash2 className="h-3 w-3" />
-                                                                </Button>
-                                                            </div>
-                                                        </td>
-                                                    </tr>
-                                                ))}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </CardContent>
+
+                                                                setSavedStrategies(prev => {
+                                                                    const sourceIndex = prev.findIndex(item => item.id === sourceId);
+                                                                    if (sourceIndex === -1) return prev;
+
+                                                                    const next = [...prev];
+                                                                    const [movedItem] = next.splice(sourceIndex, 1);
+
+                                                                    // adjusted index after moving the item out
+                                                                    let adjustedTargetIndex = next.findIndex(item => item.id === s.id);
+                                                                    if (adjustedTargetIndex === -1) return prev; // Fallback
+
+                                                                    // Insert before or after
+                                                                    const insertIndex = isTopHalf ? adjustedTargetIndex : adjustedTargetIndex + 1;
+                                                                    next.splice(insertIndex, 0, movedItem);
+
+                                                                    localStorage.setItem('custom_strategy_order', JSON.stringify(next.map(item => item.id)));
+                                                                    return next;
+                                                                });
+                                                            }}
+                                                        >
+                                                            <td className="px-3 py-2 font-bold text-sm flex items-center gap-2">
+                                                                <div className="p-1 rounded text-slate-400 hover:text-slate-700 transition-colors">
+                                                                    <GripVertical className="h-4 w-4 shrink-0" />
+                                                                </div>
+                                                                <div>
+                                                                    {s.name || s.config?.name || 'Unnamed Strategy'}
+                                                                    <div className="text-[9px] font-mono text-muted-foreground font-normal">ID: {s.id.split('-')[0] || s.id}</div>
+                                                                </div>
+                                                            </td>
+                                                            <td className="px-3 py-2 font-mono text-[10px] text-muted-foreground">
+                                                                {new Date(s.created_at).toLocaleDateString()} {new Date(s.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                            </td>
+                                                            <td className="px-3 py-2 font-bold text-xs">{s.config?.index}</td>
+                                                            <td className="px-3 py-2">
+                                                                <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-slate-100 text-slate-700">
+                                                                    {s.config?.legs?.map((l) => `${l.side} ${l.option_type} (${l.lots} ${l.lots > 1 ? 'L' : 'L'})`).join(' | ') || '---'}
+                                                                </span>
+                                                            </td>
+                                                            <td className="px-3 py-2 text-right">
+                                                                <div className="flex items-center justify-end gap-1.5">
+                                                                    <Button
+                                                                        size="sm"
+                                                                        className={`h-7 px-3 gap-1 rounded-md text-[10px] font-bold shadow-sm ${!isConnected ? 'opacity-50 grayscale cursor-not-allowed' : ''}`}
+                                                                        onClick={() => handleExecute(s.id)}
+                                                                        disabled={!isConnected}
+                                                                        title={!isConnected ? "Please connect to Angel One to execute strategies" : ""}
+                                                                    >
+                                                                        <Play className="h-3 w-3 fill-current" /> Deploy
+                                                                    </Button>
+                                                                    <Button
+                                                                        size="sm"
+                                                                        variant="outline"
+                                                                        className="h-7 px-3 gap-1 rounded-md text-[10px] font-bold border-indigo-500 hover:bg-indigo-50 text-indigo-600 shadow-sm"
+                                                                        onClick={() => {
+                                                                            setViewConfig(s.config);
+                                                                            setViewStrategyName(s.name || s.config?.name || 'Strategy');
+                                                                            setConfigWindowOpen(true);
+                                                                        }}
+                                                                    >
+                                                                        <Settings2 className="h-3 w-3" /> View
+                                                                    </Button>
+                                                                    <Button
+                                                                        size="sm"
+                                                                        variant="outline"
+                                                                        className="h-7 px-2.5 rounded-md text-[10px]"
+                                                                        onClick={() => handleEdit(s)}
+                                                                    >
+                                                                        Edit
+                                                                    </Button>
+                                                                    <Button
+                                                                        size="sm"
+                                                                        variant="ghost"
+                                                                        className="h-7 px-2 rounded-md text-[10px] text-destructive hover:text-destructive hover:bg-red-50"
+                                                                        onClick={() => handleDelete(s.id)}
+                                                                    >
+                                                                        <Trash2 className="h-3 w-3" />
+                                                                    </Button>
+                                                                </div>
+                                                            </td>
+                                                        </tr>
+                                                    ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </CardContent>
                             )}
                         </Card>
                     )}

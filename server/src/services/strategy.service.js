@@ -88,8 +88,6 @@ async function withDbRetry(fn, maxRetries = 3, baseDelayMs = 1000) {
 
 const INDEX_CONFIGS = {
     "NIFTY": { token: "99926000", exchange: "NSE" },
-    "BANKNIFTY": { token: "99926009", exchange: "NSE" },
-    "FINNIFTY": { token: "99926037", exchange: "NSE" },
     "SENSEX": { token: "99919000", exchange: "BSE" }
 };
 
@@ -201,7 +199,7 @@ function updateStrategyInMemory(executionId, data) {
 
 function getATMStrike(indexName, spotPrice) {
     let step = 100;
-    if (indexName === "NIFTY" || indexName === "FINNIFTY") step = 50;
+    if (indexName === "NIFTY") step = 50;
     return Math.round(spotPrice / step) * step;
 }
 
@@ -2342,6 +2340,20 @@ async function executeStrategy(strategyId) {
 }
 
 async function saveStrategy(config) {
+    if (config.name) {
+        const existing = await prisma.strategies.findFirst({
+            where: {
+                name: {
+                    equals: config.name.trim(),
+                    mode: 'insensitive'
+                }
+            }
+        });
+        if (existing) {
+            throw new Error(`A strategy named "${config.name}" already exists.`);
+        }
+    }
+
     const data = await prisma.strategies.create({
         data: {
             name: config.name || `Strategy ${new Date().toLocaleTimeString()}`,
@@ -2352,6 +2364,21 @@ async function saveStrategy(config) {
 }
 
 async function updateStrategy(strategyId, config) {
+    if (config.name) {
+        const existing = await prisma.strategies.findFirst({
+            where: {
+                name: {
+                    equals: config.name.trim(),
+                    mode: 'insensitive'
+                },
+                id: { not: strategyId }
+            }
+        });
+        if (existing) {
+            throw new Error(`A strategy named "${config.name}" already exists.`);
+        }
+    }
+
     const data = await prisma.strategies.update({
         where: { id: strategyId },
         data: {

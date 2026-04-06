@@ -6,11 +6,15 @@ const strategyService = require("../services/strategy.service");
 // Tier 2 - Rule 8: Basic input validation
 const validateStrategy = [
     body("name").trim().notEmpty().withMessage("Strategy name is required").isLength({ max: 100 }),
-    body("index").isIn(["NIFTY", "BANKNIFTY", "FINNIFTY", "SENSEX"]).withMessage("Invalid index selection"),
+    body("index").isIn(["NIFTY", "SENSEX"]).withMessage("Invalid index selection"),
     body("legs").isArray({ min: 1 }).withMessage("At least one leg is required"),
     body("legs.*.option_type").isIn(["CE", "PE"]).withMessage("Invalid option type"),
     body("legs.*.side").isIn(["BUY", "SELL"]).withMessage("Invalid side"),
     body("legs.*.lots").isInt({ min: 1 }).withMessage("Lots must be a positive integer"),
+    body("variety").equals("STOPLOSS").withMessage("Invalid variety"),
+    body("producttype").equals("CARRYFORWARD").withMessage("Invalid product type"),
+    body("ordertype").equals("LIMIT").withMessage("Invalid order type"),
+    body("duration").equals("DAY").withMessage("Invalid duration"),
     (req, res, next) => {
         const errors = validationResult(req);
         if (!errors.isEmpty()) {
