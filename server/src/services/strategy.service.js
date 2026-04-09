@@ -91,13 +91,17 @@ const INDEX_CONFIGS = {
     "SENSEX": { token: "99919000", exchange: "BSE" }
 };
 
+let inFlightLtpRequests = new Map();
+
 /**
  * Enhanced LTP fetcher that prefers the local WebSocket cache (globalLtpMap).
- * This eliminates the ~500ms REST latency and prevents 'Angel One disconnected' 
- * issues caused by hitting REST rate limits every second.
+ * Includes request de-duplication to prevent hitting rate limits during 
+ * simultaneous strategy entries.
  */
 async function getLtpSecure({ exchange, symboltoken, connectionId }) {
     const key = `${exchange}_${symboltoken}`;
+
+    // 1. Check WebSocket Cache (Zero Latency)
     if (globalLtpMap[key]) {
         return {
             status: true,
@@ -106,8 +110,25 @@ async function getLtpSecure({ exchange, symboltoken, connectionId }) {
             }
         };
     }
-    // Fallback to REST API if WebSocket tick hasn't arrived yet
-    return await marketService.getLTP({ exchange, symboltoken, connectionId });
+
+    // 2. De-duplicate equivalent REST requests already in flight
+    const inFlightKey = `${connectionId}_${key}`;
+    if (inFlightLtpRequests.has(inFlightKey)) {
+        return inFlightLtpRequests.get(inFlightKey);
+    }
+
+    // 3. Fallback to REST API
+    const requestPromise = marketService.getLTP({ exchange, symboltoken, connectionId });
+    inFlightLtpRequests.set(inFlightKey, requestPromise);
+
+    try {
+        const result = await requestPromise;
+        return result;
+    } finally {
+        // Clear from in-flight map after a small window to allow fresh fetches
+        // while effectively blocking the millisecond burst.
+        setTimeout(() => inFlightLtpRequests.delete(inFlightKey), 500);
+    }
 }
 
 async function runGlobalWebsocketSync() {
@@ -454,8 +475,8 @@ async function placeOrder(config, instrument, connectionId) {
     if (isPaperTrading) {
         console.log(`[${new Date().toISOString()}] PAPER ORDER:`, orderParams);
         return {
-            orderid: `PAPER_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
-            uniqueorderid: `UPAPER_${Date.now()}`
+            orderid: `PAPER_${Date.now()}_${Math.floor(Math.random() * 10000)}`,
+            uniqueorderid: `UPAPER_${Date.now()}_${Math.floor(Math.random() * 10000)}`
         };
     }
 
@@ -544,28 +565,36 @@ function resolveUniversalOrderParams({ targetPrice, currentLtp, side, offset }) 
 
 async function waitForOrderFillPrice(uniqueOrderId, connectionId, isPaperTrading = false, instrument = null, timeoutMs = 60000, pollMs = 2000, paperConfig = null) {
     if (isPaperTrading) {
-        // If no specifically monitored target price is provided, fill instantly at LTP (Standard Entry)
+        // Mode A: Instant Fill (Market/Limit Entry)
+        // Includes a small retry loop to handle REST API rate limits gracefully
         if (!paperConfig || paperConfig.ordertype === "MARKET" || paperConfig.ordertype === "LIMIT") {
-            try {
-                if (instrument) {
-                    const ltpRes = await getLtpSecure({
-                        exchange: instrument.exch_seg,
-                        symboltoken: instrument.token,
-                        connectionId: connectionId
-                    });
-                    if (ltpRes.status && ltpRes.data?.fetched?.[0]) {
-                        const ltp = ltpRes.data.fetched[0].ltp;
-                        console.log(`[PAPER_FILL] Instant Fill for ${instrument.symbol} at ${ltp} (${paperConfig?.ordertype || 'MARKET'})`);
-                        return ltp;
+            const start = Date.now();
+            const paperTimeout = 10000; // 10s for paper fill retry
+            const paperPoll = 1000;
+
+            while (Date.now() - start < paperTimeout) {
+                try {
+                    if (instrument) {
+                        const ltpRes = await getLtpSecure({
+                            exchange: instrument.exch_seg,
+                            symboltoken: instrument.token,
+                            connectionId: connectionId
+                        });
+                        if (ltpRes.status && ltpRes.data?.fetched?.[0]) {
+                            const ltp = ltpRes.data.fetched[0].ltp;
+                            console.log(`[PAPER_FILL] Fill for ${instrument.symbol} at ${ltp} after ${Date.now() - start}ms`);
+                            return ltp;
+                        }
                     }
+                } catch (err) {
+                    console.error("Paper fill poll error:", err.message);
                 }
-            } catch (err) {
-                console.error("Error getting paper fill price:", err);
+                await new Promise(r => setTimeout(r, paperPoll));
             }
             return null;
         }
 
-        // Advanced Mode: Monitor for Limit / Stoploss crossing (Used for Re-cost RTP and Momentum MTP)
+        // Mode B: Advanced Monitoring (Used for Re-cost RTP, Momentum MTP, or SL)
         const start = Date.now();
         const effectiveTarget = (paperConfig.triggerprice > 0) ? paperConfig.triggerprice : paperConfig.price;
         const targetDesc = (paperConfig.triggerprice > 0) ? `Target Trigger (MTP/RTP): ${effectiveTarget}` : `Target Price: ${effectiveTarget}`;
@@ -1216,7 +1245,6 @@ async function executeStrategy(strategyId) {
                                     strike: leg.strike,
                                     spotPrice
                                 });
-                                // console.log(`Execution Search: Index=${config.index}, Spot=${spotPrice}, ATM=${atmStrike}, Selected=${strikeLabel}, TargetStrike=${targetStrike}, Type=${leg.option_type}`);
                                 addStrategyLog(strategyId, `Leg ${resolvedLegs.length + 1}: Selecting ${strikeLabel} (${leg.option_type}) at Strike ${targetStrike}.`, "INFO");
                                 targetInstrument = await findOptionInstrument(config.index, leg.option_type, targetStrike);
                                 if (!targetInstrument) {
@@ -1225,6 +1253,23 @@ async function executeStrategy(strategyId) {
                             }
                             resolvedLegs.push({ leg, instrument: targetInstrument });
                         }
+
+                        // Proactive WebSocket Subscription: Subscribe before placing orders
+                        // so tokens are ready in globalLtpMap by the time we check for fill.
+                        try {
+                            const tokensByExch = {};
+                            resolvedLegs.forEach(item => {
+                                const exch = item.instrument.exch_seg;
+                                if (!tokensByExch[exch]) tokensByExch[exch] = [];
+                                tokensByExch[exch].push(item.instrument.token);
+                            });
+                            Object.keys(tokensByExch).forEach(exch => {
+                                marketSocketService.subscribeTokens(exch, tokensByExch[exch]);
+                            });
+                        } catch (subErr) {
+                            console.error(`[${strategyId}] Proactive sub error:`, subErr.message);
+                        }
+
                         strategy.legs = []; // Initialize for rollback visibility
 
                         const placedLegs = await Promise.all(resolvedLegs.map(async (item, idx) => {
