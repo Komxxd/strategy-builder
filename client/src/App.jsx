@@ -29,7 +29,9 @@ function App() {
   const [apiLoading, setApiLoading] = useState(false);
   const [socketLoading, setSocketLoading] = useState(false);
   const [activeTab, setActiveTab] = useState('strategies');
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(
+    typeof window !== 'undefined' ? window.innerWidth < 768 : false
+  );
 
   const handleAuthenticated = () => {
     const newKey = sessionStorage.getItem('app_api_key');
@@ -210,7 +212,7 @@ function App() {
     <div className="flex h-screen w-full bg-[#fcfcfc] text-foreground font-sans overflow-hidden">
 
       {/* Sidebar */}
-      <aside className={`${isSidebarCollapsed ? 'w-[80px]' : 'w-[260px]'} transition-all duration-300 flex-shrink-0 border-r bg-white h-full flex flex-col hidden md:flex`}>
+      <aside className={`${isSidebarCollapsed ? 'hidden md:flex md:w-[80px]' : 'flex w-[280px] sm:w-[260px] absolute md:relative z-50 h-[100dvh] shadow-2xl md:shadow-none'} transition-all duration-300 flex-shrink-0 border-r bg-white flex flex-col`}>
         <div className={`h-[76px] ${isSidebarCollapsed ? 'px-0 justify-center' : 'px-4 justify-between'} border-b flex-shrink-0 flex items-center overflow-hidden`}>
           {!isSidebarCollapsed && (
             <div className="flex items-center gap-3 px-2 py-1.5">
@@ -225,7 +227,7 @@ function App() {
           <Button 
             variant="ghost" 
             size="icon" 
-            className="h-8 w-8 hidden md:flex text-muted-foreground hover:bg-slate-100 hover:text-foreground shrink-0" 
+            className="h-8 w-8 flex text-muted-foreground hover:bg-slate-100 hover:text-foreground shrink-0" 
             onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
           >
             <Menu className="h-5 w-5" />
@@ -271,19 +273,20 @@ function App() {
       {/* Main Container */}
       <main className="flex-1 flex flex-col h-full overflow-hidden bg-background md:bg-[#FAFAFA]">
 
-        {/* Header */}
-        <header className="h-[76px] bg-white border-b flex items-center justify-between px-6 flex-shrink-0 z-10 transition-all">
-          <div className="flex items-center gap-4">
-            <Button variant="ghost" size="icon" className="md:hidden" onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}>
-              <Menu className="h-5 w-5" />
-            </Button>
-            <h1 className="text-2xl font-bold tracking-tight text-foreground whitespace-nowrap">
+        <header className="h-[64px] sm:h-[76px] bg-white border-b flex flex-nowrap items-center justify-between px-2 sm:px-6 flex-shrink-0 z-10 transition-all gap-2 overflow-x-auto no-scrollbar">
+          <div className="flex items-center gap-1 sm:gap-4 shrink-0">
+            <div className="flex items-center md:hidden">
+              <Button variant="ghost" size="icon" className="h-9 w-9 shrink-0" onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}>
+                <Menu className="h-5 w-5" />
+              </Button>
+            </div>
+            <h1 className="text-[15px] sm:text-2xl font-bold tracking-tight text-foreground whitespace-nowrap">
               {activeTab === 'strategies' ? 'Strategies' : 'Execution History'}
             </h1>
           </div>
 
           {/* Two independent status pills */}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
 
             {/* Pill 1: Angel One API Session */}
             <button
@@ -291,20 +294,20 @@ function App() {
               onClick={handleToggleApi}
               disabled={apiLoading}
               title={isApiConnected ? "Angel One session active. Click to logout." : "Click to login to Angel One"}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold border transition-all cursor-pointer shadow-sm ${
+              className={`flex items-center gap-1.5 px-2 py-1 sm:px-3 sm:py-2 rounded-full text-[10px] sm:text-xs font-bold border transition-all cursor-pointer shadow-sm shrink-0 ${
                 isApiConnected
                   ? "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-red-50 hover:text-red-700 hover:border-red-200"
                   : "bg-red-50 text-red-600 border-red-200 hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-200"
               } disabled:opacity-50 disabled:cursor-not-allowed`}
             >
               {apiLoading ? (
-                <Loader2 className="h-3 w-3 animate-spin" />
+                <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" />
               ) : isApiConnected ? (
-                <CheckCircle2 className="h-3 w-3" />
+                <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
               ) : (
-                <AlertCircle className="h-3 w-3" />
+                <AlertCircle className="h-3.5 w-3.5 shrink-0" />
               )}
-              <span>Angel One</span>
+              <span className="whitespace-nowrap">Angel One</span>
             </button>
 
             {/* Pill 2: WebSocket Data Stream */}
@@ -319,7 +322,7 @@ function App() {
                   ? "WebSocket streaming. Click to disconnect."
                   : "Click to connect WebSocket data stream"
               }
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold border transition-all shadow-sm ${
+              className={`flex items-center gap-1.5 px-2 py-1 sm:px-3 sm:py-2 rounded-full text-[10px] sm:text-xs font-bold border transition-all shadow-sm shrink-0 ${
                 !isApiConnected
                   ? "bg-slate-50 text-slate-400 border-slate-200 cursor-not-allowed"
                   : isSocketConnected
@@ -328,13 +331,13 @@ function App() {
               } disabled:opacity-50 disabled:cursor-not-allowed`}
             >
               {socketLoading ? (
-                <Loader2 className="h-3 w-3 animate-spin" />
+                <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" />
               ) : isSocketConnected ? (
-                <Wifi className="h-3 w-3" />
+                <Wifi className="h-3.5 w-3.5 shrink-0" />
               ) : (
-                <WifiOff className="h-3 w-3" />
+                <WifiOff className="h-3.5 w-3.5 shrink-0" />
               )}
-              <span>WebSocket</span>
+              <span className="whitespace-nowrap">WebSocket</span>
             </button>
 
           </div>

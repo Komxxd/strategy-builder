@@ -1080,7 +1080,8 @@ async function handleLegStopOut(leg, exitType, strategy) {
                     newLeg.entryTime = getISTTime();
                 }
 
-                if (config.variety === "STOPLOSS" && newLeg.entryPrice) {
+                const isSlEnabled = newLeg.leg.reentry_sl_enabled ? true : newLeg.leg.sl_enabled !== false;
+                if (config.variety === "STOPLOSS" && newLeg.entryPrice && isSlEnabled) {
                     const activeSlType = newLeg.leg.reentry_sl_enabled ? newLeg.leg.reentry_sl_type : (newLeg.leg.sl_type || "PERCENTAGE");
                     const activeSlValue = newLeg.leg.reentry_sl_enabled ? newLeg.leg.reentry_sl_value : newLeg.leg.stop_loss;
 
@@ -1403,7 +1404,7 @@ async function executeStrategy(strategyId) {
                                 }
                             }
 
-                            if (config.variety === "STOPLOSS" && leg.entryPrice) {
+                            if (config.variety === "STOPLOSS" && leg.entryPrice && leg.leg.sl_enabled !== false) {
                                 const slOrder = await placeStopLossWithRetry({
                                     baseConfig: config,
                                     legSide: leg.leg.side,
@@ -1664,7 +1665,7 @@ async function executeStrategy(strategyId) {
                                         leg.state = "ACTIVE";
 
                                         // Now place SL if needed
-                                        if (config.variety === "STOPLOSS" && leg.entryPrice) {
+                                        if (config.variety === "STOPLOSS" && leg.entryPrice && leg.leg.sl_enabled !== false) {
                                             const slOrder = await placeStopLossWithRetry({
                                                 baseConfig: config,
                                                 legSide: leg.leg.side,
@@ -1804,7 +1805,8 @@ async function executeStrategy(strategyId) {
                                                 }
 
                                                 // Redeploy exchange SL if needed
-                                                if (config.variety === "STOPLOSS" && leg.entryPrice) {
+                                                const isSlEnabled = leg.leg.reentry_sl_enabled ? true : leg.leg.sl_enabled !== false;
+                                                if (config.variety === "STOPLOSS" && leg.entryPrice && isSlEnabled) {
                                                     const activeSlType = leg.leg.reentry_sl_enabled ? leg.leg.reentry_sl_type : (leg.leg.sl_type || "PERCENTAGE");
                                                     const activeSlValue = leg.leg.reentry_sl_enabled ? leg.leg.reentry_sl_value : leg.leg.stop_loss;
 
@@ -1892,7 +1894,7 @@ async function executeStrategy(strategyId) {
                         let isOverallSlHit = false;
                         let slReason = "";
 
-                        if (slValue > 0) {
+                        if (config.overall_sl_enabled && slValue > 0) {
                             if (slType === "PERCENTAGE" && avgPnl <= -slValue) {
                                 isOverallSlHit = true;
                                 slReason = `Overall SL% (${slValue}%) hit`;
@@ -1955,7 +1957,7 @@ async function executeStrategy(strategyId) {
                         let isOverallTargetHit = false;
                         let targetReason = "";
 
-                        if (targetValue > 0) {
+                        if (config.overall_target_enabled && targetValue > 0) {
                             if (targetType === "PERCENTAGE" && avgPnl >= targetValue) {
                                 isOverallTargetHit = true;
                                 targetReason = `Overall Target% (${targetValue}%) hit`;
@@ -2019,9 +2021,9 @@ async function executeStrategy(strategyId) {
                             let exitReason = "LEG_STOP_LOSS";
 
                             // 1. Evaluate Trailing Stop Loss mathematically (Step-based Tracking)
-                            if (leg.leg.tsl_enabled && leg.tslReferencePrice !== undefined && leg.currentLtp !== null && leg.leg.tsl_value > 0 && leg.leg.tsl_trail > 0) {
+                            if (leg.leg.tsl_enabled && leg.tslReferencePrice !== undefined && leg.currentLtp !== null && leg.leg.tsl_move > 0 && leg.leg.tsl_trail > 0) {
                                 const tslType = leg.leg.tsl_type || "PERCENTAGE";
-                                const tslMove = parseFloat(leg.leg.tsl_value);
+                                const tslMove = parseFloat(leg.leg.tsl_move);
                                 const tslTrail = parseFloat(leg.leg.tsl_trail);
 
                                 let moveThreshold = tslMove;
@@ -2146,8 +2148,9 @@ async function executeStrategy(strategyId) {
                             if (!isHit && (config.variety !== "STOPLOSS" || config.is_paper_trading === true || !leg.slOrderId)) {
                                 const isReentered = leg.reentry_count > 0;
                                 const activeSlValue = isReentered && leg.leg.reentry_sl_enabled ? parseFloat(leg.leg.reentry_sl_value || 0) : parseFloat(leg.leg.stop_loss || 0);
+                                const isSlEnabled = isReentered && leg.leg.reentry_sl_enabled ? true : leg.leg.sl_enabled !== false;
 
-                                if (activeSlValue > 0) {
+                                if (isSlEnabled && activeSlValue > 0) {
                                     const activeSlType = isReentered && leg.leg.reentry_sl_enabled ? leg.leg.reentry_sl_type : (leg.leg.sl_type || "PERCENTAGE");
 
                                     if (activeSlType === "POINTS") {

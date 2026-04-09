@@ -51,7 +51,7 @@ const DEFAULT_LEG = {
     lazy_leg: null,
     tsl_enabled: false,
     tsl_type: 'PERCENTAGE',
-    tsl_value: 0,
+    tsl_move: 0,
     tsl_trail: 0
 };
 
@@ -61,7 +61,7 @@ const getLegSummary = (leg) => {
     const strike = leg.strike_criteria === 'CLOSEST_PREMIUM' ? `₹${leg.premium || 0}` : (leg.strike || 'ATM');
     let summary = `${leg.side || 'BUY'} ${leg.option_type || 'CE'} ${strike} (SL ${leg.stop_loss || 0}${leg.sl_type === 'POINTS' ? 'pts' : '%'})`;
     if (leg.tsl_enabled) {
-        summary += ` [TSL ${leg.tsl_value || 0}${leg.tsl_type === 'POINTS' ? 'pts' : '%'} | Trl: ${leg.tsl_trail || 0}]`;
+        summary += ` [TSL ${leg.tsl_move || 0}${leg.tsl_type === 'POINTS' ? 'pts' : '%'} | Trl: ${leg.tsl_trail || 0}]`;
     }
     return summary;
 };
@@ -91,8 +91,8 @@ const LazyLegModal = ({ isOpen, onClose, leg, onChange, legIndex, level }) => {
                             <Ghost className="h-6 w-6 text-white" />
                         </div>
                         <div>
-                            <h3 className="text-xl font-bold text-slate-900 tracking-tight">Configure Lazy Leg</h3>
-                            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mt-1 opacity-70">
+                            <h3 className="text-base font-medium text-slate-900 tracking-tight">Configure Lazy Leg</h3>
+                            <p className="text-[10px] font-medium text-slate-400 uppercase tracking-widest mt-1 opacity-70">
                                 Level {level} • Initial Leg Index {legIndex + 1}
                             </p>
                         </div>
@@ -106,7 +106,7 @@ const LazyLegModal = ({ isOpen, onClose, leg, onChange, legIndex, level }) => {
                 </div>
 
                 {/* Content */}
-                <div className="flex-1 overflow-y-auto p-8 bg-slate-50/30">
+                <div className="flex-1 overflow-y-auto p-4 bg-slate-50/30">
                     <div className="max-w-3xl mx-auto">
                         <LegConfiguration
                             leg={leg}
@@ -121,11 +121,11 @@ const LazyLegModal = ({ isOpen, onClose, leg, onChange, legIndex, level }) => {
                 </div>
 
                 {/* Footer */}
-                <div className="px-8 py-5 bg-white border-t border-slate-100 flex items-center justify-end shrink-0 gap-3">
-                    <Button variant="outline" onClick={onClose} className="rounded-xl px-6 font-bold h-12">
+                <div className="px-6 py-3 bg-white border-t border-slate-100 flex items-center justify-end shrink-0 gap-3">
+                    <Button variant="outline" onClick={onClose} className="rounded-xl px-6 font-medium h-12">
                         Cancel
                     </Button>
-                    <Button onClick={onClose} className="rounded-xl px-8 font-bold h-12 shadow-lg shadow-primary/20">
+                    <Button onClick={onClose} className="rounded-xl px-8 font-medium h-12 shadow-lg shadow-primary/20">
                         Confirm Configuration
                     </Button>
                 </div>
@@ -152,17 +152,17 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
     const [isLazyModalOpen, setIsLazyModalOpen] = useState(false);
 
     return (
-        <div className={`p-3 rounded-lg border-2 transition-all duration-300 ${isRecursive ? 'bg-muted/30 border-dashed mt-2 ml-4 md:ml-6 border-primary/20' : 'bg-card border-primary/10 hover:border-primary/30 shadow-sm'}`}>
-            <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-2">
-                    <div className={`h-8 w-8 ${isRecursive ? 'bg-orange-500/10 text-orange-600' : 'bg-primary/10 text-primary'} rounded flex items-center justify-center font-bold text-sm`}>
-                        {isRecursive ? <Ghost className="h-4 w-4" /> : legIndex + 1}
+        <div className={`p-2 rounded-lg border-2 transition-all duration-300 ${isRecursive ? 'bg-muted/30 border-dashed mt-2 ml-4 md:ml-6 border-primary/20' : 'bg-card border-primary/10 hover:border-primary/30 shadow-sm'}`}>
+            <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-1.5">
+                    <div className={`h-8 w-8 ${isRecursive ? 'bg-orange-500/10 text-orange-600' : 'bg-primary/10 text-primary'} rounded flex items-center justify-center font-medium text-[11px]`}>
+                        {legIndex + 1}
                     </div>
                     <div>
-                        <h3 className="font-bold text-sm tracking-tight">
+                        <h3 className="font-medium text-[11px] tracking-tight">
                             {isRecursive ? `Lazy Leg (Level ${level})` : `Strategy Leg ${legIndex + 1}`}
                         </h3>
-                        <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">
+                        <p className="text-[9px] text-muted-foreground font-medium uppercase tracking-wider">
                             {isRecursive ? 'Placed after parent SL hits' : 'Initial Entry Leg'}
                         </p>
                     </div>
@@ -203,16 +203,16 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
                 )}
             </div>
 
-            <div className="flex flex-wrap items-end gap-x-3 gap-y-4">
-                <div className="space-y-2">
-                    <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
-                        <TrendingUp className="h-3 w-3" /> Option Type
+            <div className="flex flex-wrap items-end gap-x-2 gap-y-2 w-full">
+                <div className="space-y-1.5 flex-1 min-w-[100px] sm:min-w-[120px]">
+                    <Label className="text-[9px] font-medium uppercase tracking-wider text-muted-foreground flex items-center">
+                        Option Type
                     </Label>
                     <Select
                         value={leg.option_type}
                         onValueChange={(v) => onChange({ ...leg, option_type: v })}
                     >
-                        <SelectTrigger className="h-9 w-[120px] rounded-lg text-sm">
+                        <SelectTrigger className="h-9 w-full rounded-lg text-[12px]">
                             <SelectValue placeholder="Type" />
                         </SelectTrigger>
                         <SelectContent>
@@ -222,15 +222,15 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
                     </Select>
                 </div>
 
-                <div className="space-y-1">
-                    <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
-                        <Target className="h-3 w-3" /> Strike Criteria
+                <div className="space-y-1 flex-1 min-w-[140px] sm:min-w-[180px]">
+                    <Label className="text-[9px] font-medium uppercase tracking-wider text-muted-foreground flex items-center">
+                        Strike Criteria
                     </Label>
                     <Select
                         value={leg.strike_criteria || 'STRIKE_TYPE'}
                         onValueChange={(v) => onChange({ ...leg, strike_criteria: v })}
                     >
-                        <SelectTrigger className="h-9 w-[180px] rounded-lg text-sm">
+                        <SelectTrigger className="h-9 w-full rounded-lg text-[11px]">
                             <SelectValue placeholder="Criteria" />
                         </SelectTrigger>
                         <SelectContent>
@@ -241,12 +241,12 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
                 </div>
 
                 {leg.strike_criteria === 'CLOSEST_PREMIUM' ? (
-                    <div className="space-y-1 w-[120px]">
-                        <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+                    <div className="space-y-1 flex-1 min-w-[100px] sm:min-w-[120px]">
+                        <Label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground flex items-center gap-2">
                             Premium (₹)
                         </Label>
                         <Input
-                            className="h-9 rounded-lg text-sm"
+                            className="h-9 rounded-lg text-[12px] w-full"
                             type="text"
                             value={leg.premium === undefined ? '' : leg.premium}
                             onChange={(e) => {
@@ -259,15 +259,15 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
                         />
                     </div>
                 ) : (
-                    <div className="space-y-1">
-                        <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
-                            <Target className="h-3 w-3" /> Strike
+                    <div className="space-y-1 flex-1 min-w-[100px]">
+                        <Label className="text-[9px] font-medium uppercase tracking-wider text-muted-foreground flex items-center">
+                            Strike
                         </Label>
                         <Select
                             value={leg.strike}
                             onValueChange={(v) => onChange({ ...leg, strike: v })}
                         >
-                            <SelectTrigger className="h-9 w-[100px] rounded-lg text-sm">
+                            <SelectTrigger className="h-9 w-full rounded-lg text-[11px]">
                                 <SelectValue placeholder="Select Strike" />
                             </SelectTrigger>
                             <SelectContent className="max-h-[300px]">
@@ -283,39 +283,37 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
                     </div>
                 )}
 
-                <div className="flex items-end gap-2">
-                    <div className="space-y-1 w-[100px]">
-                        <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Side</Label>
-                        <Select
-                            value={leg.side}
-                            onValueChange={(v) => onChange({ ...leg, side: v })}
-                        >
-                            <SelectTrigger className="h-9 rounded-lg text-sm">
-                                <SelectValue placeholder="Side" />
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="BUY">BUY</SelectItem>
-                                <SelectItem value="SELL">SELL</SelectItem>
-                            </SelectContent>
-                        </Select>
-                    </div>
+                <div className="space-y-1 flex-1 min-w-[100px]">
+                    <Label className="text-[9px] font-medium uppercase tracking-wider text-muted-foreground">Side</Label>
+                    <Select
+                        value={leg.side}
+                        onValueChange={(v) => onChange({ ...leg, side: v })}
+                    >
+                        <SelectTrigger className="h-9 w-full rounded-lg text-[11px]">
+                            <SelectValue placeholder="Side" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="BUY">BUY</SelectItem>
+                            <SelectItem value="SELL">SELL</SelectItem>
+                        </SelectContent>
+                    </Select>
+                </div>
 
-                    <div className="space-y-1 w-[80px]">
-                        <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Lots</Label>
-                        <Input
-                            className="h-9 rounded-lg text-sm"
-                            type="number"
-                            value={leg.lots}
-                            onChange={(e) => onChange({ ...leg, lots: parseInt(e.target.value) })}
-                        />
-                    </div>
+                <div className="space-y-1 flex-1 min-w-[80px] max-w-[120px]">
+                    <Label className="text-[9px] font-medium uppercase tracking-wider text-muted-foreground">Lots</Label>
+                    <Input
+                        className="h-9 w-full rounded-lg text-[11px]"
+                        type="number"
+                        value={leg.lots}
+                        onChange={(e) => onChange({ ...leg, lots: parseInt(e.target.value) })}
+                    />
                 </div>
 
                 {/* Risk Management Section */}
-                <div className="w-full flex items-start gap-10 pt-4 border-t border-dashed border-gray-100 mt-4 overflow-x-auto no-scrollbar">
-                    <div className="flex-1 min-w-[240px] space-y-2.5">
-                        <div className="flex items-center justify-between max-w-[280px]">
-                            <Label className="text-[13px] font-semibold text-gray-700">Stop Loss</Label>
+                <div className="w-full flex flex-col lg:flex-row items-start gap-2 lg:gap-4 pt-2 border-t border-dashed border-gray-100 mt-2">
+                    <div className="w-full lg:flex-1 space-y-1.5">
+                        <div className="flex items-center justify-between w-full lg:max-w-[280px]">
+                            <Label className="text-[10px] font-medium text-gray-700">Stop Loss</Label>
                             <Switch 
                                 checked={leg.sl_enabled !== false} 
                                 onCheckedChange={(val) => onChange({ ...leg, sl_enabled: val })}
@@ -323,13 +321,13 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
                         </div>
                         
                         {leg.sl_enabled !== false && (
-                            <div className="flex items-center gap-2 animate-in fade-in slide-in-from-top-1">
-                                <div className="flex-1 min-w-[120px]">
+                            <div className="flex flex-wrap items-center gap-2 animate-in fade-in slide-in-from-top-1">
+                                <div className="flex-1 min-w-[100px] sm:min-w-[120px]">
                                     <Select
                                         value={leg.sl_type || 'PERCENTAGE'}
                                         onValueChange={(v) => onChange({ ...leg, sl_type: v })}
                                     >
-                                        <SelectTrigger className="h-9 rounded-lg text-sm bg-background border-input">
+                                        <SelectTrigger className="h-9 w-full rounded-lg text-[11px] bg-background border-input">
                                             <SelectValue placeholder="Type" />
                                         </SelectTrigger>
                                         <SelectContent>
@@ -339,9 +337,9 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
                                     </Select>
                                 </div>
 
-                                <div className="w-[80px] shrink-0">
+                                <div className="flex-1 min-w-[60px] sm:flex-none sm:w-[80px]">
                                     <Input
-                                        className="h-9 rounded-lg text-sm transition-all focus:ring-emerald-500"
+                                        className="h-9 w-full rounded-lg text-[11px] transition-all focus:ring-emerald-500"
                                         type="number"
                                         value={leg.stop_loss}
                                         onChange={(e) => onChange({ ...leg, stop_loss: parseFloat(e.target.value) })}
@@ -351,9 +349,9 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
                         )}
                     </div>
 
-                    <div className="flex-1 min-w-[340px] space-y-2.5">
-                        <div className="flex items-center justify-between max-w-[280px]">
-                            <Label className="text-[13px] font-semibold text-gray-700">Trailing Stop Loss</Label>
+                    <div className="w-full lg:flex-1 space-y-1.5">
+                        <div className="flex items-center justify-between w-full lg:max-w-[280px]">
+                            <Label className="text-[10px] font-medium text-gray-700">Trailing Stop Loss</Label>
                             <Switch 
                                 checked={leg.tsl_enabled || false} 
                                 onCheckedChange={(val) => onChange({ ...leg, tsl_enabled: val })}
@@ -361,13 +359,13 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
                         </div>
                         
                         {leg.tsl_enabled && (
-                            <div className="flex items-center gap-2 animate-in fade-in slide-in-from-top-1">
-                                <div className="flex-1 min-w-[120px]">
+                            <div className="flex flex-wrap items-center gap-2 animate-in fade-in slide-in-from-top-1">
+                                <div className="flex-1 min-w-[100px] sm:min-w-[120px]">
                                     <Select
                                         value={leg.tsl_type || 'PERCENTAGE'}
                                         onValueChange={(v) => onChange({ ...leg, tsl_type: v })}
                                     >
-                                        <SelectTrigger className="h-9 rounded-lg text-sm bg-background border-input">
+                                        <SelectTrigger className="h-9 w-full rounded-lg text-[11px] bg-background border-input">
                                             <SelectValue placeholder="Type" />
                                         </SelectTrigger>
                                         <SelectContent>
@@ -377,9 +375,9 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
                                     </Select>
                                 </div>
 
-                                <div className="w-[80px] shrink-0">
+                                <div className="flex-1 min-w-[60px] sm:flex-none sm:w-[80px]">
                                     <Input
-                                        className="h-9 rounded-lg text-sm focus:ring-emerald-500"
+                                        className="h-9 w-full rounded-lg text-[11px] focus:ring-emerald-500"
                                         type="number"
                                         placeholder="Move"
                                         value={leg.tsl_move === 0 ? '' : (leg.tsl_move !== undefined ? leg.tsl_move : '')}
@@ -390,9 +388,9 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
                                     />
                                 </div>
 
-                                <div className="w-[80px] shrink-0">
+                                <div className="flex-1 min-w-[60px] sm:flex-none sm:w-[80px]">
                                     <Input
-                                        className="h-9 rounded-lg text-sm focus:ring-emerald-500"
+                                        className="h-9 w-full rounded-lg text-[11px] focus:ring-emerald-500"
                                         type="number"
                                         placeholder="Trail"
                                         value={leg.tsl_trail === 0 ? '' : (leg.tsl_trail !== undefined ? leg.tsl_trail : '')}
@@ -408,11 +406,11 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
                 </div>
 
                 {/* Advanced Execution Management (Momentum & ASAP Re-entry) */}
-                <div className="w-full flex items-start gap-10 pt-4 border-t border-dashed border-gray-100 mt-1">
+                <div className="w-full flex flex-col lg:flex-row items-start gap-2 lg:gap-4 pt-2 border-t border-dashed border-gray-100 mt-0">
                     {/* Simple Momentum */}
-                    <div className="flex-1 min-w-[280px] space-y-2.5">
-                        <div className="flex items-center justify-between max-w-[280px]">
-                            <Label className="text-[13px] font-semibold text-gray-700">Simple Momentum</Label>
+                    <div className="w-full lg:flex-1 space-y-1.5">
+                        <div className="flex items-center justify-between w-full lg:max-w-[280px]">
+                            <Label className="text-[10px] font-medium text-gray-700">Simple Momentum</Label>
                             <Switch 
                                 checked={leg.simple_mntm_enabled || false} 
                                 onCheckedChange={(val) => onChange({ ...leg, simple_mntm_enabled: val })}
@@ -420,13 +418,13 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
                         </div>
                         
                         {leg.simple_mntm_enabled && (
-                            <div className="flex items-center gap-2 animate-in fade-in slide-in-from-top-1">
-                                <div className="flex-1 min-w-[120px]">
+                            <div className="flex flex-wrap items-center gap-2 animate-in fade-in slide-in-from-top-1">
+                                <div className="flex-1 min-w-[100px] sm:min-w-[120px]">
                                     <Select
                                         value={leg.simple_mntm_mode || 'SIMPLE_PLUS_PCT'}
                                         onValueChange={(v) => onChange({ ...leg, simple_mntm_mode: v })}
                                     >
-                                        <SelectTrigger className="h-9 rounded-lg text-sm bg-background border-input">
+                                        <SelectTrigger className="h-9 w-full rounded-lg text-[11px] bg-background border-input">
                                             <SelectValue placeholder="Mode" />
                                         </SelectTrigger>
                                         <SelectContent>
@@ -438,9 +436,9 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
                                     </Select>
                                 </div>
 
-                                <div className="w-[80px] shrink-0">
+                                <div className="flex-1 min-w-[60px] sm:flex-none sm:w-[80px]">
                                     <Input
-                                        className="h-9 rounded-lg text-sm transition-all focus:ring-emerald-500"
+                                        className="h-9 w-full rounded-lg text-[11px] transition-all focus:ring-emerald-500"
                                         type="number"
                                         placeholder="Value"
                                         value={leg.simple_mntm_value === 0 ? '' : (leg.simple_mntm_value !== undefined ? leg.simple_mntm_value : '')}
@@ -455,9 +453,9 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
                     </div>
 
                     {/* RE-ENTRY */}
-                    <div className="flex-1 min-w-[240px] space-y-2.5">
-                        <div className="flex items-center justify-between max-w-[280px]">
-                            <Label className="text-[13px] font-semibold text-gray-700">RE-ENTRY</Label>
+                    <div className="w-full lg:flex-1 space-y-1.5">
+                        <div className="flex items-center justify-between w-full lg:max-w-[280px]">
+                            <Label className="text-[10px] font-medium text-gray-700 uppercase tracking-tight">RE-Entry</Label>
                             <Switch 
                                 checked={leg.re_asap_enabled || leg.recost_enabled || leg.lazy_leg_enabled || false} 
                                 onCheckedChange={(val) => {
@@ -483,7 +481,7 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
 
                         {(leg.re_asap_enabled || leg.recost_enabled || leg.lazy_leg_enabled) && (
                             <div className="animate-in fade-in slide-in-from-top-1">
-                                <div className="w-[150px]">
+                                <div className="w-full max-w-[180px]">
                                     <Select
                                         value={leg.lazy_leg_enabled ? 'LAZY_LEG' : (leg.recost_enabled ? 'RE_COST' : 'RE_ASAP')}
                                         onValueChange={(v) => {
@@ -496,7 +494,7 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
                                             });
                                         }}
                                     >
-                                        <SelectTrigger className="h-9 rounded-lg text-sm bg-background border-input">
+                                        <SelectTrigger className="h-9 w-full rounded-lg text-[12px] bg-background border-input">
                                             <SelectValue placeholder="Type" />
                                         </SelectTrigger>
                                         <SelectContent>
@@ -513,16 +511,16 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
 
                 {/* Re-Entry Configurations */}
                 {(leg.re_asap_enabled || leg.recost_enabled || leg.lazy_leg_enabled) && (
-                    <div className="w-full pt-4 border-t border-dashed border-gray-100 mt-4 animate-in fade-in slide-in-from-top-2">
+                    <div className="w-full pt-2 border-t border-dashed border-gray-100 mt-2 animate-in fade-in slide-in-from-top-2">
                         {leg.re_asap_enabled && (
-                            <div className="space-y-3">
-                                <div className="w-[150px]">
-                                    <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground block mb-2">Max Entries</Label>
+                            <div className="space-y-1.5">
+                                <div className="w-full max-w-[150px]">
+                                    <Label className="text-[9px] font-medium uppercase tracking-wider text-muted-foreground block mb-1">Max Entries</Label>
                                     <Select
                                         value={(leg.re_asap_max_entries || 1).toString()}
                                         onValueChange={(v) => onChange({ ...leg, re_asap_max_entries: parseInt(v) })}
                                     >
-                                        <SelectTrigger className="h-9 rounded-lg text-sm bg-background border-input">
+                                        <SelectTrigger className="h-9 w-full rounded-lg text-[12px] bg-background border-input">
                                             <SelectValue placeholder="Max Entries" />
                                         </SelectTrigger>
                                         <SelectContent>
@@ -538,15 +536,15 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
                         )}
 
                         {leg.recost_enabled && (
-                            <div className="space-y-4">
-                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                            <div className="space-y-2">
+                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                                     <div className="space-y-1">
-                                        <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground block mb-2">Re-Cost Mode</Label>
+                                        <Label className="text-[9px] font-medium uppercase tracking-wider text-muted-foreground block mb-1">Re-Cost Mode</Label>
                                         <Select
                                             value={leg.recost_mode || 'RECOST_PLUS_PCT'}
                                             onValueChange={(v) => onChange({ ...leg, recost_mode: v })}
                                         >
-                                            <SelectTrigger className="h-9 rounded-lg text-xs">
+                                            <SelectTrigger className="h-9 rounded-lg text-[10px]">
                                                 <SelectValue placeholder="Mode" />
                                             </SelectTrigger>
                                             <SelectContent>
@@ -558,11 +556,11 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
                                         </Select>
                                     </div>
                                     <div className="space-y-1">
-                                        <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2 mb-2">
+                                        <Label className="text-[9px] font-medium uppercase tracking-wider text-muted-foreground flex items-center gap-1.5 mb-1">
                                             Value {leg.recost_mode && leg.recost_mode.includes('PCT') ? '(%)' : '(Pts)'}
                                         </Label>
                                         <Input
-                                            className="h-9 rounded-lg text-xs"
+                                            className="h-9 rounded-lg text-[9px]"
                                             type="text"
                                             value={leg.recost_value === undefined ? '' : leg.recost_value}
                                             onChange={(e) => {
@@ -575,12 +573,12 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
                                         />
                                     </div>
                                     <div className="space-y-1">
-                                        <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground block mb-2">Max Entries</Label>
+                                        <Label className="text-[9px] font-medium uppercase tracking-wider text-muted-foreground block mb-1">Max Entries</Label>
                                         <Select
                                             value={(leg.max_reentry || 1).toString()}
                                             onValueChange={(v) => onChange({ ...leg, max_reentry: parseInt(v) })}
                                         >
-                                            <SelectTrigger className="h-9 rounded-lg text-xs">
+                                            <SelectTrigger className="h-9 rounded-lg text-[9px]">
                                                 <SelectValue placeholder="Entries" />
                                             </SelectTrigger>
                                             <SelectContent className="max-h-[250px]">
@@ -594,7 +592,7 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
                                     </div>
                                 </div>
 
-                                <div className="space-y-4 pt-2">
+                                <div className="space-y-2 pt-1">
                                     <div className="flex items-center gap-2">
                                         <input
                                             type="checkbox"
@@ -608,19 +606,19 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
                                                 recost_mntm_value: leg.recost_mntm_value || 0
                                             })}
                                         />
-                                        <Label htmlFor={`reentry-mntm-${idPrefix}`} className="text-[10px] font-bold tracking-wide text-foreground cursor-pointer uppercase">
+                                        <Label htmlFor={`reentry-mntm-${idPrefix}`} className="text-[10px] font-medium tracking-wide text-foreground cursor-pointer uppercase">
                                             Re Entry Mntm
                                         </Label>
                                     </div>
                                     {leg.recost_mntm_enabled && (
                                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pl-5 animate-in slide-in-from-top-2 border-l-2 border-primary/20">
                                             <div className="space-y-1">
-                                                <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground block mb-2">Mntm Mode</Label>
+                                                <Label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground block mb-2">Mntm Mode</Label>
                                                 <Select
                                                     value={leg.recost_mntm_mode || 'RECOST_PLUS_PCT'}
                                                     onValueChange={(v) => onChange({ ...leg, recost_mntm_mode: v })}
                                                 >
-                                                    <SelectTrigger className="h-9 rounded-lg text-xs">
+                                                    <SelectTrigger className="h-9 rounded-lg text-[10px]">
                                                         <SelectValue placeholder="Mode" />
                                                     </SelectTrigger>
                                                     <SelectContent>
@@ -632,11 +630,11 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
                                                 </Select>
                                             </div>
                                             <div className="space-y-1">
-                                                <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground block mb-2">
+                                                <Label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground block mb-2">
                                                     Value {leg.recost_mntm_mode && leg.recost_mntm_mode.includes('PCT') ? '(%)' : '(Pts)'}
                                                 </Label>
                                                 <Input
-                                                    className="h-9 rounded-lg text-xs"
+                                                    className="h-9 rounded-lg text-[10px]"
                                                     type="text"
                                                     value={leg.recost_mntm_value === undefined ? '' : leg.recost_mntm_value}
                                                     onChange={(e) => {
@@ -659,19 +657,19 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
                                             checked={leg.reentry_sl_enabled || false}
                                             onChange={(e) => onChange({ ...leg, reentry_sl_enabled: e.target.checked })}
                                         />
-                                        <Label htmlFor={`reentry-sl-${idPrefix}`} className="text-[10px] font-bold tracking-wide text-foreground cursor-pointer uppercase">
+                                        <Label htmlFor={`reentry-sl-${idPrefix}`} className="text-[10px] font-medium tracking-wide text-foreground cursor-pointer uppercase">
                                             Override SL on Re-Entry
                                         </Label>
                                     </div>
                                     {leg.reentry_sl_enabled && (
                                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pl-5 animate-in slide-in-from-top-2 border-l-2 border-primary/20">
                                             <div className="space-y-1">
-                                                <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground block mb-2">SL Type</Label>
+                                                <Label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground block mb-2">SL Type</Label>
                                                 <Select
                                                     value={leg.reentry_sl_type || 'PERCENTAGE'}
                                                     onValueChange={(v) => onChange({ ...leg, reentry_sl_type: v })}
                                                 >
-                                                    <SelectTrigger className="h-9 rounded-lg text-xs">
+                                                    <SelectTrigger className="h-9 rounded-lg text-[10px]">
                                                         <SelectValue placeholder="SL Type" />
                                                     </SelectTrigger>
                                                     <SelectContent>
@@ -681,11 +679,11 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
                                                 </Select>
                                             </div>
                                             <div className="space-y-1">
-                                                <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2 mb-2">
+                                                <Label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground flex items-center gap-2 mb-2">
                                                     Value {leg.reentry_sl_type === 'POINTS' ? '(Pts)' : '(%)'}
                                                 </Label>
                                                 <Input
-                                                    className="h-9 rounded-lg text-xs"
+                                                    className="h-9 rounded-lg text-[10px]"
                                                     type="number"
                                                     value={leg.reentry_sl_value !== undefined ? leg.reentry_sl_value : (leg.stop_loss || 0)}
                                                     onChange={(e) => onChange({ ...leg, reentry_sl_value: parseFloat(e.target.value) })}
@@ -701,12 +699,12 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
                             <div className="animate-in slide-in-from-top-2">
                                 <div className="flex items-center justify-between p-2.5 bg-orange-50/50 border border-orange-200 rounded-lg group hover:border-orange-300 transition-all cursor-pointer" onClick={() => setIsLazyModalOpen(true)}>
                                     <div className="flex items-center gap-2">
-                                        <div className="h-8 w-8 bg-orange-500/10 text-orange-600 rounded flex items-center justify-center">
-                                            <Ghost className="h-4 w-4" />
+                                        <div className="h-8 w-8 bg-orange-500/10 text-orange-600 rounded flex items-center justify-center font-bold text-[11px]">
+                                            L
                                         </div>
                                         <div>
                                             <p className="text-[9px] font-black text-orange-600 uppercase tracking-widest">Lazy Leg Lvl {level + 1}</p>
-                                            <p className="text-xs font-bold text-slate-700">{getLegSummary(leg.lazy_leg)}</p>
+                                            <p className="text-[10px] font-medium text-slate-700">{getLegSummary(leg.lazy_leg)}</p>
                                         </div>
                                     </div>
                                     <Button variant="ghost" size="sm" className="h-7 rounded-md text-[10px] group-hover:bg-orange-100/50">
@@ -769,7 +767,7 @@ const EntryTimer = ({ entryTime }) => {
     }, [entryTime]);
 
     return (
-        <div className="flex items-center gap-1 px-1.5 py-0.5 ml-1 bg-indigo-50 text-indigo-700 font-bold rounded border border-indigo-100/60 shadow-sm animate-pulse">
+        <div className="flex items-center gap-1 px-1.5 py-0.5 ml-1 bg-indigo-50 text-indigo-700 font-medium rounded border border-indigo-100/60 shadow-sm animate-pulse">
             <Clock className="h-3 w-3" />
             <span className="text-[10px] tracking-wide uppercase">Entry at {entryTime} {timeLeft ? `(${timeLeft})` : ''}</span>
         </div>
@@ -795,25 +793,25 @@ export const StrategyFormContent = ({ config, setConfig, editingId, setEditingId
                     display: none !important;
                 }
             `}</style>
-            <div className="flex flex-wrap items-end justify-between gap-4 px-1 w-full">
-                <div className="space-y-1 w-full max-w-sm">
-                    <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
-                        <Target className="h-3 w-3" /> Strategy Name
+            <div className="flex flex-wrap items-end justify-between gap-2.5 px-0 w-full">
+                <div className="space-y-1 w-full md:max-w-sm flex-1 min-w-[200px]">
+                    <Label className="text-[8.5px] font-medium uppercase tracking-wider text-muted-foreground flex items-center">
+                        Strategy Name
                     </Label>
                     <Input
-                        className="h-9 rounded-lg text-sm"
+                        className="h-9 rounded-lg text-[11px]"
                         type="text"
                         placeholder="E.g., Morning Breakout (CE)"
                         value={config.name || ''}
                         onChange={(e) => setConfig({ ...config, name: e.target.value })}
                     />
                 </div>
-                <div className="space-y-1 w-[150px]">
-                    <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
-                        <LayoutDashboard className="h-3 w-3" /> Index
+                <div className="space-y-1 w-full min-w-[120px] md:w-[150px] flex-1 md:flex-none">
+                    <Label className="text-[8.5px] font-medium uppercase tracking-wider text-muted-foreground flex items-center">
+                        Index
                     </Label>
                     <Select value={config.index} onValueChange={(v) => setConfig({ ...config, index: v })}>
-                        <SelectTrigger className="h-9 rounded-lg text-sm">
+                        <SelectTrigger className="h-9 rounded-lg text-[11px]">
                             <SelectValue placeholder="Select Index" />
                         </SelectTrigger>
                         <SelectContent>
@@ -822,12 +820,12 @@ export const StrategyFormContent = ({ config, setConfig, editingId, setEditingId
                         </SelectContent>
                     </Select>
                 </div>
-                <div className="space-y-1 w-[120px]">
-                    <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+                <div className="space-y-1 w-full min-w-[100px] md:w-[120px] flex-1 md:flex-none">
+                    <Label className="text-[8.5px] font-medium uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
                         Limit Offset
                     </Label>
                     <Input
-                        className="h-9 rounded-lg text-sm"
+                        className="h-9 rounded-lg text-[11px]"
                         type="text"
                         placeholder="0.0"
                         value={config.entry_limit_offset}
@@ -842,24 +840,24 @@ export const StrategyFormContent = ({ config, setConfig, editingId, setEditingId
                         }}
                     />
                 </div>
-                <div className="space-y-1 w-[150px]">
-                    <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
-                        <Timer className="h-3 w-3" /> Entry Time
+                <div className="space-y-1 w-full min-w-[120px] md:w-[150px] flex-none">
+                    <Label className="text-[8.5px] font-medium uppercase tracking-wider text-muted-foreground flex items-center">
+                        Entry Time
                     </Label>
                     <Input
-                        className="h-9 rounded-lg text-sm"
+                        className="h-9 rounded-lg text-[11px]"
                         type="time"
                         step="1"
                         value={config.entry_time}
                         onChange={(e) => setConfig({ ...config, entry_time: e.target.value })}
                     />
                 </div>
-                <div className="space-y-1 w-[150px]">
-                    <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
-                        <Timer className="h-3 w-3" /> Exit Time
+                <div className="space-y-1 w-full min-w-[120px] md:w-[150px] flex-none">
+                    <Label className="text-[8.5px] font-medium uppercase tracking-wider text-muted-foreground flex items-center">
+                        Exit Time
                     </Label>
                     <Input
-                        className="h-9 rounded-lg text-sm"
+                        className="h-9 rounded-lg text-[11px]"
                         type="time"
                         step="1"
                         value={config.exit_time}
@@ -868,11 +866,11 @@ export const StrategyFormContent = ({ config, setConfig, editingId, setEditingId
                 </div>
             </div>
 
-            <div className="flex flex-wrap items-start gap-12 px-1 w-full pt-4 border-t border-gray-50 mt-4 mb-2">
+            <div className="flex flex-wrap items-start gap-4 md:gap-5 px-0 w-full pt-2 border-t border-gray-50 mt-2 mb-1">
                 {/* Overall Stop Loss */}
-                <div className="space-y-3 min-w-[280px]">
+                <div className="space-y-1.5 w-full md:w-auto md:min-w-[280px]">
                     <div className="flex items-center justify-between">
-                        <Label className="text-[13px] font-semibold text-gray-700">Overall Stop Loss</Label>
+                        <Label className="text-[10px] font-medium text-gray-700">Overall Stop Loss</Label>
                         <Switch
                             checked={config.overall_sl_enabled}
                             onCheckedChange={(val) => setConfig({ ...config, overall_sl_enabled: val })}
@@ -880,10 +878,10 @@ export const StrategyFormContent = ({ config, setConfig, editingId, setEditingId
                     </div>
                     {config.overall_sl_enabled && (
                         <div className="flex items-center gap-2 animate-in fade-in slide-in-from-top-1 duration-300">
-                            <div className="flex flex-col gap-1">
-                                <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Type</Label>
+                            <div className="flex flex-col gap-0.5 flex-1">
+                                <Label className="text-[8.5px] font-medium uppercase tracking-wider text-muted-foreground whitespace-nowrap">Type</Label>
                                 <Select value={config.overall_sl_type || 'PERCENTAGE'} onValueChange={(v) => setConfig({ ...config, overall_sl_type: v })}>
-                                    <SelectTrigger className="h-9 w-44 rounded-lg text-sm bg-background border-input">
+                                    <SelectTrigger className="h-9 w-full sm:w-44 rounded-lg text-[11px] bg-background border-input">
                                         <SelectValue placeholder="Type" />
                                     </SelectTrigger>
                                     <SelectContent>
@@ -892,10 +890,10 @@ export const StrategyFormContent = ({ config, setConfig, editingId, setEditingId
                                     </SelectContent>
                                 </Select>
                             </div>
-                            <div className="flex flex-col gap-1">
-                                <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Value</Label>
+                            <div className="flex flex-col gap-0.5 w-24 sm:w-28 shrink-0">
+                                <Label className="text-[8.5px] font-medium uppercase tracking-wider text-muted-foreground whitespace-nowrap">Value</Label>
                                 <Input
-                                    className="h-9 w-28 rounded-lg text-sm border-input bg-background focus:ring-emerald-500 focus:border-emerald-500"
+                                    className="h-9 w-full rounded-lg text-[11px] border-input bg-background focus:ring-emerald-500 focus:border-emerald-500"
                                     type="text"
                                     value={config.overall_sl_value}
                                     onChange={(e) => {
@@ -914,9 +912,9 @@ export const StrategyFormContent = ({ config, setConfig, editingId, setEditingId
                 </div>
 
                 {/* Overall Target */}
-                <div className="space-y-3 min-w-[280px]">
+                <div className="space-y-1.5 w-full md:w-auto md:min-w-[280px]">
                     <div className="flex items-center justify-between">
-                        <Label className="text-[13px] font-semibold text-gray-700">Overall Target</Label>
+                        <Label className="text-[10px] font-medium text-gray-700">Overall Target</Label>
                         <Switch
                             checked={config.overall_target_enabled}
                             onCheckedChange={(val) => setConfig({ ...config, overall_target_enabled: val })}
@@ -924,10 +922,10 @@ export const StrategyFormContent = ({ config, setConfig, editingId, setEditingId
                     </div>
                     {config.overall_target_enabled && (
                         <div className="flex items-center gap-2 animate-in fade-in slide-in-from-top-1 duration-300">
-                            <div className="flex flex-col gap-1">
-                                <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Type</Label>
+                            <div className="flex flex-col gap-0.5 flex-1">
+                                <Label className="text-[8.5px] font-medium uppercase tracking-wider text-muted-foreground whitespace-nowrap">Type</Label>
                                 <Select value={config.overall_target_type || 'PERCENTAGE'} onValueChange={(v) => setConfig({ ...config, overall_target_type: v })}>
-                                    <SelectTrigger className="h-9 w-44 rounded-lg text-sm bg-background border-input">
+                                    <SelectTrigger className="h-9 w-full sm:w-44 rounded-lg text-[11px] bg-background border-input">
                                         <SelectValue placeholder="Type" />
                                     </SelectTrigger>
                                     <SelectContent>
@@ -936,10 +934,10 @@ export const StrategyFormContent = ({ config, setConfig, editingId, setEditingId
                                     </SelectContent>
                                 </Select>
                             </div>
-                            <div className="flex flex-col gap-1">
-                                <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Value</Label>
+                            <div className="flex flex-col gap-0.5 w-24 sm:w-28 shrink-0">
+                                <Label className="text-[8.5px] font-medium uppercase tracking-wider text-muted-foreground whitespace-nowrap">Value</Label>
                                 <Input
-                                    className="h-9 w-28 rounded-lg text-sm border-input bg-background focus:ring-emerald-500 focus:border-emerald-500"
+                                    className="h-9 w-full rounded-lg text-[11px] border-input bg-background focus:ring-emerald-500 focus:border-emerald-500"
                                     type="text"
                                     value={config.overall_target_value}
                                     onChange={(e) => {
@@ -958,14 +956,14 @@ export const StrategyFormContent = ({ config, setConfig, editingId, setEditingId
                 </div>
             </div>
 
-            <div className="flex items-center justify-between pt-4 hide-on-readonly">
-                <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+            <div className="flex items-center justify-between pt-2 hide-on-readonly">
+                <div className="text-[9px] font-medium uppercase tracking-wider text-muted-foreground">
                     Strategy Legs
                 </div>
                 <Button
                     type="button"
                     variant="outline"
-                    className="h-8 gap-2 rounded-lg text-xs"
+                    className="h-8 gap-2 rounded-lg text-[10px]"
                     onClick={() => {
                         const next = [...config.legs, { ...DEFAULT_LEG }];
                         setConfig({ ...config, legs: next });
@@ -975,7 +973,7 @@ export const StrategyFormContent = ({ config, setConfig, editingId, setEditingId
                 </Button>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2">
                 {config.legs.map((leg, legIndex) => (
                     <LegConfiguration
                         key={`leg-config-${legIndex}`}
@@ -1005,9 +1003,9 @@ export const StrategyFormContent = ({ config, setConfig, editingId, setEditingId
 
                 {config.ordertype !== 'LIMIT' && (config.ordertype !== 'MARKET' && config.ordertype !== 'STOPLOSS_MARKET' && (
                     <div className="space-y-1">
-                        <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Price</Label>
+                        <Label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Price</Label>
                         <Input
-                            className="h-9 rounded-lg text-sm"
+                            className="h-9 rounded-lg text-[12px]"
                             type="number"
                             step="0.05"
                             value={config.price}
@@ -1018,9 +1016,9 @@ export const StrategyFormContent = ({ config, setConfig, editingId, setEditingId
 
                 {(config.ordertype === 'STOPLOSS_LIMIT' || config.ordertype === 'STOPLOSS_MARKET') && (
                     <div className="space-y-1">
-                        <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Trigger Price</Label>
+                        <Label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Trigger Price</Label>
                         <Input
-                            className="h-9 rounded-lg text-sm"
+                            className="h-9 rounded-lg text-[12px]"
                             type="number"
                             step="0.05"
                             value={config.triggerprice}
@@ -1031,7 +1029,7 @@ export const StrategyFormContent = ({ config, setConfig, editingId, setEditingId
 
                 <div className="flex items-end hide-on-readonly">
                     <Button
-                        className="w-full h-9 gap-2 rounded-lg shadow-md font-bold text-xs"
+                        className="w-full h-9 gap-2 rounded-lg shadow-md font-medium text-[10px]"
                         onClick={handleSave}
                         disabled={loading}
                     >
@@ -1043,7 +1041,7 @@ export const StrategyFormContent = ({ config, setConfig, editingId, setEditingId
                     <div className="flex items-end hide-on-readonly">
                         <Button
                             variant="outline"
-                            className="w-full h-9 gap-2 rounded-lg text-xs"
+                            className="w-full h-9 gap-2 rounded-lg text-[10px]"
                             onClick={() => setEditingId(null)}
                         >
                             Cancel Edit
@@ -1092,7 +1090,7 @@ export const StrategyBuilder = ({ isConnected }) => {
         overall_target_enabled: false,
         entry_limit_offset: 0,
         legs: [
-            { strike_criteria: 'STRIKE_TYPE', option_type: 'CE', strike: 'ATM', premium: 0, side: 'BUY', lots: 1, sl_type: 'PERCENTAGE', stop_loss: 10, simple_mntm_enabled: false, simple_mntm_mode: 'SIMPLE_PLUS_PCT', simple_mntm_value: 0, recost_enabled: false, recost_mode: 'RECOST_PLUS_PCT', recost_value: 0, max_reentry: 1, reentry_sl_enabled: false, reentry_sl_type: 'PERCENTAGE', reentry_sl_value: 10, re_asap_enabled: false, re_asap_max_entries: 1, lazy_leg_enabled: false, lazy_leg: null, tsl_enabled: false, tsl_type: 'PERCENTAGE', tsl_value: 0 }
+            { strike_criteria: 'STRIKE_TYPE', option_type: 'CE', strike: 'ATM', premium: 0, side: 'BUY', lots: 1, sl_type: 'PERCENTAGE', stop_loss: 10, simple_mntm_enabled: false, simple_mntm_mode: 'SIMPLE_PLUS_PCT', simple_mntm_value: 0, recost_enabled: false, recost_mode: 'RECOST_PLUS_PCT', recost_value: 0, max_reentry: 1, reentry_sl_enabled: false, reentry_sl_type: 'PERCENTAGE', reentry_sl_value: 10, re_asap_enabled: false, re_asap_max_entries: 1, lazy_leg_enabled: false, lazy_leg: null, tsl_enabled: false, tsl_type: 'PERCENTAGE', tsl_move: 0 }
         ]
     });
 
@@ -1452,31 +1450,31 @@ export const StrategyBuilder = ({ isConnected }) => {
         <div className="space-y-4">
             <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
                 <TabsList className="grid w-full grid-cols-2 mb-4 h-10 bg-muted/50 p-1 rounded-lg">
-                    <TabsTrigger value="paper" className="rounded-md font-bold text-xs data-[state=active]:bg-blue-600 data-[state=active]:text-white flex items-center gap-2">
+                    <TabsTrigger value="paper" className="rounded-md font-medium text-[10px] data-[state=active]:bg-blue-600 data-[state=active]:text-white flex items-center gap-2">
                         <ShieldCheck className="h-3.5 w-3.5" /> Paper Trading
                     </TabsTrigger>
-                    <TabsTrigger value="live" className="rounded-md font-bold text-xs data-[state=active]:bg-orange-600 data-[state=active]:text-white flex items-center gap-2">
+                    <TabsTrigger value="live" className="rounded-md font-medium text-[10px] data-[state=active]:bg-orange-600 data-[state=active]:text-white flex items-center gap-2">
                         <Zap className="h-3.5 w-3.5" /> Live Market
                     </TabsTrigger>
                 </TabsList>
 
                 <Card className="w-full border-border bg-card overflow-hidden">
                     <CardHeader
-                        className="border-b bg-muted py-3 px-4 cursor-pointer hover:bg-muted/80 transition-colors"
+                        className="border-b bg-muted py-2 px-3 cursor-pointer hover:bg-muted/80 transition-colors"
                         onClick={() => setIsConfigExpanded(!isConfigExpanded)}
                     >
                         <div className="flex items-center justify-between">
-                            <CardTitle className="flex items-center gap-2 text-base font-bold">
+                            <CardTitle className="flex items-center gap-2 text-[11px] font-medium">
                                 <Target className="h-4 w-4 text-primary" />
                                 Strategy Configuration
                             </CardTitle>
-                            <Button variant="ghost" size="sm" className="h-8 w-8 p-0 shrink-0">
+                            <Button variant="ghost" size="sm" className="h-7 w-7 p-0 shrink-0">
                                 {isConfigExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                             </Button>
                         </div>
                     </CardHeader>
                     {isConfigExpanded && (
-                        <CardContent className="p-4 animate-in slide-in-from-top-2 duration-200">
+                        <CardContent className="p-2 animate-in slide-in-from-top-2 duration-200">
                             <StrategyFormContent config={config} setConfig={setConfig} editingId={editingId} setEditingId={setEditingId} loading={loading} handleSave={handleSave} isReadOnly={false} />
                         </CardContent >
                     )}
@@ -1490,7 +1488,7 @@ export const StrategyBuilder = ({ isConnected }) => {
                                     className="border-b bg-muted/60 py-3 px-4 flex items-center justify-between cursor-pointer hover:bg-muted/80 transition-colors"
                                     onClick={() => setCollapsedSections(prev => ({ ...prev, 'active-strategies': !prev['active-strategies'] }))}
                                 >
-                                    <CardTitle className="flex items-center gap-2 text-base font-bold">
+                                    <CardTitle className="flex items-center gap-2 text-[11px] font-medium">
                                         <Play className="h-4 w-4 text-primary" /> Active Executions
                                     </CardTitle>
                                     <Button variant="ghost" size="sm" className="h-8 w-8 p-0 shrink-0">
@@ -1512,12 +1510,12 @@ export const StrategyBuilder = ({ isConnected }) => {
                                                                 <span className={`relative inline-flex rounded-full h-2 w-2 ${strategyData.status === 'FAILED' ? 'bg-red-500' : 'bg-green-500'}`}></span>
                                                             </span>
 
-                                                            <span className="text-[13px] font-bold text-slate-800">
+                                                            <span className="text-xs font-medium text-slate-800">
                                                                 {strategyData.name || strategyData.config?.name || 'Strategy Execution'}
                                                                 <span className="text-[10px] font-mono text-muted-foreground ml-1.5">#{id.split('-')[0] || id}</span>
                                                             </span>
 
-                                                            <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded shadow-sm uppercase ${strategyData.config?.is_paper_trading ? 'bg-blue-100/80 text-blue-700 border border-blue-200' : 'bg-orange-100/80 text-orange-700 border border-orange-200'}`}>
+                                                            <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded shadow-sm uppercase ${strategyData.config?.is_paper_trading ? 'bg-blue-100/80 text-blue-700 border border-blue-200' : 'bg-orange-100/80 text-orange-700 border border-orange-200'}`}>
                                                                 {strategyData.status} • {strategyData.config?.is_paper_trading ? 'PAPER' : 'LIVE'} • {strategyData.config?.index}
                                                             </span>
 
@@ -1527,13 +1525,13 @@ export const StrategyBuilder = ({ isConnected }) => {
 
                                                             {(strategyData?.status === "IN_POSITION" || strategyData?.status === "COMPLETED") && (
                                                                 <div className="flex items-center gap-1.5 ml-1">
-                                                                    <span className={`text-[11px] font-mono font-bold px-1.5 py-0.5 rounded border shadow-sm ${(strategyData.pnlPercent || 0) >= 0
+                                                                    <span className={`text-[11px] font-mono font-medium px-1.5 py-0.5 rounded border shadow-sm ${(strategyData.pnlPercent || 0) >= 0
                                                                         ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
                                                                         : 'bg-red-50 text-red-700 border-red-200'
                                                                         }`}>
                                                                         {(strategyData.pnlPercent || 0) > 0 ? '+' : ''}{(strategyData.pnlPercent || 0).toFixed(2)}% | {(strategyData.totalPnlRupees || 0) > 0 ? '+' : ''}₹{(strategyData.totalPnlRupees || 0).toFixed(2)}
                                                                     </span>
-                                                                    <span className="text-[10px] font-mono font-semibold text-slate-500 bg-slate-50 border border-slate-200 px-1.5 py-0.5 shadow-sm rounded">
+                                                                    <span className="text-[10px] font-mono font-medium text-slate-500 bg-slate-50 border border-slate-200 px-1.5 py-0.5 shadow-sm rounded">
                                                                         Value: ₹{(strategyData.totalOriginalValue || 0).toFixed(2)}
                                                                     </span>
                                                                 </div>
@@ -1570,7 +1568,7 @@ export const StrategyBuilder = ({ isConnected }) => {
                                                                 <Button
                                                                     size="sm"
                                                                     variant="outline"
-                                                                    className="h-8 px-3 gap-1 rounded-md text-[11px] font-bold border-orange-200 bg-orange-50/50 hover:bg-orange-100 text-orange-600 shadow-sm"
+                                                                    className="h-8 px-3 gap-1 rounded-md text-[11px] font-medium border-orange-200 bg-orange-50/50 hover:bg-orange-100 text-orange-600 shadow-sm"
                                                                     onClick={() => handleSquareOff(id)}
                                                                 >
                                                                     Square Off
@@ -1579,7 +1577,7 @@ export const StrategyBuilder = ({ isConnected }) => {
                                                             <Button
                                                                 size="sm"
                                                                 variant="outline"
-                                                                className="h-8 px-3 gap-1 rounded-md text-[11px] font-bold border-red-200 bg-red-50/50 hover:bg-red-100 text-red-600 shadow-sm"
+                                                                className="h-8 px-3 gap-1 rounded-md text-[11px] font-medium border-red-200 bg-red-50/50 hover:bg-red-100 text-red-600 shadow-sm"
                                                                 onClick={() => handleStop(id)}
                                                             >
                                                                 <StopCircle className="h-3.5 w-3.5" /> Terminate
@@ -1598,7 +1596,7 @@ export const StrategyBuilder = ({ isConnected }) => {
                                                                         className="flex items-center justify-between cursor-pointer group"
                                                                         onClick={() => setCollapsedSections(prev => ({ ...prev, [`${id}-running`]: !prev[`${id}-running`] }))}
                                                                     >
-                                                                        <span className="text-xs font-bold uppercase text-muted-foreground group-hover:text-foreground transition-colors">Running Legs</span>
+                                                                        <span className="text-[10px] font-medium uppercase text-muted-foreground group-hover:text-foreground transition-colors">Running Legs</span>
                                                                         <Button variant="ghost" size="sm" className="h-4 w-4 p-0 shrink-0 text-muted-foreground group-hover:text-foreground">
                                                                             {collapsedSections[`${id}-running`] ? <ChevronDown className="h-3 w-3" /> : <ChevronUp className="h-3 w-3" />}
                                                                         </Button>
@@ -1606,75 +1604,75 @@ export const StrategyBuilder = ({ isConnected }) => {
                                                                     {!collapsedSections[`${id}-running`] && (
                                                                         <div className="space-y-2 animate-in slide-in-from-top-2 duration-200">
                                                                             {strategyData.legs.map((l, idx) => (!l.exited || ["WAITING_FOR_RECOST", "WAITING_FOR_MNTM", "WAITING_FOR_RE_ASAP", "WAITING_FOR_LAZY"].includes(l.state)) && (
-                                                                                <div key={idx} className="flex items-center justify-between p-2.5 bg-white border border-border rounded-xl">
+                                                                                <div key={idx} className="flex flex-col md:flex-row items-start md:items-center justify-between p-2.5 bg-white border border-border rounded-xl gap-3">
                                                                                     <div className="flex flex-col">
                                                                                         <div className="flex items-center gap-1 flex-wrap">
-                                                                                            <span className="text-sm font-bold">{l.instrument?.symbol || "---"} ({l.leg?.side})</span>
-                                                                                            <span className="text-[11px] font-bold text-slate-600">
+                                                                                            <span className="text-[12px] font-medium">{l.instrument?.symbol || "---"} ({l.leg?.side})</span>
+                                                                                            <span className="text-[11px] font-medium text-slate-600">
                                                                                                 {l.leg?.lots} {l.leg?.lots > 1 ? 'Lots' : 'Lot'}
                                                                                             </span>
-                                                                                            <span className="text-muted-foreground text-xs font-mono">|</span>
-                                                                                            <span className="text-primary font-bold text-xs font-mono">{l.entryTime || "---"}</span>
-                                                                                            <span className="text-muted-foreground text-xs font-mono">|</span>
-                                                                                            <span className="text-xs font-mono text-muted-foreground">Entry: {(l.entryPrice || 0).toFixed(2)}</span>
-                                                                                            <span className="text-muted-foreground text-xs font-mono">|</span>
-                                                                                            <span className="text-xs font-mono animate-pulse text-blue-600 font-bold">LTP: {(l.currentLtp || 0).toFixed(2)}</span>
+                                                                                            <span className="text-muted-foreground text-[10px] font-mono">|</span>
+                                                                                            <span className="text-primary font-medium text-[10px] font-mono">{l.entryTime || "---"}</span>
+                                                                                            <span className="text-muted-foreground text-[10px] font-mono">|</span>
+                                                                                            <span className="text-[10px] font-mono text-muted-foreground">Entry: {(l.entryPrice || 0).toFixed(2)}</span>
+                                                                                            <span className="text-muted-foreground text-[10px] font-mono">|</span>
+                                                                                            <span className="text-[10px] font-mono animate-pulse text-blue-600 font-medium">LTP: {(l.currentLtp || 0).toFixed(2)}</span>
                                                                                             {l.initialSlTriggerPrice != null && (
                                                                                                 <>
-                                                                                                    <span className="text-muted-foreground text-xs font-mono">|</span>
-                                                                                                    <span className="text-slate-500 font-bold text-xs font-mono">Init SL: {Number(l.initialSlTriggerPrice).toFixed(1)}</span>
+                                                                                                    <span className="text-muted-foreground text-[10px] font-mono">|</span>
+                                                                                                    <span className="text-slate-500 font-medium text-[10px] font-mono">Init SL: {Number(l.initialSlTriggerPrice).toFixed(1)}</span>
                                                                                                 </>
                                                                                             )}
                                                                                             {l.slTriggerPrice != null && (
                                                                                                 <>
-                                                                                                    <span className="text-muted-foreground text-xs font-mono">|</span>
-                                                                                                    <span className={`text-xs font-mono font-black ${Number(l.slTriggerPrice) !== Number(l.initialSlTriggerPrice) ? 'text-indigo-600 animate-pulse' : 'text-slate-800'}`}>
+                                                                                                    <span className="text-muted-foreground text-[10px] font-mono">|</span>
+                                                                                                    <span className={`text-[10px] font-mono font-black ${Number(l.slTriggerPrice) !== Number(l.initialSlTriggerPrice) ? 'text-indigo-600 animate-pulse' : 'text-slate-800'}`}>
                                                                                                         Now SL: {Number(l.slTriggerPrice).toFixed(1)}
                                                                                                     </span>
                                                                                                 </>
                                                                                             )}
                                                                                             {l.rtp != null && (
                                                                                                 <>
-                                                                                                    <span className="text-muted-foreground text-xs font-mono">|</span>
-                                                                                                    <span className="text-orange-500 font-bold text-xs font-mono">RTP: {l.rtp.toFixed(2)}</span>
+                                                                                                    <span className="text-muted-foreground text-[10px] font-mono">|</span>
+                                                                                                    <span className="text-orange-500 font-medium text-[10px] font-mono">RTP: {l.rtp.toFixed(2)}</span>
                                                                                                 </>
                                                                                             )}
                                                                                             {l.mtp != null && (
                                                                                                 <>
-                                                                                                    <span className="text-muted-foreground text-xs font-mono">|</span>
-                                                                                                    <span className="text-purple-500 font-bold text-xs font-mono">MTP: {l.mtp.toFixed(2)}</span>
+                                                                                                    <span className="text-muted-foreground text-[10px] font-mono">|</span>
+                                                                                                    <span className="text-purple-500 font-medium text-[10px] font-mono">MTP: {l.mtp.toFixed(2)}</span>
                                                                                                 </>
                                                                                             )}
                                                                                             {l.mntmTargetPrice != null && l.state === "WAITING_FOR_SIMPLE_MNTM" && (
                                                                                                 <>
-                                                                                                    <span className="text-muted-foreground text-xs font-mono">|</span>
-                                                                                                    <span className="text-blue-500 font-bold animate-pulse text-xs font-mono">Wait Target: ₹{l.mntmTargetPrice.toFixed(2)}</span>
+                                                                                                    <span className="text-muted-foreground text-[10px] font-mono">|</span>
+                                                                                                    <span className="text-blue-500 font-medium animate-pulse text-[10px] font-mono">Wait Target: ₹{l.mntmTargetPrice.toFixed(2)}</span>
                                                                                                 </>
                                                                                             )}
                                                                                             {l.state === "WAITING_FOR_RECOST" && (
-                                                                                                <span className="px-2 py-0.5 ml-2 bg-yellow-100 text-yellow-700 font-bold rounded text-xs font-mono">Waiting Re-Entry (Price)</span>
+                                                                                                <span className="px-2 py-0.5 ml-2 bg-yellow-100 text-yellow-700 font-medium rounded text-[10px] font-mono">Waiting Re-Entry (Price)</span>
                                                                                             )}
                                                                                             {l.state === "WAITING_FOR_RE_ASAP" && (
-                                                                                                <span className="px-2 py-0.5 ml-2 bg-blue-100 text-blue-700 font-bold rounded text-xs font-mono">Waiting Re-Entry (ASAP)</span>
+                                                                                                <span className="px-2 py-0.5 ml-2 bg-blue-100 text-blue-700 font-medium rounded text-[10px] font-mono">Waiting Re-Entry (ASAP)</span>
                                                                                             )}
                                                                                             {l.state === "WAITING_FOR_LAZY" && (
-                                                                                                <span className="px-2 py-0.5 ml-2 bg-purple-100 text-purple-700 font-bold rounded text-xs font-mono">Initializing Lazy Leg</span>
+                                                                                                <span className="px-2 py-0.5 ml-2 bg-purple-100 text-purple-700 font-medium rounded text-[10px] font-mono">Initializing Lazy Leg</span>
                                                                                             )}
                                                                                         </div>
                                                                                     </div>
                                                                                     <div className="flex items-center gap-4">
                                                                                         <div className="flex items-center gap-3">
-                                                                                            <span className={`text-sm font-mono font-bold ${(l.currentActivePnlPercent || 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                                                                                            <span className={`text-[12px] font-mono font-medium ${(l.currentActivePnlPercent || 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
                                                                                                 {(l.currentActivePnlPercent || 0) > 0 ? '+' : ''}{(l.currentActivePnlPercent || 0).toFixed(2)}%
                                                                                             </span>
-                                                                                            <span className={`text-sm font-mono font-bold ${(l.currentActivePnlRupees || 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                                                                                            <span className={`text-[12px] font-mono font-medium ${(l.currentActivePnlRupees || 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
                                                                                                 {(l.currentActivePnlRupees || 0) > 0 ? '+' : ''}₹{(l.currentActivePnlRupees || 0).toFixed(2)}
                                                                                             </span>
                                                                                         </div>
                                                                                         <Button
                                                                                             size="sm"
                                                                                             variant="outline"
-                                                                                            className="rounded-lg border-orange-500 hover:bg-orange-50 text-orange-600 text-xs font-bold px-3 h-8"
+                                                                                            className="rounded-lg border-orange-500 hover:bg-orange-50 text-orange-600 text-[10px] font-medium px-3 h-8"
                                                                                             onClick={() => handleSquareOffLeg(id, idx)}
                                                                                             disabled={l.isExiting}
                                                                                         >
@@ -1699,7 +1697,7 @@ export const StrategyBuilder = ({ isConnected }) => {
                                                                         className="flex items-center justify-between cursor-pointer group"
                                                                         onClick={() => setCollapsedSections(prev => ({ ...prev, [`${id}-closed`]: !prev[`${id}-closed`] }))}
                                                                     >
-                                                                        <span className="text-xs font-bold uppercase text-muted-foreground group-hover:text-foreground transition-colors">Closed Legs</span>
+                                                                        <span className="text-[10px] font-medium uppercase text-muted-foreground group-hover:text-foreground transition-colors">Closed Legs</span>
                                                                         <Button variant="ghost" size="sm" className="h-4 w-4 p-0 shrink-0 text-muted-foreground group-hover:text-foreground">
                                                                             {collapsedSections[`${id}-closed`] ? <ChevronDown className="h-3 w-3" /> : <ChevronUp className="h-3 w-3" />}
                                                                         </Button>
@@ -1707,50 +1705,50 @@ export const StrategyBuilder = ({ isConnected }) => {
                                                                     {!collapsedSections[`${id}-closed`] && (
                                                                         <div className="space-y-2 animate-in slide-in-from-top-2 duration-200">
                                                                             {strategyData.legs.map((l, idx) => l.exited && (
-                                                                                <div key={idx} className="flex items-center justify-between p-2.5 bg-muted/50 border border-border/50 rounded-xl opacity-90">
+                                                                                <div key={idx} className="flex flex-col md:flex-row items-start md:items-center justify-between p-2.5 bg-muted/50 border border-border/50 rounded-xl opacity-90 gap-3">
                                                                                     <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between w-full gap-y-2 gap-x-4">
                                                                                         <div className="flex flex-1 items-center gap-1 flex-wrap">
-                                                                                            <span className="text-sm font-bold text-muted-foreground">{l.instrument?.symbol || "---"} ({l.leg?.side})</span>
-                                                                                            <span className="text-[11px] font-bold text-slate-400">
+                                                                                            <span className="text-[12px] font-medium text-muted-foreground">{l.instrument?.symbol || "---"} ({l.leg?.side})</span>
+                                                                                            <span className="text-[11px] font-medium text-slate-400">
                                                                                                 {l.leg?.lots} {l.leg?.lots > 1 ? 'Lots' : 'Lot'}
                                                                                             </span>
-                                                                                            <span className="text-muted-foreground text-xs font-mono">|</span>
-                                                                                            <span className="text-primary font-bold text-xs font-mono">{l.entryTime || "---"}</span>
-                                                                                            <span className="text-muted-foreground text-xs font-mono">|</span>
-                                                                                            <span className="text-xs font-mono text-muted-foreground">Entry: {(l.entryPrice || 0).toFixed(2)}</span>
-                                                                                            <span className="text-muted-foreground text-xs font-mono">|</span>
-                                                                                            <span className="text-red-500 font-bold text-xs font-mono">Exit: {l.exitTime || l.exitSnapshot?.exitTime || "---"}</span>
-                                                                                            <span className="text-muted-foreground text-xs font-mono">|</span>
-                                                                                            <span className="text-foreground text-xs font-mono">Price: {(l.exitSnapshot?.exitLtp || l.currentLtp || 0).toFixed(2)}</span>
-                                                                                            <span className="text-muted-foreground text-xs font-mono">|</span>
-                                                                                            <span className="text-slate-500 text-xs font-mono font-bold">Type: {l.exitType}</span>
+                                                                                            <span className="text-muted-foreground text-[10px] font-mono">|</span>
+                                                                                            <span className="text-primary font-medium text-[10px] font-mono">{l.entryTime || "---"}</span>
+                                                                                            <span className="text-muted-foreground text-[10px] font-mono">|</span>
+                                                                                            <span className="text-[10px] font-mono text-muted-foreground">Entry: {(l.entryPrice || 0).toFixed(2)}</span>
+                                                                                            <span className="text-muted-foreground text-[10px] font-mono">|</span>
+                                                                                            <span className="text-red-500 font-medium text-[10px] font-mono">Exit: {l.exitTime || l.exitSnapshot?.exitTime || "---"}</span>
+                                                                                            <span className="text-muted-foreground text-[10px] font-mono">|</span>
+                                                                                            <span className="text-foreground text-[10px] font-mono">Price: {(l.exitSnapshot?.exitLtp || l.currentLtp || 0).toFixed(2)}</span>
+                                                                                            <span className="text-muted-foreground text-[10px] font-mono">|</span>
+                                                                                            <span className="text-slate-500 text-[10px] font-mono font-medium">Type: {l.exitType}</span>
                                                                                             {l.exitSnapshot?.slTriggerPrice != null && (
                                                                                                 <>
-                                                                                                    <span className="text-muted-foreground text-xs font-mono">|</span>
-                                                                                                    <span className="text-red-500 font-bold text-xs font-mono">Initial SL: {Number(l.exitSnapshot.slTriggerPrice).toFixed(1)}</span>
+                                                                                                    <span className="text-muted-foreground text-[10px] font-mono">|</span>
+                                                                                                    <span className="text-red-500 font-medium text-[10px] font-mono">Initial SL: {Number(l.exitSnapshot.slTriggerPrice).toFixed(1)}</span>
                                                                                                 </>
                                                                                             )}
                                                                                             {l.rtp != null && (
                                                                                                 <>
-                                                                                                    <span className="text-muted-foreground text-xs font-mono">|</span>
-                                                                                                    <span className="text-orange-500 font-bold text-xs font-mono">RTP: {l.rtp.toFixed(2)}</span>
+                                                                                                    <span className="text-muted-foreground text-[10px] font-mono">|</span>
+                                                                                                    <span className="text-orange-500 font-medium text-[10px] font-mono">RTP: {l.rtp.toFixed(2)}</span>
                                                                                                 </>
                                                                                             )}
                                                                                             {l.mtp != null && (
                                                                                                 <>
-                                                                                                    <span className="text-muted-foreground text-xs font-mono">|</span>
-                                                                                                    <span className="text-purple-600 font-bold text-xs font-mono">MTP: {l.mtp.toFixed(2)}</span>
+                                                                                                    <span className="text-muted-foreground text-[10px] font-mono">|</span>
+                                                                                                    <span className="text-purple-600 font-medium text-[10px] font-mono">MTP: {l.mtp.toFixed(2)}</span>
                                                                                                 </>
                                                                                             )}
                                                                                         </div>
                                                                                         <div className="flex items-center gap-3 shrink-0">
-                                                                                            <span className={`text-sm font-mono font-bold ${(l.pnlPercent || 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                                                                                            <span className={`text-[12px] font-mono font-medium ${(l.pnlPercent || 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
                                                                                                 {(l.pnlPercent || 0) > 0 ? '+' : ''}{(l.pnlPercent || 0).toFixed(2)}%
                                                                                             </span>
-                                                                                            <span className={`text-sm font-mono font-bold ${(l.pnlRupees || 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                                                                                            <span className={`text-[12px] font-mono font-medium ${(l.pnlRupees || 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
                                                                                                 {(l.pnlRupees || 0) > 0 ? '+' : ''}₹{(l.pnlRupees || 0).toFixed(2)}
                                                                                             </span>
-                                                                                            <span className="px-2 py-0.5 text-[10px] font-bold bg-slate-200 text-slate-500 rounded uppercase">Closed</span>
+                                                                                            <span className="px-2 py-0.5 text-[10px] font-medium bg-slate-200 text-slate-500 rounded uppercase">Closed</span>
                                                                                         </div>
                                                                                     </div>
                                                                                 </div>
@@ -1780,7 +1778,7 @@ export const StrategyBuilder = ({ isConnected }) => {
                                     setCollapsedSections(prev => ({ ...prev, 'saved-strategies': !prev['saved-strategies'] }));
                                 }}
                             >
-                                <CardTitle className="flex items-center gap-2 text-base font-bold">
+                                <CardTitle className="flex items-center gap-2 text-[12px] font-medium">
                                     <Save className="h-4 w-4 text-primary" /> Saved Strategies (Templates)
                                 </CardTitle>
                                 <div className="flex items-center gap-3 w-full md:w-auto">
@@ -1801,18 +1799,16 @@ export const StrategyBuilder = ({ isConnected }) => {
                             </div>
                             {!collapsedSections['saved-strategies'] && (
                                 <CardContent className="p-0 animate-in fade-in slide-in-from-top-2 duration-200">
-                                    <div className="overflow-x-auto">
-                                        <table className="w-full text-xs">
-                                            <thead className="bg-muted text-muted-foreground border-b">
-                                                <tr>
-                                                    <th className="px-3 py-2 text-left font-bold text-[10px] uppercase tracking-wider">Name</th>
-                                                    <th className="px-3 py-2 text-left font-bold text-[10px] uppercase tracking-wider">Date Created</th>
-                                                    <th className="px-3 py-2 text-left font-bold text-[10px] uppercase tracking-wider">Index</th>
-                                                    <th className="px-3 py-2 text-left font-bold text-[10px] uppercase tracking-wider">Type</th>
-                                                    <th className="px-3 py-2 text-right font-bold text-[10px] uppercase tracking-wider">Actions</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody className="divide-y border-t">
+                                    <div className="flex flex-col w-full">
+                                        {/* Desktop Header */}
+                                        <div className="hidden lg:grid lg:grid-cols-12 gap-4 px-4 py-2 bg-muted text-muted-foreground border-b text-[10px] font-medium uppercase tracking-wider items-center">
+                                            <div className="col-span-3">Name</div>
+                                            <div className="col-span-2">Date Created</div>
+                                            <div className="col-span-2">Index</div>
+                                            <div className="col-span-2">Type</div>
+                                            <div className="col-span-3 text-right">Actions</div>
+                                        </div>
+                                        <div className="divide-y border-t flex flex-col">
                                                 {savedStrategies
                                                     .filter(s => (activeTab === 'paper' ? s.config?.is_paper_trading : !s.config?.is_paper_trading))
                                                     .filter(s => {
@@ -1822,9 +1818,9 @@ export const StrategyBuilder = ({ isConnected }) => {
                                                         return name.includes(search) || id.includes(search);
                                                     })
                                                     .map((s) => (
-                                                        <tr
+                                                        <div
                                                             key={s.id}
-                                                            className="hover:bg-muted/50 transition-colors cursor-grab active:cursor-grabbing border-b"
+                                                            className="grid grid-cols-1 xl:grid-cols-12 gap-2 xl:gap-4 px-4 py-3 xl:items-center hover:bg-muted/50 transition-colors cursor-grab active:cursor-grabbing bg-card mobile-strategy-row"
                                                             draggable
                                                             onDragStart={(e) => {
                                                                 e.dataTransfer.effectAllowed = 'move';
@@ -1888,29 +1884,34 @@ export const StrategyBuilder = ({ isConnected }) => {
                                                                 });
                                                             }}
                                                         >
-                                                            <td className="px-3 py-2 font-bold text-sm flex items-center gap-2">
-                                                                <div className="p-1 rounded text-slate-400 hover:text-slate-700 transition-colors">
+                                                            <div className="col-span-1 xl:col-span-3 font-medium text-[12px] flex items-start xl:items-center gap-2">
+                                                                <div className="p-1 rounded text-slate-400 hover:text-slate-700 transition-colors mt-0.5 xl:mt-0">
                                                                     <GripVertical className="h-4 w-4 shrink-0" />
                                                                 </div>
                                                                 <div>
                                                                     {s.name || s.config?.name || 'Unnamed Strategy'}
                                                                     <div className="text-[9px] font-mono text-muted-foreground font-normal">ID: {s.id.split('-')[0] || s.id}</div>
                                                                 </div>
-                                                            </td>
-                                                            <td className="px-3 py-2 font-mono text-[10px] text-muted-foreground">
-                                                                {new Date(s.created_at).toLocaleDateString()} {new Date(s.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                                            </td>
-                                                            <td className="px-3 py-2 font-bold text-xs">{s.config?.index}</td>
-                                                            <td className="px-3 py-2">
-                                                                <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-slate-100 text-slate-700">
+                                                            </div>
+                                                            <div className="col-span-1 xl:col-span-2 font-mono text-[11px] xl:text-[10px] text-slate-600 xl:text-muted-foreground flex xl:block items-center justify-between">
+                                                                <span className="xl:hidden text-[10px] uppercase font-medium text-muted-foreground tracking-wider">Created</span>
+                                                                <span>{new Date(s.created_at).toLocaleDateString()} {new Date(s.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                                            </div>
+                                                            <div className="col-span-1 xl:col-span-2 font-medium text-[12px] xl:text-[10px] flex xl:block items-center justify-between">
+                                                                <span className="xl:hidden text-[10px] uppercase font-medium text-muted-foreground tracking-wider">Index</span>
+                                                                <span>{s.config?.index}</span>
+                                                            </div>
+                                                            <div className="col-span-1 xl:col-span-2 flex xl:block items-center justify-between">
+                                                                <span className="xl:hidden text-[10px] uppercase font-medium text-muted-foreground tracking-wider pr-4">Type</span>
+                                                                <span className="px-1.5 py-0.5 rounded text-[10px] xl:text-[9px] font-medium bg-slate-100 text-slate-700 text-right xl:text-left line-clamp-2">
                                                                     {s.config?.legs?.map((l) => `${l.side} ${l.option_type} (${l.lots} ${l.lots > 1 ? 'L' : 'L'})`).join(' | ') || '---'}
                                                                 </span>
-                                                            </td>
-                                                            <td className="px-3 py-2 text-right">
-                                                                <div className="flex items-center justify-end gap-1.5">
+                                                            </div>
+                                                            <div className="col-span-1 xl:col-span-3 text-right mt-2 xl:mt-0 pt-3 xl:pt-0 border-t border-dashed border-gray-100 xl:border-none">
+                                                                <div className="flex flex-wrap items-center justify-start xl:justify-end gap-1.5 w-full">
                                                                     <Button
                                                                         size="sm"
-                                                                        className={`h-7 px-3 gap-1 rounded-md text-[10px] font-bold shadow-sm ${!isConnected ? 'opacity-50 grayscale cursor-not-allowed' : ''}`}
+                                                                        className={`h-8 xl:h-7 px-3 gap-1 rounded-md text-[11px] xl:text-[10px] font-medium shadow-sm flex-1 xl:flex-none ${!isConnected ? 'opacity-50 grayscale cursor-not-allowed' : ''}`}
                                                                         onClick={() => handleExecute(s.id)}
                                                                         disabled={!isConnected}
                                                                         title={!isConnected ? "Please connect to Angel One to execute strategies" : ""}
@@ -1920,7 +1921,7 @@ export const StrategyBuilder = ({ isConnected }) => {
                                                                     <Button
                                                                         size="sm"
                                                                         variant="outline"
-                                                                        className="h-7 px-3 gap-1 rounded-md text-[10px] font-bold border-indigo-500 hover:bg-indigo-50 text-indigo-600 shadow-sm"
+                                                                        className="h-8 xl:h-7 px-3 gap-1 rounded-md text-[11px] xl:text-[10px] font-medium border-indigo-500 hover:bg-indigo-50 text-indigo-600 shadow-sm flex-1 xl:flex-none"
                                                                         onClick={() => {
                                                                             setViewConfig(s.config);
                                                                             setViewStrategyName(s.name || s.config?.name || 'Strategy');
@@ -1932,7 +1933,7 @@ export const StrategyBuilder = ({ isConnected }) => {
                                                                     <Button
                                                                         size="sm"
                                                                         variant="outline"
-                                                                        className="h-7 px-2.5 rounded-md text-[10px]"
+                                                                        className="h-8 xl:h-7 px-2.5 rounded-md text-[11px] xl:text-[10px] flex-1 xl:flex-none"
                                                                         onClick={() => handleEdit(s)}
                                                                     >
                                                                         Edit
@@ -1940,17 +1941,16 @@ export const StrategyBuilder = ({ isConnected }) => {
                                                                     <Button
                                                                         size="sm"
                                                                         variant="ghost"
-                                                                        className="h-7 px-2 rounded-md text-[10px] text-destructive hover:text-destructive hover:bg-red-50"
+                                                                        className="h-8 xl:h-7 px-3 rounded-md text-[11px] xl:text-[10px] text-destructive hover:text-destructive hover:bg-red-50 flex-none"
                                                                         onClick={() => handleDelete(s.id)}
                                                                     >
-                                                                        <Trash2 className="h-3 w-3" />
+                                                                        <Trash2 className="h-4 w-4 xl:h-3 xl:w-3" />
                                                                     </Button>
                                                                 </div>
-                                                            </td>
-                                                        </tr>
+                                                            </div>
+                                                        </div>
                                                     ))}
-                                            </tbody>
-                                        </table>
+                                        </div>
                                     </div>
                                 </CardContent>
                             )}
