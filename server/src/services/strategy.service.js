@@ -461,7 +461,7 @@ async function placeOrder(config, instrument, connectionId) {
         symboltoken: instrument.token,
         transactiontype: config.side || "BUY",
         exchange: instrument.exch_seg,
-        ordertype: config.ordertype || "MARKET",
+        ordertype: config.ordertype || "LIMIT",
         producttype: config.producttype || "INTRADAY",
         duration: config.duration || "DAY",
         price: (config.price || "0").toString(),
@@ -886,7 +886,7 @@ async function placeExitOrder({ config, leg, instrument, exitType }) {
                 leg.exitTime = getISTTime();
                 return null;
             } catch (e) {
-                console.warn(`[Exit] Cancellation failed for ${leg.orderId}: ${e.message}. It may have filled. Proceeding with MARKET exit.`);
+                console.warn(`[Exit] Cancellation failed for ${leg.orderId}: ${e.message}. It may have filled. Proceeding with LIMIT exit.`);
             }
         } else {
             console.log(`[Exit] Leg ${instrument.symbol} has no entry price (State: ${leg.state}). Skipping broker order.`);
@@ -902,36 +902,31 @@ async function placeExitOrder({ config, leg, instrument, exitType }) {
 
     try {
         const exitSide = leg.leg.side === "BUY" ? "SELL" : "BUY";
-        // FORCE MARKET exit if we are retrying (isExiting was already true in a previous tick)
-        let exitOrderType = (leg.exitRetryCount > 0) ? "MARKET" : (config.ordertype === "LIMIT" ? "LIMIT" : "MARKET");
         let finalPrice = "0";
 
-        if (exitOrderType === "LIMIT") {
-            const ltpRes = await getLtpSecure({
-                exchange: instrument.exch_seg,
-                symboltoken: instrument.token,
-                connectionId: config.connectionId
-            });
-            if (ltpRes.status && ltpRes.data?.fetched?.[0]) {
-                const ltp = ltpRes.data.fetched[0].ltp;
-                const offset = parseFloat(config.entry_limit_offset || 0);
-                if (exitSide === "SELL") finalPrice = roundToTick(ltp - offset).toString();
-                else finalPrice = roundToTick(ltp + offset).toString();
-            } else if (leg.currentLtp) {
-                const ltp = leg.currentLtp;
-                const offset = parseFloat(config.entry_limit_offset || 0);
-                if (exitSide === "SELL") finalPrice = roundToTick(ltp - offset).toString();
-                else finalPrice = roundToTick(ltp + offset).toString();
-            } else {
-                exitOrderType = "MARKET";
-            }
+        // Always LIMIT — MARKET orders no longer allowed by SEBI
+        const ltpRes = await getLtpSecure({
+            exchange: instrument.exch_seg,
+            symboltoken: instrument.token,
+            connectionId: config.connectionId
+        });
+        if (ltpRes.status && ltpRes.data?.fetched?.[0]) {
+            const ltp = ltpRes.data.fetched[0].ltp;
+            const offset = parseFloat(config.entry_limit_offset || 0);
+            if (exitSide === "SELL") finalPrice = roundToTick(ltp - offset).toString();
+            else finalPrice = roundToTick(ltp + offset).toString();
+        } else if (leg.currentLtp) {
+            const ltp = leg.currentLtp;
+            const offset = parseFloat(config.entry_limit_offset || 0);
+            if (exitSide === "SELL") finalPrice = roundToTick(ltp - offset).toString();
+            else finalPrice = roundToTick(ltp + offset).toString();
         }
 
         const closeConfig = {
             ...config,
             side: exitSide,
             variety: "NORMAL",
-            ordertype: exitOrderType,
+            ordertype: "LIMIT",
             price: finalPrice,
             lots: leg.leg.lots
         };
@@ -948,46 +943,40 @@ async function placeExitOrder({ config, leg, instrument, exitType }) {
             return orderData.orderid;
         }
 
-        // --- Verified Exit (Live Only) ---
-        // Monitor fill status in background
-        setTimeout(async () => {
-            try {
-                const fill = await waitForOrderFillPrice(
-                    leg.exitUniqueOrderId,
-                    config.connectionId,
-                    false,
-                    leg.instrument,
-                    2000, // Timeout after 2 seconds
-                    1000  // Poll every 1s
-                );
+        // --- Verified Exit with Chase (Live Only) ---
+        // Same 45s chase as entry: modify order every 1s with fresh LTP ± offset.
+        // If chase fills, mark leg as exited. If exhausted, throw for caller to handle.
+        const strategyId = config.id || "system";
+        const fillPrice = await chaseOrderFill({
+            orderId: orderData.orderid,
+            uniqueOrderId: orderData.uniqueorderid,
+            instrument,
+            config,
+            legSide: exitSide,
+            lots: leg.leg.lots,
+            connectionId: config.connectionId,
+            strategyId
+        });
 
-                if (fill) {
-                    leg.exited = true;
-                    leg.isExiting = false;
-                    addStrategyLog(config.id || "system", `Exit confirmed for ${instrument.symbol} at ₹${fill}.`, "SUCCESS");
-                } else {
-                    // Missed price / Timeout
-                    console.warn(`[Exit Poller] Order ${leg.exitOrderId} pending for 2s. Retrying via MARKET.`);
-                    addStrategyLog(config.id || "system", `Exit order for ${instrument.symbol} pending for 2s. Escalating to Market order...`, "WARNING");
-
-                    const api = await getAuthorizedInstance(config.connectionId);
-                    await api.cancelOrder({ variety: "NORMAL", orderid: leg.exitOrderId });
-
-                    leg.exitRetryCount = (leg.exitRetryCount || 0) + 1;
-                    leg.isExiting = false; // Allow monitor loop to trigger retry
-                }
-            } catch (pollErr) {
-                console.error(`[Exit Poller] Error verifying exit for ${instrument.symbol}:`, pollErr.message);
-                leg.isExiting = false; // Allow retry on error
-            }
-        }, 0);
+        if (fillPrice) {
+            leg.exited = true;
+            leg.isExiting = false;
+            addStrategyLog(strategyId, `Exit confirmed for ${instrument.symbol} at ₹${fillPrice}.`, "INFO");
+        } else {
+            // Chase exhausted — order already cancelled inside chaseOrderFill
+            leg.isExiting = false;
+            throw new Error(`EXIT_CHASE_EXHAUSTED: ${instrument.symbol} exit order not filled after 45s price chase. Order cancelled. Position may still be open!`);
+        }
 
         return orderData.orderid;
     } catch (error) {
+        if (error.message.startsWith("EXIT_CHASE_EXHAUSTED")) {
+            throw error; // Re-throw for caller to handle (PAUSE)
+        }
         console.error(`[Exit] Failed to place exit order for ${instrument.symbol}:`, error.message);
         addStrategyLog(config.id || "system", `CRITICAL: Exit placement FAILED for ${instrument.symbol}: ${error.message}. Re-attempting...`, "ERROR");
 
-        leg.isExiting = false; // Allow monitor loop to re-attempt on next tick
+        leg.isExiting = false;
         return null;
     }
 }
@@ -1545,7 +1534,7 @@ async function executeStrategy(strategyId) {
                                 if (leg.state === "WAITING_FOR_SIMPLE_MNTM") return;
 
                                 // LIVE LIMIT orders: Chase price slippage by modifying order every second
-                                // Paper, MARKET, and Momentum orders use the standard fill poll
+                                // Paper and Momentum orders use the standard fill poll
                                 let fillPrice;
                                 if (!config.is_paper_trading && config.ordertype === 'LIMIT' && !leg.simpleMntmEnabled) {
                                     fillPrice = await chaseOrderFill({
@@ -1587,7 +1576,7 @@ async function executeStrategy(strategyId) {
                                     // Do NOT fall back to LTP. Pause the strategy for manual intervention.
                                     throw new Error(`CHASE_EXHAUSTED: ${leg.instrument.symbol} order not filled after 45s price chase. Order cancelled.`);
                                 } else {
-                                    // Non-chase fallback (Paper / MARKET / Momentum): use current LTP
+                                    // Non-chase fallback (Paper / Momentum): use current LTP
                                     const optLtpRes = await getLtpSecure({
                                         exchange: leg.instrument.exch_seg,
                                         symboltoken: leg.instrument.token,
@@ -2136,6 +2125,7 @@ async function executeStrategy(strategyId) {
                                 }));
                             }
 
+                            try {
                             const exitOrders = await Promise.all(strategy.legs.map(async (leg) => {
                                 if (leg.exited) return leg.exitOrderId;
                                 return await placeExitOrder({
@@ -2160,6 +2150,18 @@ async function executeStrategy(strategyId) {
                             });
                             clearInterval(interval);
                             return;
+                            } catch (exitErr) {
+                                if (exitErr.message?.startsWith("EXIT_CHASE_EXHAUSTED")) {
+                                    strategy.status = "PAUSED";
+                                    strategy.error = exitErr.message;
+                                    addStrategyLog(strategyId, `Strategy PAUSED during Overall SL exit: ${exitErr.message}. Manual action required.`, "CRITICAL");
+                                    marketSocketService.sendAlert(`Strategy PAUSED — exit chase failed during Overall SL`, "error");
+                                    updateStrategyInMemory(strategyId, { status: "PAUSED", error: exitErr.message });
+                                    clearInterval(interval);
+                                    return;
+                                }
+                                throw exitErr;
+                            }
                         }
 
                         // Check Overall Target
@@ -2199,6 +2201,7 @@ async function executeStrategy(strategyId) {
                                 }));
                             }
 
+                            try {
                             const exitOrders = await Promise.all(strategy.legs.map(async (leg) => {
                                 if (leg.exited) return leg.exitOrderId;
                                 return await placeExitOrder({
@@ -2223,6 +2226,18 @@ async function executeStrategy(strategyId) {
                             });
                             clearInterval(interval);
                             return;
+                            } catch (exitErr) {
+                                if (exitErr.message?.startsWith("EXIT_CHASE_EXHAUSTED")) {
+                                    strategy.status = "PAUSED";
+                                    strategy.error = exitErr.message;
+                                    addStrategyLog(strategyId, `Strategy PAUSED during Overall Target exit: ${exitErr.message}. Manual action required.`, "CRITICAL");
+                                    marketSocketService.sendAlert(`Strategy PAUSED — exit chase failed during Overall Target`, "error");
+                                    updateStrategyInMemory(strategyId, { status: "PAUSED", error: exitErr.message });
+                                    clearInterval(interval);
+                                    return;
+                                }
+                                throw exitErr;
+                            }
                         }
 
                         // Manual Check for TSL and Static SL
@@ -2407,13 +2422,26 @@ async function executeStrategy(strategyId) {
                                     }
                                 }
 
-                                await placeExitOrder({
-                                    config,
-                                    leg,
-                                    instrument: leg.instrument,
-                                    exitType: exitReason
-                                });
-                                await handleLegStopOut(leg, exitReason, strategy);
+                                try {
+                                    await placeExitOrder({
+                                        config,
+                                        leg,
+                                        instrument: leg.instrument,
+                                        exitType: exitReason
+                                    });
+                                    await handleLegStopOut(leg, exitReason, strategy);
+                                } catch (exitErr) {
+                                    if (exitErr.message?.startsWith("EXIT_CHASE_EXHAUSTED")) {
+                                        strategy.status = "PAUSED";
+                                        strategy.error = exitErr.message;
+                                        addStrategyLog(strategyId, `Strategy PAUSED during ${exitReason}: ${exitErr.message}. Manual action required.`, "CRITICAL");
+                                        marketSocketService.sendAlert(`Strategy PAUSED — exit chase failed during ${exitReason}`, "error");
+                                        updateStrategyInMemory(strategyId, { status: "PAUSED", error: exitErr.message });
+                                        clearInterval(interval);
+                                        return;
+                                    }
+                                    throw exitErr;
+                                }
                             }
                         }
 
@@ -2484,8 +2512,9 @@ async function executeStrategy(strategyId) {
                                 }));
                             }
 
-                            // 2. Place Exit Orders for remaining active legs (respects LIMIT/MARKET config)
+                            // 2. Place Exit Orders for remaining active legs (always LIMIT with chase)
                             // Note: placeExitOrder now handles entryPrice=null safety internally as well.
+                            try {
                             const exitOrders = await Promise.all(strategy.legs.map(async (leg) => {
                                 if (leg.exited) return leg.exitOrderId;
                                 return await placeExitOrder({
@@ -2509,6 +2538,18 @@ async function executeStrategy(strategyId) {
                                 legs: strategy.legs
                             });
                             clearInterval(interval);
+                            } catch (exitErr) {
+                                if (exitErr.message?.startsWith("EXIT_CHASE_EXHAUSTED")) {
+                                    strategy.status = "PAUSED";
+                                    strategy.error = exitErr.message;
+                                    addStrategyLog(strategyId, `Strategy PAUSED during Exit Time: ${exitErr.message}. Manual action required.`, "CRITICAL");
+                                    marketSocketService.sendAlert(`Strategy PAUSED — exit chase failed at exit time`, "error");
+                                    updateStrategyInMemory(strategyId, { status: "PAUSED", error: exitErr.message });
+                                    clearInterval(interval);
+                                } else {
+                                    throw exitErr;
+                                }
+                            }
                         }
                     }
 
@@ -2676,32 +2717,46 @@ async function squareOffStrategy(strategyId) {
         }));
     }
 
-    // 2. Place Exit Orders (respects LIMIT/MARKET config just like Exit Time)
-    const exitOrders = await Promise.all(strategy.legs.map(async (leg) => {
-        if (leg.exited) return leg.exitOrderId;
+    // 2. Place Exit Orders (always LIMIT with chase, like entry)
+    try {
+        const exitOrders = await Promise.all(strategy.legs.map(async (leg) => {
+            if (leg.exited) return leg.exitOrderId;
 
-        return await placeExitOrder({
-            config: config,
-            leg,
-            instrument: leg.instrument,
-            exitType: "MANUAL_SQUARE_OFF"
+            return await placeExitOrder({
+                config: config,
+                leg,
+                instrument: leg.instrument,
+                exitType: "MANUAL_SQUARE_OFF"
+            });
+        }));
+
+        strategy.status = "COMPLETED";
+        strategy.exitOrderId = exitOrders;
+        strategy.exitType = "MANUAL_SQUARE_OFF";
+
+        updateStrategyInMemory(strategyId, {
+            status: "COMPLETED",
+            exit_order_id: strategy.exitOrderId,
+            exit_type: "MANUAL_SQUARE_OFF",
+            final_pnl_percent: strategy.pnlPercent || 0,
+            totalPnlRupees: strategy.totalPnlRupees || 0
         });
-    }));
 
-    strategy.status = "COMPLETED";
-    strategy.exitOrderId = exitOrders;
-    strategy.exitType = "MANUAL_SQUARE_OFF";
-
-    updateStrategyInMemory(strategyId, {
-        status: "COMPLETED",
-        exit_order_id: strategy.exitOrderId,
-        exit_type: "MANUAL_SQUARE_OFF",
-        final_pnl_percent: strategy.pnlPercent || 0,
-        totalPnlRupees: strategy.totalPnlRupees || 0
-    });
-
-    if (strategy.interval) {
-        clearInterval(strategy.interval);
+        if (strategy.interval) {
+            clearInterval(strategy.interval);
+        }
+    } catch (exitErr) {
+        if (exitErr.message?.startsWith("EXIT_CHASE_EXHAUSTED")) {
+            strategy.status = "PAUSED";
+            strategy.error = exitErr.message;
+            strategy.exitAttempted = false; // Allow re-attempt
+            addStrategyLog(strategyId, `Strategy PAUSED during Manual Square Off: ${exitErr.message}. Manual action required.`, "CRITICAL");
+            marketSocketService.sendAlert(`Strategy PAUSED — exit chase failed during square off`, "error");
+            updateStrategyInMemory(strategyId, { status: "PAUSED", error: exitErr.message });
+            if (strategy.interval) clearInterval(strategy.interval);
+        } else {
+            throw exitErr;
+        }
     }
 
     return true;
