@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { StopCircle, Loader2, TrendingUp, Search, Timer, LayoutDashboard, Target, Save, Play, Plus, Trash2, ShieldCheck, Zap, Copy, MessageSquare, Ghost, X, Settings2, Clock, ChevronDown, ChevronUp, GripVertical } from 'lucide-react';
+import { StopCircle, Loader2, TrendingUp, Search, Timer, LayoutDashboard, Target, Save, Play, Plus, Trash2, ShieldCheck, Zap, Copy, MessageSquare, Ghost, X, Settings2, Clock, ChevronDown, ChevronUp, GripVertical, RefreshCw } from 'lucide-react';
 import { Switch } from "@/components/ui/switch";
 import axios from 'axios';
 import { io } from 'socket.io-client';
@@ -1241,6 +1241,17 @@ export const StrategyBuilder = ({ isConnected }) => {
         }
     };
 
+    const handleResume = async (id) => {
+        if (!id) return;
+        if (!confirm("Resume this PAUSED strategy? Monitoring will restart.")) return;
+        try {
+            await axios.post(`${API_BASE_URL}/strategy/resume/${id}`);
+            fetchActive();
+        } catch (err) {
+            alert("Error resuming strategy: " + (err.response?.data?.message || err.message));
+        }
+    };
+
     const handleEdit = (strategy) => {
         const conf = strategy.config;
         setConfig({
@@ -1506,8 +1517,8 @@ export const StrategyBuilder = ({ isConnected }) => {
                                                     <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3">
                                                         <div className="flex items-center gap-x-2.5 gap-y-1.5 flex-wrap">
                                                             <span className="relative flex h-2 w-2 shadow-[0_0_10px_rgba(34,197,94,0.3)] rounded-full mr-1">
-                                                                <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${strategyData.status === 'FAILED' ? 'bg-red-400' : 'bg-green-400'} opacity-75`}></span>
-                                                                <span className={`relative inline-flex rounded-full h-2 w-2 ${strategyData.status === 'FAILED' ? 'bg-red-500' : 'bg-green-500'}`}></span>
+                                                                <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${strategyData.status === 'FAILED' ? 'bg-red-400' : strategyData.status === 'PAUSED' ? 'bg-amber-400' : 'bg-green-400'} opacity-75`}></span>
+                                                                <span className={`relative inline-flex rounded-full h-2 w-2 ${strategyData.status === 'FAILED' ? 'bg-red-500' : strategyData.status === 'PAUSED' ? 'bg-amber-500' : 'bg-green-500'}`}></span>
                                                             </span>
 
                                                             <span className="text-xs font-medium text-slate-800">
@@ -1574,6 +1585,16 @@ export const StrategyBuilder = ({ isConnected }) => {
                                                                     Square Off
                                                                 </Button>
                                                             )}
+                                                            {strategyData?.status === "PAUSED" && (
+                                                                <Button
+                                                                    size="sm"
+                                                                    variant="outline"
+                                                                    className="h-8 px-3 gap-1.5 rounded-md text-[11px] font-medium border-emerald-200 bg-emerald-50/50 hover:bg-emerald-100 text-emerald-600 shadow-sm"
+                                                                    onClick={() => handleResume(id)}
+                                                                >
+                                                                    <RefreshCw className="h-3.5 w-3.5" /> Resume
+                                                                </Button>
+                                                            )}
                                                             <Button
                                                                 size="sm"
                                                                 variant="outline"
@@ -1585,7 +1606,7 @@ export const StrategyBuilder = ({ isConnected }) => {
                                                         </div>
                                                     </div>
 
-                                                    {strategyData?.status === "IN_POSITION" || strategyData?.status === "COMPLETED" ? (
+                                                    {strategyData?.status === "IN_POSITION" || strategyData?.status === "PAUSED" || strategyData?.status === "COMPLETED" ? (
                                                         <div className="space-y-2 pt-2 border-t border-border mt-1">
                                                             {/* Strategy Legs */}
 

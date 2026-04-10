@@ -696,9 +696,12 @@ async function checkOrderFillOnce(uniqueOrderId, connectionId) {
 /**
  * Chase mechanism for LIVE LIMIT orders that handles price slippage.
  *
- * If order doesn't fill within 1 second, keeps modifying the order every
- * second with the latest LTP ± limit offset for up to 45 seconds.
- * Simultaneously checks for fill after each modification.
+ * If order doesn't fill within 1 second, it fetches the LTP ONCE as a base
+ * price, then modifies the order every second by progressively adding (BUY)
+ * or subtracting (SELL) the limit offset:
+ *   Mod #1: baseLTP ± (2 × offset)
+ *   Mod #2: baseLTP ± (3 × offset)
+ *   ...up to 45 seconds total.
  *
  * @returns {number|null} Fill price, or null if not filled after 45s
  */
@@ -716,24 +719,42 @@ async function chaseOrderFill({ orderId, uniqueOrderId, instrument, config, legS
     if (check.filled) return check.price;
     if (check.rejected) throw new Error(check.reason);
 
-    addStrategyLog(strategyId, `[CHASE] ${instrument.symbol} not filled after 1s. Chasing price for up to 45s...`, "INFO");
+    // Fetch LTP ONCE — this is the base price for all modifications
+    let baseLtp = null;
+    try {
+        const ltpRes = await getLtpSecure({
+            exchange: instrument.exch_seg,
+            symboltoken: instrument.token,
+            connectionId
+        });
+        if (ltpRes.status && ltpRes.data?.fetched?.[0]) {
+            baseLtp = ltpRes.data.fetched[0].ltp;
+        }
+    } catch (e) {
+        console.error(`[CHASE] Failed to fetch base LTP for ${instrument.symbol}: ${e.message}`);
+    }
 
-    // Phase 2: Chase loop — modify order every second with fresh LTP
+    if (!baseLtp) {
+        addStrategyLog(strategyId, `[CHASE] Could not fetch base LTP for ${instrument.symbol}. Cannot chase.`, "ERROR");
+        // Fall through to timeout — order stays at original price
+    }
+
+    addStrategyLog(strategyId, `[CHASE] ${instrument.symbol} not filled after 1s. Base LTP: ₹${baseLtp || '?'}. Chasing for up to 45s (offset: ₹${offset}/step)...`, "WARNING");
+
+    // Phase 2: Chase loop — modify order every second with progressive offset
+    // Each modification moves the price further from baseLTP by one additional offset step
     let modifyCount = 0;
     while (Date.now() - start < MAX_CHASE_MS) {
-        // 1. Fetch fresh LTP and modify the pending order
-        try {
-            const ltpRes = await getLtpSecure({
-                exchange: instrument.exch_seg,
-                symboltoken: instrument.token,
-                connectionId
-            });
-
-            if (ltpRes.status && ltpRes.data?.fetched?.[0]) {
-                const currentLtp = ltpRes.data.fetched[0].ltp;
+        // 1. Modify the pending order with progressive offset
+        if (baseLtp) {
+            try {
+                modifyCount++;
+                // Progressive: baseLTP ± (modifyCount + 1) × offset
+                // +1 because the original order was already at baseLTP ± 1×offset
+                const totalOffsetMultiplier = modifyCount + 1;
                 const newPrice = legSide === "BUY"
-                    ? roundToTick(currentLtp + offset)
-                    : roundToTick(currentLtp - offset);
+                    ? roundToTick(baseLtp + (offset * totalOffsetMultiplier))
+                    : roundToTick(baseLtp - (offset * totalOffsetMultiplier));
 
                 const api = await getAuthorizedInstance(connectionId);
                 await api.modifyOrder({
@@ -749,22 +770,23 @@ async function chaseOrderFill({ orderId, uniqueOrderId, instrument, config, legS
                     exchange: instrument.exch_seg,
                 });
 
-                modifyCount++;
-                addStrategyLog(strategyId, `[CHASE] Modified ${instrument.symbol} → ₹${newPrice} (LTP: ₹${currentLtp}) [#${modifyCount}]`, "INFO");
-            }
-        } catch (modErr) {
-            const errMsg = modErr.message || "";
-            // If modify fails because order is already completed/traded, check fill
-            if (errMsg.toLowerCase().includes("completed") || errMsg.toLowerCase().includes("traded") ||
-                errMsg.toLowerCase().includes("executed") || errMsg.toLowerCase().includes("not allowed")) {
-                const finalCheck = await checkOrderFillOnce(uniqueOrderId, connectionId);
-                if (finalCheck.filled) {
-                    const elapsed = ((Date.now() - start) / 1000).toFixed(1);
-                    addStrategyLog(strategyId, `[CHASE] ${instrument.symbol} filled at ₹${finalCheck.price} after ${elapsed}s (order already completed).`, "INFO");
-                    return finalCheck.price;
+                const totalOffsetAmt = (offset * totalOffsetMultiplier).toFixed(2);
+                addStrategyLog(strategyId, `[CHASE] #${modifyCount} ${instrument.symbol} → ₹${newPrice} (Base: ₹${baseLtp}, ${legSide === "BUY" ? "+" : "-"}${totalOffsetAmt})`, "INFO");
+            } catch (modErr) {
+                const errMsg = modErr.message || "";
+                // If modify fails because order is already completed/traded, check fill
+                if (errMsg.toLowerCase().includes("completed") || errMsg.toLowerCase().includes("traded") ||
+                    errMsg.toLowerCase().includes("executed") || errMsg.toLowerCase().includes("not allowed")) {
+                    const finalCheck = await checkOrderFillOnce(uniqueOrderId, connectionId);
+                    if (finalCheck.filled) {
+                        const elapsed = ((Date.now() - start) / 1000).toFixed(1);
+                        addStrategyLog(strategyId, `[CHASE] ${instrument.symbol} filled at ₹${finalCheck.price} after ${elapsed}s (order already completed).`, "INFO");
+                        return finalCheck.price;
+                    }
                 }
+                console.error(`[CHASE] Modify error for ${instrument.symbol}: ${errMsg}`);
+                addStrategyLog(strategyId, `[CHASE] Modify error for ${instrument.symbol}: ${errMsg}`, "ERROR");
             }
-            console.error(`[CHASE] Modify error for ${instrument.symbol}: ${errMsg}`);
         }
 
         // 2. Wait 1 second
@@ -774,7 +796,7 @@ async function chaseOrderFill({ orderId, uniqueOrderId, instrument, config, legS
         check = await checkOrderFillOnce(uniqueOrderId, connectionId);
         if (check.filled) {
             const elapsed = ((Date.now() - start) / 1000).toFixed(1);
-            addStrategyLog(strategyId, `[CHASE] ${instrument.symbol} filled at ₹${check.price} after ${elapsed}s chase.`, "INFO");
+            addStrategyLog(strategyId, `[CHASE] ✅ ${instrument.symbol} filled at ₹${check.price} after ${elapsed}s chase (${modifyCount} modifications).`, "INFO");
             return check.price;
         }
         if (check.rejected) throw new Error(check.reason);
@@ -795,7 +817,7 @@ async function chaseOrderFill({ orderId, uniqueOrderId, instrument, config, legS
         console.error(`[CHASE] Cancel failed for ${orderId}: ${cancelErr.message}`);
     }
 
-    addStrategyLog(strategyId, `[CHASE] ${instrument.symbol} NOT filled after 45s chase (${modifyCount} modifications). Strategy will be PAUSED.`, "CRITICAL");
+    addStrategyLog(strategyId, `[CHASE] ❌ ${instrument.symbol} NOT filled after 45s chase (${modifyCount} modifications). Strategy will be PAUSED.`, "CRITICAL");
     return null;
 }
 
@@ -2807,6 +2829,26 @@ async function squareOffLeg(strategyId, legIndex) {
     return true;
 }
 
+async function resumeStrategy(strategyId) {
+    const strategy = activeStrategies.get(strategyId);
+    if (!strategy) throw new Error("Strategy is not active or not found");
+    if (strategy.status !== "PAUSED") throw new Error("Strategy is not in PAUSED state");
+
+    // Reset state
+    strategy.status = "IN_POSITION";
+    strategy.error = null;
+    strategy.exitAttempted = false;
+    strategy.entryAttempted = true; // already entered
+    addStrategyLog(strategyId, `Strategy RESUMED from PAUSED state. Monitoring restarted.`, "INFO");
+    marketSocketService.sendAlert(`Strategy resumed — monitoring active`, "success");
+    updateStrategyInMemory(strategyId, { status: "IN_POSITION", error: null });
+
+    // Re-start the monitoring loop
+    executeStrategy(strategyId);
+
+    return true;
+}
+
 async function stopStrategy(strategyId) {
     const strategy = activeStrategies.get(strategyId);
     if (strategy) {
@@ -2912,7 +2954,7 @@ async function getUserStrategies() {
 async function getActiveStrategies() {
     const executions = await withDbRetry(() =>
         prisma.strategy_executions.findMany({
-            where: { status: { in: ['WAITING', 'IN_POSITION'] } },
+            where: { status: { in: ['WAITING', 'IN_POSITION', 'PAUSED'] } },
             orderBy: { started_at: 'desc' },
             include: { strategy: { select: { name: true } } }
         })
@@ -2969,6 +3011,7 @@ module.exports = {
     startStrategy,
     squareOffStrategy,
     squareOffLeg,
+    resumeStrategy,
     stopStrategy,
     getStatus,
     updateLtp,

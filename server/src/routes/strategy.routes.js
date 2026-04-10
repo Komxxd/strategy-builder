@@ -93,6 +93,16 @@ router.post("/stop/:id", async (req, res) => {
     }
 });
 
+router.post("/resume/:id", async (req, res) => {
+    try {
+        await strategyService.resumeStrategy(req.params.id);
+        res.json({ success: true, message: "Strategy Resumed" });
+    } catch (error) {
+        console.error("Error resuming strategy:", error.message);
+        res.status(500).json({ success: false, message: error.message || "Failed to resume strategy" });
+    }
+});
+
 router.get("/user", async (req, res) => {
     try {
         const data = await strategyService.getUserStrategies();
