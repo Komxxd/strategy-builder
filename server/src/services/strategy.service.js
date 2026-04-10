@@ -703,43 +703,39 @@ async function checkOrderFillOnce(uniqueOrderId, connectionId) {
  *   Mod #2: baseLTP ± (3 × offset)
  *   ...up to 45 seconds total.
  *
+ * @param {number} baseLtp - The LTP at the time the order was placed (used as base for progressive modifications)
  * @returns {number|null} Fill price, or null if not filled after 45s
  */
-async function chaseOrderFill({ orderId, uniqueOrderId, instrument, config, legSide, lots, connectionId, strategyId }) {
+async function chaseOrderFill({ orderId, uniqueOrderId, instrument, config, legSide, lots, connectionId, strategyId, baseLtp }) {
     const INITIAL_WAIT_MS = 1000;
     const CHASE_INTERVAL_MS = 1000;
     const MAX_CHASE_MS = 45000;
     const offset = parseFloat(config.entry_limit_offset || 0);
     const start = Date.now();
 
+    const logChase = (msg, level = "INFO") => {
+        console.log(`[CHASE][${instrument.symbol}] ${msg}`);
+        addStrategyLog(strategyId, `[CHASE] ${msg}`, level);
+    };
+
     // Phase 1: Wait 1 second for the initial fill (order may fill at the original price)
     await new Promise(r => setTimeout(r, INITIAL_WAIT_MS));
 
     let check = await checkOrderFillOnce(uniqueOrderId, connectionId);
-    if (check.filled) return check.price;
-    if (check.rejected) throw new Error(check.reason);
-
-    // Fetch LTP ONCE — this is the base price for all modifications
-    let baseLtp = null;
-    try {
-        const ltpRes = await getLtpSecure({
-            exchange: instrument.exch_seg,
-            symboltoken: instrument.token,
-            connectionId
-        });
-        if (ltpRes.status && ltpRes.data?.fetched?.[0]) {
-            baseLtp = ltpRes.data.fetched[0].ltp;
-        }
-    } catch (e) {
-        console.error(`[CHASE] Failed to fetch base LTP for ${instrument.symbol}: ${e.message}`);
+    if (check.filled) {
+        logChase(`${instrument.symbol} filled at ₹${check.price} on first check (no chase needed).`);
+        return check.price;
+    }
+    if (check.rejected) {
+        logChase(`${instrument.symbol} rejected before chase could start: ${check.reason}`, "ERROR");
+        return null;
     }
 
     if (!baseLtp) {
-        addStrategyLog(strategyId, `[CHASE] Could not fetch base LTP for ${instrument.symbol}. Cannot chase.`, "ERROR");
-        // Fall through to timeout — order stays at original price
+        logChase(`No base LTP available for ${instrument.symbol}. Cannot chase — will wait for fill or timeout.`, "ERROR");
     }
 
-    addStrategyLog(strategyId, `[CHASE] ${instrument.symbol} not filled after 1s. Base LTP: ₹${baseLtp || '?'}. Chasing for up to 45s (offset: ₹${offset}/step)...`, "WARNING");
+    logChase(`${instrument.symbol} not filled after 1s. Base LTP: ₹${baseLtp || '?'}. Chasing for up to 45s (offset: ₹${offset}/step)...`, "WARNING");
 
     // Phase 2: Chase loop — modify order every second with progressive offset
     // Each modification moves the price further from baseLTP by one additional offset step
@@ -771,7 +767,7 @@ async function chaseOrderFill({ orderId, uniqueOrderId, instrument, config, legS
                 });
 
                 const totalOffsetAmt = (offset * totalOffsetMultiplier).toFixed(2);
-                addStrategyLog(strategyId, `[CHASE] #${modifyCount} ${instrument.symbol} → ₹${newPrice} (Base: ₹${baseLtp}, ${legSide === "BUY" ? "+" : "-"}${totalOffsetAmt})`, "INFO");
+                logChase(`#${modifyCount} ${instrument.symbol} → ₹${newPrice} (Base: ₹${baseLtp}, ${legSide === "BUY" ? "+" : "-"}${totalOffsetAmt})`);
             } catch (modErr) {
                 const errMsg = modErr.message || "";
                 // If modify fails because order is already completed/traded, check fill
@@ -780,12 +776,16 @@ async function chaseOrderFill({ orderId, uniqueOrderId, instrument, config, legS
                     const finalCheck = await checkOrderFillOnce(uniqueOrderId, connectionId);
                     if (finalCheck.filled) {
                         const elapsed = ((Date.now() - start) / 1000).toFixed(1);
-                        addStrategyLog(strategyId, `[CHASE] ${instrument.symbol} filled at ₹${finalCheck.price} after ${elapsed}s (order already completed).`, "INFO");
+                        logChase(`✅ ${instrument.symbol} filled at ₹${finalCheck.price} after ${elapsed}s (order already completed).`);
                         return finalCheck.price;
                     }
                 }
-                console.error(`[CHASE] Modify error for ${instrument.symbol}: ${errMsg}`);
-                addStrategyLog(strategyId, `[CHASE] Modify error for ${instrument.symbol}: ${errMsg}`, "ERROR");
+                // If order was cancelled/rejected during modify, stop chasing
+                if (errMsg.toLowerCase().includes("cancelled") || errMsg.toLowerCase().includes("rejected")) {
+                    logChase(`${instrument.symbol} order was ${errMsg}. Stopping chase.`, "ERROR");
+                    return null; // Return null → caller handles as chase exhausted
+                }
+                logChase(`Modify error #${modifyCount} for ${instrument.symbol}: ${errMsg}`, "ERROR");
             }
         }
 
@@ -796,28 +796,31 @@ async function chaseOrderFill({ orderId, uniqueOrderId, instrument, config, legS
         check = await checkOrderFillOnce(uniqueOrderId, connectionId);
         if (check.filled) {
             const elapsed = ((Date.now() - start) / 1000).toFixed(1);
-            addStrategyLog(strategyId, `[CHASE] ✅ ${instrument.symbol} filled at ₹${check.price} after ${elapsed}s chase (${modifyCount} modifications).`, "INFO");
+            logChase(`✅ ${instrument.symbol} filled at ₹${check.price} after ${elapsed}s chase (${modifyCount} modifications).`);
             return check.price;
         }
-        if (check.rejected) throw new Error(check.reason);
+        if (check.rejected) {
+            logChase(`${instrument.symbol} order was rejected/cancelled during chase: ${check.reason}`, "ERROR");
+            return null; // Return null → caller handles as chase exhausted
+        }
     }
 
     // Cancel the unfilled order on the exchange — it's stale after 45s of modifications
     try {
         const api = await getAuthorizedInstance(connectionId);
         await api.cancelOrder({ variety: "NORMAL", orderid: orderId });
-        addStrategyLog(strategyId, `[CHASE] Cancelled unfilled order ${orderId} for ${instrument.symbol} after 45s.`, "ERROR");
+        logChase(`Cancelled unfilled order ${orderId} for ${instrument.symbol} after 45s.`, "ERROR");
     } catch (cancelErr) {
         // Order may have been filled/cancelled already — check one final time
         const lastCheck = await checkOrderFillOnce(uniqueOrderId, connectionId);
         if (lastCheck.filled) {
-            addStrategyLog(strategyId, `[CHASE] ${instrument.symbol} filled at ₹${lastCheck.price} (detected during cancel).`, "INFO");
+            logChase(`${instrument.symbol} filled at ₹${lastCheck.price} (detected during cancel).`);
             return lastCheck.price;
         }
         console.error(`[CHASE] Cancel failed for ${orderId}: ${cancelErr.message}`);
     }
 
-    addStrategyLog(strategyId, `[CHASE] ❌ ${instrument.symbol} NOT filled after 45s chase (${modifyCount} modifications). Strategy will be PAUSED.`, "CRITICAL");
+    logChase(`❌ ${instrument.symbol} NOT filled after 45s chase (${modifyCount} modifications). Strategy will be PAUSED.`, "CRITICAL");
     return null;
 }
 
@@ -925,6 +928,7 @@ async function placeExitOrder({ config, leg, instrument, exitType }) {
     try {
         const exitSide = leg.leg.side === "BUY" ? "SELL" : "BUY";
         let finalPrice = "0";
+        let exitBaseLtp = null;
 
         // Always LIMIT — MARKET orders no longer allowed by SEBI
         const ltpRes = await getLtpSecure({
@@ -933,15 +937,15 @@ async function placeExitOrder({ config, leg, instrument, exitType }) {
             connectionId: config.connectionId
         });
         if (ltpRes.status && ltpRes.data?.fetched?.[0]) {
-            const ltp = ltpRes.data.fetched[0].ltp;
+            exitBaseLtp = ltpRes.data.fetched[0].ltp;
             const offset = parseFloat(config.entry_limit_offset || 0);
-            if (exitSide === "SELL") finalPrice = roundToTick(ltp - offset).toString();
-            else finalPrice = roundToTick(ltp + offset).toString();
+            if (exitSide === "SELL") finalPrice = roundToTick(exitBaseLtp - offset).toString();
+            else finalPrice = roundToTick(exitBaseLtp + offset).toString();
         } else if (leg.currentLtp) {
-            const ltp = leg.currentLtp;
+            exitBaseLtp = leg.currentLtp;
             const offset = parseFloat(config.entry_limit_offset || 0);
-            if (exitSide === "SELL") finalPrice = roundToTick(ltp - offset).toString();
-            else finalPrice = roundToTick(ltp + offset).toString();
+            if (exitSide === "SELL") finalPrice = roundToTick(exitBaseLtp - offset).toString();
+            else finalPrice = roundToTick(exitBaseLtp + offset).toString();
         }
 
         const closeConfig = {
@@ -966,7 +970,7 @@ async function placeExitOrder({ config, leg, instrument, exitType }) {
         }
 
         // --- Verified Exit with Chase (Live Only) ---
-        // Same 45s chase as entry: modify order every 1s with fresh LTP ± offset.
+        // Same 45s chase as entry: modify order every 1s with progressive offset from base LTP.
         // If chase fills, mark leg as exited. If exhausted, throw for caller to handle.
         const strategyId = config.id || "system";
         const fillPrice = await chaseOrderFill({
@@ -977,7 +981,8 @@ async function placeExitOrder({ config, leg, instrument, exitType }) {
             legSide: exitSide,
             lots: leg.leg.lots,
             connectionId: config.connectionId,
-            strategyId
+            strategyId,
+            baseLtp: exitBaseLtp
         });
 
         if (fillPrice) {
@@ -1525,6 +1530,7 @@ async function executeStrategy(strategyId) {
                                 legIndex: idx,
                                 state: legState,
                                 original_traded_price: parseFloat(finalPrice) || 0,
+                                initialLtp: instLtp,
                                 base_otp: parseFloat(finalPrice) || 0,
                                 recost_trigger_price: null,
                                 reentry_count: 0,
@@ -1567,7 +1573,8 @@ async function executeStrategy(strategyId) {
                                         legSide: leg.leg.side,
                                         lots: leg.leg.lots,
                                         connectionId: config.connectionId,
-                                        strategyId
+                                        strategyId,
+                                        baseLtp: leg.initialLtp
                                     });
                                 } else {
                                     fillPrice = await waitForOrderFillPrice(
