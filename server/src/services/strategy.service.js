@@ -300,7 +300,8 @@ function addStrategyLog(strategyId, message, level = "INFO") {
         message.toUpperCase().includes("STOP OUT") ||
         message.toUpperCase().includes("STOPPED OUT") ||
         message.toUpperCase().includes("EXIT") ||
-        message.toUpperCase().includes("SQUARING OFF");
+        message.toUpperCase().includes("SQUARING OFF") ||
+        message.toUpperCase().includes("CHASE");
 
     if (isCriticalProcess) {
         console.log(`[Log][${strategyId}] ${message}`);
@@ -691,12 +692,10 @@ async function checkOrderFillOnce(uniqueOrderId, connectionId) {
         console.error("[ChaseCheck] Poll error:", err.message);
     }
     return { filled: false, price: null, rejected: false, reason: "" };
-}
-
-/**
+}/**
  * Chase mechanism for LIVE LIMIT orders that handles price slippage.
  *
- * If order doesn't fill within 1 second, it fetches the LTP ONCE as a base
+ * If order doesn't fill within 1 second, it fetchs the LTP ONCE as a base
  * price, then modifies the order every second by progressively adding (BUY)
  * or subtracting (SELL) the limit offset:
  *   Mod #1: baseLTP ± (2 × offset)
@@ -710,13 +709,20 @@ async function chaseOrderFill({ orderId, uniqueOrderId, instrument, config, legS
     const INITIAL_WAIT_MS = 1000;
     const CHASE_INTERVAL_MS = 1000;
     const MAX_CHASE_MS = 45000;
-    const offset = parseFloat(config.entry_limit_offset || 0);
+    
+    // Use user offset, but ensure a minimum of 0.05 (1 tick) for the chase to actually move
+    const userOffset = parseFloat(config.entry_limit_offset || 0);
+    const offset = Math.max(userOffset, 0.05); 
+    
     const start = Date.now();
 
     const logChase = (msg, level = "INFO") => {
+        // Force log to PM2 console regardless of strategyId presence
         console.log(`[CHASE][${instrument.symbol}] ${msg}`);
-        addStrategyLog(strategyId, `[CHASE] ${msg}`, level);
+        if (strategyId) addStrategyLog(strategyId, `[CHASE] ${msg}`, level);
     };
+
+    logChase(`STARTING CHASE for ${legSide} ${instrument.symbol}. Base price: ₹${baseLtp || '?'}. Offset to use: ₹${offset.toFixed(2)} (User: ₹${userOffset.toFixed(2)})`);
 
     // Phase 1: Wait 1 second for the initial fill (order may fill at the original price)
     await new Promise(r => setTimeout(r, INITIAL_WAIT_MS));
@@ -727,18 +733,15 @@ async function chaseOrderFill({ orderId, uniqueOrderId, instrument, config, legS
         return check.price;
     }
     if (check.rejected) {
-        logChase(`${instrument.symbol} rejected before chase could start: ${check.reason}`, "ERROR");
+        logChase(`${instrument.symbol} rejected before chase started: ${check.reason}`, "ERROR");
         return null;
     }
 
     if (!baseLtp) {
-        logChase(`No base LTP available for ${instrument.symbol}. Cannot chase — will wait for fill or timeout.`, "ERROR");
+        logChase(`No base LTP available for ${instrument.symbol}. Waiting without modification.`, "ERROR");
     }
 
-    logChase(`${instrument.symbol} not filled after 1s. Base LTP: ₹${baseLtp || '?'}. Chasing for up to 45s (offset: ₹${offset}/step)...`, "WARNING");
-
     // Phase 2: Chase loop — modify order every second with progressive offset
-    // Each modification moves the price further from baseLTP by one additional offset step
     let modifyCount = 0;
     while (Date.now() - start < MAX_CHASE_MS) {
         // 1. Modify the pending order with progressive offset
@@ -746,18 +749,19 @@ async function chaseOrderFill({ orderId, uniqueOrderId, instrument, config, legS
             try {
                 modifyCount++;
                 // Progressive: baseLTP ± (modifyCount + 1) × offset
-                // +1 because the original order was already at baseLTP ± 1×offset
                 const totalOffsetMultiplier = modifyCount + 1;
+                const totalOffsetAmt = offset * totalOffsetMultiplier;
+                
                 const newPrice = legSide === "BUY"
-                    ? roundToTick(baseLtp + (offset * totalOffsetMultiplier))
-                    : roundToTick(baseLtp - (offset * totalOffsetMultiplier));
+                    ? roundToTick(baseLtp + totalOffsetAmt)
+                    : roundToTick(baseLtp - totalOffsetAmt);
 
                 const api = await getAuthorizedInstance(connectionId);
                 await api.modifyOrder({
                     variety: "NORMAL",
                     orderid: orderId,
                     ordertype: "LIMIT",
-                    producttype: config.producttype || "INTRADAY",
+                    producttype: config.producttype || "CARRYFORWARD",
                     duration: config.duration || "DAY",
                     price: newPrice.toString(),
                     quantity: (lots * parseInt(instrument.lotsize)).toString(),
@@ -766,61 +770,50 @@ async function chaseOrderFill({ orderId, uniqueOrderId, instrument, config, legS
                     exchange: instrument.exch_seg,
                 });
 
-                const totalOffsetAmt = (offset * totalOffsetMultiplier).toFixed(2);
-                logChase(`#${modifyCount} ${instrument.symbol} → ₹${newPrice} (Base: ₹${baseLtp}, ${legSide === "BUY" ? "+" : "-"}${totalOffsetAmt})`);
+                logChase(`#${modifyCount} ${legSide} price ↑/↓ to ₹${newPrice} (Base: ₹${baseLtp}, Offset: ${totalOffsetMultiplier}x ${offset.toFixed(2)})`);
             } catch (modErr) {
                 const errMsg = modErr.message || "";
-                // If modify fails because order is already completed/traded, check fill
-                if (errMsg.toLowerCase().includes("completed") || errMsg.toLowerCase().includes("traded") ||
-                    errMsg.toLowerCase().includes("executed") || errMsg.toLowerCase().includes("not allowed")) {
+                if (errMsg.toLowerCase().includes("completed") || errMsg.toLowerCase().includes("traded")) {
                     const finalCheck = await checkOrderFillOnce(uniqueOrderId, connectionId);
                     if (finalCheck.filled) {
-                        const elapsed = ((Date.now() - start) / 1000).toFixed(1);
-                        logChase(`✅ ${instrument.symbol} filled at ₹${finalCheck.price} after ${elapsed}s (order already completed).`);
+                        logChase(`✅ Filled at ₹${finalCheck.price} (detected during modify).`);
                         return finalCheck.price;
                     }
                 }
-                // If order was cancelled/rejected during modify, stop chasing
                 if (errMsg.toLowerCase().includes("cancelled") || errMsg.toLowerCase().includes("rejected")) {
-                    logChase(`${instrument.symbol} order was ${errMsg}. Stopping chase.`, "ERROR");
-                    return null; // Return null → caller handles as chase exhausted
+                    logChase(`Order ${errMsg}. Stopping.`, "ERROR");
+                    return null;
                 }
-                logChase(`Modify error #${modifyCount} for ${instrument.symbol}: ${errMsg}`, "ERROR");
+                logChase(`Mod error #${modifyCount}: ${errMsg}`, "ERROR");
             }
         }
 
         // 2. Wait 1 second
         await new Promise(r => setTimeout(r, CHASE_INTERVAL_MS));
 
-        // 3. Check fill after the modification
+        // 3. Check fill
         check = await checkOrderFillOnce(uniqueOrderId, connectionId);
         if (check.filled) {
             const elapsed = ((Date.now() - start) / 1000).toFixed(1);
-            logChase(`✅ ${instrument.symbol} filled at ₹${check.price} after ${elapsed}s chase (${modifyCount} modifications).`);
+            logChase(`✅ SUCCESS: ${instrument.symbol} filled at ₹${check.price} after ${elapsed}s chase (${modifyCount} mods).`);
             return check.price;
         }
         if (check.rejected) {
-            logChase(`${instrument.symbol} order was rejected/cancelled during chase: ${check.reason}`, "ERROR");
-            return null; // Return null → caller handles as chase exhausted
+            logChase(`Order rejected during chase: ${check.reason}`, "ERROR");
+            return null;
         }
     }
 
-    // Cancel the unfilled order on the exchange — it's stale after 45s of modifications
+    // Cancel the unfilled order
     try {
         const api = await getAuthorizedInstance(connectionId);
         await api.cancelOrder({ variety: "NORMAL", orderid: orderId });
-        logChase(`Cancelled unfilled order ${orderId} for ${instrument.symbol} after 45s.`, "ERROR");
+        logChase(`EXHAUSTED: Cancelled unfilled order ${orderId} after 45s.`, "CRITICAL");
     } catch (cancelErr) {
-        // Order may have been filled/cancelled already — check one final time
         const lastCheck = await checkOrderFillOnce(uniqueOrderId, connectionId);
-        if (lastCheck.filled) {
-            logChase(`${instrument.symbol} filled at ₹${lastCheck.price} (detected during cancel).`);
-            return lastCheck.price;
-        }
-        console.error(`[CHASE] Cancel failed for ${orderId}: ${cancelErr.message}`);
+        if (lastCheck.filled) return lastCheck.price;
     }
 
-    logChase(`❌ ${instrument.symbol} NOT filled after 45s chase (${modifyCount} modifications). Strategy will be PAUSED.`, "CRITICAL");
     return null;
 }
 
