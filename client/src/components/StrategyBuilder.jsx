@@ -1066,7 +1066,7 @@ export const StrategyBuilder = ({ isConnected }) => {
     const [viewConfig, setViewConfig] = useState(null);
     const [viewStrategyName, setViewStrategyName] = useState('');
     const [searchTerm, setSearchTerm] = useState('');
-    const [isConfigExpanded, setIsConfigExpanded] = useState(true);
+    const [isConfigExpanded, setIsConfigExpanded] = useState(false);
     const [collapsedSections, setCollapsedSections] = useState({});
 
     const [config, setConfig] = useState({

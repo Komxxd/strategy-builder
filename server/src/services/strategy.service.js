@@ -664,6 +664,141 @@ async function waitForOrderFillPrice(uniqueOrderId, connectionId, isPaperTrading
     return null;
 }
 
+/**
+ * Single, non-blocking check for order fill status on the broker.
+ * Returns { filled, price, rejected, reason } without looping.
+ */
+async function checkOrderFillOnce(uniqueOrderId, connectionId) {
+    try {
+        const api = await getAuthorizedInstance(connectionId);
+        const details = await api.indOrderDetails(uniqueOrderId);
+        if (details?.status && details?.data) {
+            const avgPrice = Number(details.data.averageprice || details.data.averagePrice || 0);
+            const filledShares = Number(details.data.filledshares || details.data.filledShares || 0);
+            const orderStatus = (details.data.orderstatus || details.data.status || "").toString().toLowerCase();
+
+            if ((avgPrice > 0 && filledShares > 0) || orderStatus === "complete" || orderStatus === "filled") {
+                return { filled: true, price: avgPrice > 0 ? avgPrice : null, rejected: false, reason: "" };
+            }
+            if (orderStatus === "rejected" || orderStatus === "cancelled") {
+                return { filled: false, price: null, rejected: true, reason: `Order ${orderStatus}: ${details.data.text || details.data.message || ""}` };
+            }
+        }
+    } catch (err) {
+        if (err.message?.includes("rejected") || err.message?.includes("cancelled")) {
+            return { filled: false, price: null, rejected: true, reason: err.message };
+        }
+        console.error("[ChaseCheck] Poll error:", err.message);
+    }
+    return { filled: false, price: null, rejected: false, reason: "" };
+}
+
+/**
+ * Chase mechanism for LIVE LIMIT orders that handles price slippage.
+ *
+ * If order doesn't fill within 1 second, keeps modifying the order every
+ * second with the latest LTP ± limit offset for up to 45 seconds.
+ * Simultaneously checks for fill after each modification.
+ *
+ * @returns {number|null} Fill price, or null if not filled after 45s
+ */
+async function chaseOrderFill({ orderId, uniqueOrderId, instrument, config, legSide, lots, connectionId, strategyId }) {
+    const INITIAL_WAIT_MS = 1000;
+    const CHASE_INTERVAL_MS = 1000;
+    const MAX_CHASE_MS = 45000;
+    const offset = parseFloat(config.entry_limit_offset || 0);
+    const start = Date.now();
+
+    // Phase 1: Wait 1 second for the initial fill (order may fill at the original price)
+    await new Promise(r => setTimeout(r, INITIAL_WAIT_MS));
+
+    let check = await checkOrderFillOnce(uniqueOrderId, connectionId);
+    if (check.filled) return check.price;
+    if (check.rejected) throw new Error(check.reason);
+
+    addStrategyLog(strategyId, `[CHASE] ${instrument.symbol} not filled after 1s. Chasing price for up to 45s...`, "INFO");
+
+    // Phase 2: Chase loop — modify order every second with fresh LTP
+    let modifyCount = 0;
+    while (Date.now() - start < MAX_CHASE_MS) {
+        // 1. Fetch fresh LTP and modify the pending order
+        try {
+            const ltpRes = await getLtpSecure({
+                exchange: instrument.exch_seg,
+                symboltoken: instrument.token,
+                connectionId
+            });
+
+            if (ltpRes.status && ltpRes.data?.fetched?.[0]) {
+                const currentLtp = ltpRes.data.fetched[0].ltp;
+                const newPrice = legSide === "BUY"
+                    ? roundToTick(currentLtp + offset)
+                    : roundToTick(currentLtp - offset);
+
+                const api = await getAuthorizedInstance(connectionId);
+                await api.modifyOrder({
+                    variety: "NORMAL",
+                    orderid: orderId,
+                    ordertype: "LIMIT",
+                    producttype: config.producttype || "INTRADAY",
+                    duration: config.duration || "DAY",
+                    price: newPrice.toString(),
+                    quantity: (lots * parseInt(instrument.lotsize)).toString(),
+                    tradingsymbol: instrument.symbol,
+                    symboltoken: instrument.token,
+                    exchange: instrument.exch_seg,
+                });
+
+                modifyCount++;
+                addStrategyLog(strategyId, `[CHASE] Modified ${instrument.symbol} → ₹${newPrice} (LTP: ₹${currentLtp}) [#${modifyCount}]`, "INFO");
+            }
+        } catch (modErr) {
+            const errMsg = modErr.message || "";
+            // If modify fails because order is already completed/traded, check fill
+            if (errMsg.toLowerCase().includes("completed") || errMsg.toLowerCase().includes("traded") ||
+                errMsg.toLowerCase().includes("executed") || errMsg.toLowerCase().includes("not allowed")) {
+                const finalCheck = await checkOrderFillOnce(uniqueOrderId, connectionId);
+                if (finalCheck.filled) {
+                    const elapsed = ((Date.now() - start) / 1000).toFixed(1);
+                    addStrategyLog(strategyId, `[CHASE] ${instrument.symbol} filled at ₹${finalCheck.price} after ${elapsed}s (order already completed).`, "INFO");
+                    return finalCheck.price;
+                }
+            }
+            console.error(`[CHASE] Modify error for ${instrument.symbol}: ${errMsg}`);
+        }
+
+        // 2. Wait 1 second
+        await new Promise(r => setTimeout(r, CHASE_INTERVAL_MS));
+
+        // 3. Check fill after the modification
+        check = await checkOrderFillOnce(uniqueOrderId, connectionId);
+        if (check.filled) {
+            const elapsed = ((Date.now() - start) / 1000).toFixed(1);
+            addStrategyLog(strategyId, `[CHASE] ${instrument.symbol} filled at ₹${check.price} after ${elapsed}s chase.`, "INFO");
+            return check.price;
+        }
+        if (check.rejected) throw new Error(check.reason);
+    }
+
+    // Cancel the unfilled order on the exchange — it's stale after 45s of modifications
+    try {
+        const api = await getAuthorizedInstance(connectionId);
+        await api.cancelOrder({ variety: "NORMAL", orderid: orderId });
+        addStrategyLog(strategyId, `[CHASE] Cancelled unfilled order ${orderId} for ${instrument.symbol} after 45s.`, "ERROR");
+    } catch (cancelErr) {
+        // Order may have been filled/cancelled already — check one final time
+        const lastCheck = await checkOrderFillOnce(uniqueOrderId, connectionId);
+        if (lastCheck.filled) {
+            addStrategyLog(strategyId, `[CHASE] ${instrument.symbol} filled at ₹${lastCheck.price} (detected during cancel).`, "INFO");
+            return lastCheck.price;
+        }
+        console.error(`[CHASE] Cancel failed for ${orderId}: ${cancelErr.message}`);
+    }
+
+    addStrategyLog(strategyId, `[CHASE] ${instrument.symbol} NOT filled after 45s chase (${modifyCount} modifications). Strategy will be PAUSED.`, "CRITICAL");
+    return null;
+}
+
 async function placeStopLossExitOrder({ baseConfig, legSide, entryPrice, instrument, lots, slType, slValue, slLimitMargin, connectionId }) {
     const prices = computeStopLossExitPrices(
         entryPrice,
@@ -1409,20 +1544,36 @@ async function executeStrategy(strategyId) {
                                 // Skip fill price detection if waiting for Simple Mntm crossing in Paper
                                 if (leg.state === "WAITING_FOR_SIMPLE_MNTM") return;
 
-                                const fillPrice = await waitForOrderFillPrice(
-                                    leg.uniqueOrderId,
-                                    config.connectionId,
-                                    config.is_paper_trading === true,
-                                    leg.instrument,
-                                    60000,
-                                    2000,
-                                    { /* paperConfig */
-                                        side: leg.leg.side,
-                                        ordertype: config.ordertype,
-                                        price: parseFloat(leg.original_traded_price || config.price || 0),
-                                        triggerprice: parseFloat(leg.mntmTargetPrice || config.triggerprice || 0)
-                                    }
-                                );
+                                // LIVE LIMIT orders: Chase price slippage by modifying order every second
+                                // Paper, MARKET, and Momentum orders use the standard fill poll
+                                let fillPrice;
+                                if (!config.is_paper_trading && config.ordertype === 'LIMIT' && !leg.simpleMntmEnabled) {
+                                    fillPrice = await chaseOrderFill({
+                                        orderId: leg.orderId,
+                                        uniqueOrderId: leg.uniqueOrderId,
+                                        instrument: leg.instrument,
+                                        config,
+                                        legSide: leg.leg.side,
+                                        lots: leg.leg.lots,
+                                        connectionId: config.connectionId,
+                                        strategyId
+                                    });
+                                } else {
+                                    fillPrice = await waitForOrderFillPrice(
+                                        leg.uniqueOrderId,
+                                        config.connectionId,
+                                        config.is_paper_trading === true,
+                                        leg.instrument,
+                                        60000,
+                                        2000,
+                                        { /* paperConfig */
+                                            side: leg.leg.side,
+                                            ordertype: config.ordertype,
+                                            price: parseFloat(leg.original_traded_price || config.price || 0),
+                                            triggerprice: parseFloat(leg.mntmTargetPrice || config.triggerprice || 0)
+                                        }
+                                    );
+                                }
                                 if (fillPrice) {
                                     leg.entryPrice = fillPrice;
                                     leg.entryTime = getISTTime();
@@ -1431,7 +1582,12 @@ async function executeStrategy(strategyId) {
                                     leg.peakPrice = fillPrice; // Initialize old TSL Peak
                                     leg.tslReferencePrice = fillPrice; // Initialize step-based TSL anchor
                                     addStrategyLog(strategyId, `${leg.instrument.symbol} order filled at ₹${fillPrice}.`, "INFO");
+                                } else if (!config.is_paper_trading && config.ordertype === 'LIMIT' && !leg.simpleMntmEnabled) {
+                                    // Chase exhausted — order was already cancelled inside chaseOrderFill.
+                                    // Do NOT fall back to LTP. Pause the strategy for manual intervention.
+                                    throw new Error(`CHASE_EXHAUSTED: ${leg.instrument.symbol} order not filled after 45s price chase. Order cancelled.`);
                                 } else {
+                                    // Non-chase fallback (Paper / MARKET / Momentum): use current LTP
                                     const optLtpRes = await getLtpSecure({
                                         exchange: leg.instrument.exch_seg,
                                         symboltoken: leg.instrument.token,
@@ -1500,27 +1656,38 @@ async function executeStrategy(strategyId) {
                 } catch (err) {
                     console.error(`[${strategyId}] Execution failed:`, err.message);
 
-                    // ROLLBACK: If any legs were partially placed, exit them immediately for safety
-                    if (strategy.legs && strategy.legs.length > 0) {
-                        console.warn(`[${strategyId}] Partial entry detected (${strategy.legs.length} legs). Initiating emergency rollback...`);
-                        try {
-                            // Prepare state for squareOff call
-                            strategy.status = "IN_POSITION";
-                            strategy.exitAttempted = false;
+                    // CHASE_EXHAUSTED: Pause the strategy — don't rollback, don't terminate.
+                    // All monitoring stops. User must manually resume or square off.
+                    if (err.message.startsWith("CHASE_EXHAUSTED")) {
+                        strategy.status = "PAUSED";
+                        strategy.error = err.message;
+                        addStrategyLog(strategyId, `Strategy PAUSED: ${err.message}. Manual action required.`, "CRITICAL");
+                        marketSocketService.sendAlert(`Strategy PAUSED — ${err.message}`, "error");
+                        updateStrategyInMemory(strategyId, { status: "PAUSED", error: err.message });
+                        clearInterval(interval);
+                    } else {
+                        // ROLLBACK: If any legs were partially placed, exit them immediately for safety
+                        if (strategy.legs && strategy.legs.length > 0) {
+                            console.warn(`[${strategyId}] Partial entry detected (${strategy.legs.length} legs). Initiating emergency rollback...`);
+                            try {
+                                // Prepare state for squareOff call
+                                strategy.status = "IN_POSITION";
+                                strategy.exitAttempted = false;
 
-                            // squareOffStrategy will handle SL cancellation and exit orders 
-                            // (robust placeExitOrder will handle cancellation of pending entry orders)
-                            await squareOffStrategy(strategyId);
-                            console.log(`[${strategyId}] Safely rolled back partial entries.`);
-                        } catch (rollbackErr) {
-                            console.error(`[${strategyId}] Emergency rollback failed:`, rollbackErr.message);
+                                // squareOffStrategy will handle SL cancellation and exit orders 
+                                // (robust placeExitOrder will handle cancellation of pending entry orders)
+                                await squareOffStrategy(strategyId);
+                                console.log(`[${strategyId}] Safely rolled back partial entries.`);
+                            } catch (rollbackErr) {
+                                console.error(`[${strategyId}] Emergency rollback failed:`, rollbackErr.message);
+                            }
                         }
-                    }
 
-                    strategy.status = "FAILED";
-                    strategy.error = err.message;
-                    updateStrategyInMemory(strategyId, { status: "FAILED", error: err.message });
-                    clearInterval(interval);
+                        strategy.status = "FAILED";
+                        strategy.error = err.message;
+                        updateStrategyInMemory(strategyId, { status: "FAILED", error: err.message });
+                        clearInterval(interval);
+                    }
                 }
             }
 
