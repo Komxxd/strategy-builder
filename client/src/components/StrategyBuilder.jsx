@@ -1161,7 +1161,6 @@ export const StrategyBuilder = ({ isConnected }) => {
         setLoading(true);
         const finalConfig = {
             ...config,
-            is_paper_trading: activeTab === 'paper',
             variety: 'STOPLOSS',
             producttype: 'CARRYFORWARD',
             ordertype: 'LIMIT',
@@ -1194,7 +1193,7 @@ export const StrategyBuilder = ({ isConnected }) => {
             return;
         }
         try {
-            const res = await axios.post(`${API_BASE_URL}/strategy/execute/${id}`);
+            const res = await axios.post(`${API_BASE_URL}/strategy/execute/${id}`, { is_paper_trading: activeTab === 'paper' });
             const newId = res.data.strategy_id || res.data.execution_id;
             // Fetch initial status
             const statusRes = await axios.get(`${API_BASE_URL}/strategy/status/${newId}`);
@@ -1264,7 +1263,6 @@ export const StrategyBuilder = ({ isConnected }) => {
             overall_target_enabled: conf.overall_target_enabled || (conf.overall_target_value > 0)
         });
         setEditingId(strategy.id);
-        setActiveTab(conf.is_paper_trading ? 'paper' : 'live');
         setIsConfigExpanded(true);
         window.scrollTo({ top: 0, behavior: 'smooth' });
     };
@@ -1492,7 +1490,7 @@ export const StrategyBuilder = ({ isConnected }) => {
                 </Card >
 
                 {
-                    Object.entries(runningStrategies).filter(([_, data]) => (activeTab === 'paper' ? data.config?.is_paper_trading : !data.config?.is_paper_trading)).length > 0 && (
+                    Object.entries(runningStrategies).length > 0 && (
                         <div className="mt-6">
                             <Card className="w-full border-border bg-card mb-4 overflow-hidden">
                                 <div
@@ -1510,9 +1508,8 @@ export const StrategyBuilder = ({ isConnected }) => {
                             {!collapsedSections['active-strategies'] && (
                                 <div className="space-y-4 animate-in fade-in slide-in-from-top-2 duration-200">
                                     {Object.entries(runningStrategies)
-                                        .filter(([_, data]) => (activeTab === 'paper' ? data.config?.is_paper_trading : !data.config?.is_paper_trading))
                                         .map(([id, strategyData]) => (
-                                            <Card key={id} className={`w-full border-border animate-in fade-in slide-in-from-bottom-4 duration-500 ${activeTab === 'paper' ? 'bg-blue-50/50' : 'bg-orange-50/50'}`}>
+                                            <Card key={id} className={`w-full border-border animate-in fade-in slide-in-from-bottom-4 duration-500 ${strategyData.config?.is_paper_trading ? 'bg-blue-50/50' : 'bg-orange-50/50'}`}>
                                                 <CardContent className="p-3 space-y-2">
                                                     <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3">
                                                         <div className="flex items-center gap-x-2.5 gap-y-1.5 flex-wrap">
@@ -1825,13 +1822,12 @@ export const StrategyBuilder = ({ isConnected }) => {
                                         <div className="hidden lg:grid lg:grid-cols-12 gap-4 px-4 py-2 bg-muted text-muted-foreground border-b text-[10px] font-medium uppercase tracking-wider items-center">
                                             <div className="col-span-3">Name</div>
                                             <div className="col-span-2">Date Created</div>
-                                            <div className="col-span-2">Index</div>
-                                            <div className="col-span-2">Type</div>
+                                            <div className="col-span-1">Index</div>
+                                            <div className="col-span-3">Type</div>
                                             <div className="col-span-3 text-right">Actions</div>
                                         </div>
                                         <div className="divide-y border-t flex flex-col">
                                                 {savedStrategies
-                                                    .filter(s => (activeTab === 'paper' ? s.config?.is_paper_trading : !s.config?.is_paper_trading))
                                                     .filter(s => {
                                                         const name = (s.name || s.config?.name || '').toLowerCase();
                                                         const id = (s.id || '').toLowerCase();
@@ -1918,11 +1914,11 @@ export const StrategyBuilder = ({ isConnected }) => {
                                                                 <span className="xl:hidden text-[10px] uppercase font-medium text-muted-foreground tracking-wider">Created</span>
                                                                 <span>{new Date(s.created_at).toLocaleDateString()} {new Date(s.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                                                             </div>
-                                                            <div className="col-span-1 xl:col-span-2 font-medium text-[12px] xl:text-[10px] flex xl:block items-center justify-between">
+                                                            <div className="col-span-1 xl:col-span-1 font-medium text-[12px] xl:text-[10px] flex xl:block items-center justify-between">
                                                                 <span className="xl:hidden text-[10px] uppercase font-medium text-muted-foreground tracking-wider">Index</span>
                                                                 <span>{s.config?.index}</span>
                                                             </div>
-                                                            <div className="col-span-1 xl:col-span-2 flex xl:block items-center justify-between">
+                                                            <div className="col-span-1 xl:col-span-3 flex xl:block items-center justify-between">
                                                                 <span className="xl:hidden text-[10px] uppercase font-medium text-muted-foreground tracking-wider pr-4">Type</span>
                                                                 <span className="px-1.5 py-0.5 rounded text-[10px] xl:text-[9px] font-medium bg-slate-100 text-slate-700 text-right xl:text-left line-clamp-2">
                                                                     {s.config?.legs?.map((l) => `${l.side} ${l.option_type} (${l.lots} ${l.lots > 1 ? 'L' : 'L'})`).join(' | ') || '---'}

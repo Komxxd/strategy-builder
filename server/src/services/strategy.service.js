@@ -2632,10 +2632,13 @@ async function saveStrategy(config) {
         }
     }
 
+    const cleanConfig = { ...config };
+    delete cleanConfig.is_paper_trading;
+
     const data = await prisma.strategies.create({
         data: {
             name: config.name || `Strategy ${new Date().toLocaleTimeString()}`,
-            config: config
+            config: cleanConfig
         }
     });
     return data;
@@ -2657,11 +2660,14 @@ async function updateStrategy(strategyId, config) {
         }
     }
 
+    const cleanConfig = { ...config };
+    delete cleanConfig.is_paper_trading;
+
     const data = await prisma.strategies.update({
         where: { id: strategyId },
         data: {
             name: config.name || `Strategy ${new Date().toLocaleTimeString()}`,
-            config: config
+            config: cleanConfig
         }
     });
 
@@ -2675,7 +2681,7 @@ async function deleteStrategy(strategyId) {
     return true;
 }
 
-async function startStrategy(strategyId) {
+async function startStrategy(strategyId, overrideIsPaperTrading) {
     // strategyId is the template ID.
     // withDbRetry handles Neon's cold-start latency: retries up to 3x with backoff
     // before throwing, so clicking "Start" never hard-crashes if the DB is waking up.
@@ -2700,7 +2706,10 @@ async function startStrategy(strategyId) {
 
     const runtimeStrategy = {
         id: execution.id,  // Active Map maps execution_id to runtime state
-        config: template.config,
+        config: {
+            ...template.config,
+            is_paper_trading: overrideIsPaperTrading !== undefined ? overrideIsPaperTrading : (template.config.is_paper_trading || false)
+        },
         status: "WAITING",
         entryAttempted: false,
         startTime: new Date()
