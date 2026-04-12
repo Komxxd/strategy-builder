@@ -1337,7 +1337,7 @@ async function handleLegStopOut(leg, exitType, strategy) {
 
 async function executeStrategy(strategyId) {
     const strategy = activeStrategies.get(strategyId);
-    if (!strategy) return;
+    if (!strategy || strategy.interval) return;
 
     const { config } = strategy;
     addStrategyLog(strategyId, `Strategy Execution started. Waiting for Entry Time ${config.entry_time}...`, "INFO");
@@ -2742,7 +2742,7 @@ async function startStrategy(strategyId, overrideIsPaperTrading) {
 }
 
 async function squareOffStrategy(strategyId) {
-    const strategy = activeStrategies.get(strategyId);
+    const strategy = await ensureStrategyInMemory(strategyId);
     if (!strategy) throw new Error("Strategy is not active or not found");
     if (strategy.status !== "IN_POSITION") throw new Error('Strategy must be in IN_POSITION to be squared off');
 
@@ -2857,19 +2857,74 @@ async function squareOffLeg(strategyId, legIndex) {
     return true;
 }
 
+/**
+ * Ensures a strategy is in memory, re-hydrating from DB if necessary.
+ * Useful after server restarts for strategies in WAITING, IN_POSITION, or PAUSED states.
+ */
+async function ensureStrategyInMemory(strategyId) {
+    if (activeStrategies.has(strategyId)) return activeStrategies.get(strategyId);
+
+    const dbExec = await withDbRetry(() =>
+        prisma.strategy_executions.findUnique({
+            where: { id: strategyId },
+            include: { strategy: { select: { name: true, config: true } } }
+        })
+    ).catch(() => null);
+
+    if (!dbExec) return null;
+
+    // Only re-hydrate active/pausable states
+    if (['WAITING', 'IN_POSITION', 'PAUSED'].includes(dbExec.status)) {
+        const details = dbExec.execution_details || {};
+        const strategy = {
+            id: dbExec.id,
+            status: dbExec.status,
+            config: details.config || dbExec.strategy?.config || {},
+            legs: details.legs || [],
+            logs: details.logs || [],
+            error: details.error || null,
+            isProcessing: false,
+            entryAttempted: details.entryAttempted || (dbExec.status !== 'WAITING'),
+            exitAttempted: details.exitAttempted || false,
+            persistenceTicks: 0,
+            interval: null,
+            pnlPercent: dbExec.final_pnl_percent || 0,
+            totalPnlRupees: dbExec.total_pnl_rupees || 0,
+            totalOriginalValue: details.totalOriginalValue || 0
+        };
+        activeStrategies.set(dbExec.id, strategy);
+        
+        // If it was supposed to be running, restart the loop
+        if (strategy.status !== 'PAUSED') {
+            executeStrategy(strategy.id);
+        }
+        return strategy;
+    }
+    return null;
+}
+
 async function resumeStrategy(strategyId) {
-    const strategy = activeStrategies.get(strategyId);
+    let strategy = await ensureStrategyInMemory(strategyId);
     if (!strategy) throw new Error("Strategy is not active or not found");
     if (strategy.status !== "PAUSED") throw new Error("Strategy is not in PAUSED state");
 
-    // Reset state
-    strategy.status = "IN_POSITION";
-    strategy.error = null;
-    strategy.exitAttempted = false;
-    strategy.entryAttempted = true; // already entered
-    addStrategyLog(strategyId, `Strategy RESUMED from PAUSED state. Monitoring restarted.`, "INFO");
+    // Fix: Properly handle resume based on whether we were in position or still waiting for entry
+    if (!strategy.legs || strategy.legs.length === 0) {
+        // If we had no legs, we were likely paused during initial entry (CHASE_EXHAUSTED)
+        strategy.status = "WAITING";
+        strategy.entryAttempted = false;
+        strategy.error = null;
+        addStrategyLog(strategyId, `Strategy RESUMED. Resetting entry attempt to retry...`, "INFO");
+    } else {
+        // We have positions, just resume monitoring
+        strategy.status = "IN_POSITION";
+        strategy.error = null;
+        strategy.exitAttempted = false;
+        addStrategyLog(strategyId, `Strategy RESUMED from PAUSED state. Monitoring restarted.`, "INFO");
+    }
+    
     marketSocketService.sendAlert(`Strategy resumed — monitoring active`, "success");
-    updateStrategyInMemory(strategyId, { status: "IN_POSITION", error: null });
+    updateStrategyInMemory(strategyId, { status: strategy.status, error: null, entryAttempted: strategy.entryAttempted });
 
     // Re-start the monitoring loop
     executeStrategy(strategyId);
@@ -2884,15 +2939,25 @@ async function stopStrategy(strategyId) {
             clearInterval(strategy.interval);
         }
         strategy.status = "TERMINATED";
-        updateStrategyInMemory(strategyId, { status: "TERMINATED" });
         activeStrategies.delete(strategyId);
-        return true;
     }
-    return false;
+    
+    // Always update DB to ensure TERMINATED state is saved (even if not in memory)
+    await withDbRetry(() => 
+        prisma.strategy_executions.update({
+            where: { id: strategyId },
+            data: { 
+                status: "TERMINATED",
+                completed_at: new Date()
+            }
+        })
+    ).catch(err => console.error(`Failed to terminate strategy ${strategyId} in DB:`, err.message));
+
+    return true;
 }
 
 async function getStatus(strategyId) {
-    const s = activeStrategies.get(strategyId);
+    const s = await ensureStrategyInMemory(strategyId);
     if (s) {
         return {
             id: s.id,
