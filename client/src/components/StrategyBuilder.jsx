@@ -857,6 +857,18 @@ export const StrategyFormContent = ({ config, setConfig, editingId, setEditingId
                 </div>
                 <div className="space-y-1 w-full min-w-[120px] md:w-[150px] flex-none">
                     <Label className="text-[8.5px] font-medium uppercase tracking-wider text-muted-foreground flex items-center">
+                        Chase Time (s)
+                    </Label>
+                    <Input
+                        className="h-9 rounded-lg text-[11px]"
+                        type="number"
+                        placeholder="45"
+                        value={config.chase_time_seconds}
+                        onChange={(e) => setConfig({ ...config, chase_time_seconds: parseInt(e.target.value) || 0 })}
+                    />
+                </div>
+                <div className="space-y-1 w-full min-w-[120px] md:w-[150px] flex-none">
+                    <Label className="text-[8.5px] font-medium uppercase tracking-wider text-muted-foreground flex items-center">
                         Entry Time
                     </Label>
                     <Input
@@ -1105,6 +1117,7 @@ export const StrategyBuilder = ({ isConnected }) => {
         overall_target_enabled: false,
         entry_limit_offset: 0,
         entry_limit_offset_type: 'POINTS',
+        chase_time_seconds: 45,
         legs: [
             { strike_criteria: 'STRIKE_TYPE', option_type: 'CE', strike: 'ATM', premium: 0, side: 'BUY', lots: 1, sl_type: 'PERCENTAGE', stop_loss: 10, simple_mntm_enabled: false, simple_mntm_mode: 'SIMPLE_PLUS_PCT', simple_mntm_value: 0, recost_enabled: false, recost_mode: 'RECOST_PLUS_PCT', recost_value: 0, max_reentry: 1, reentry_sl_enabled: false, reentry_sl_type: 'PERCENTAGE', reentry_sl_value: 10, re_asap_enabled: false, re_asap_max_entries: 1, lazy_leg_enabled: false, lazy_leg: null, tsl_enabled: false, tsl_type: 'PERCENTAGE', tsl_move: 0 }
         ]

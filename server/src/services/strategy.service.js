@@ -718,7 +718,7 @@ async function checkOrderFillOnce(uniqueOrderId, connectionId) {
 async function chaseOrderFill({ orderId, uniqueOrderId, instrument, config, legSide, lots, connectionId, strategyId, baseLtp }) {
     const INITIAL_WAIT_MS = 1000;
     const CHASE_INTERVAL_MS = 1000;
-    const MAX_CHASE_MS = 45000;
+    const MAX_CHASE_MS = (parseInt(config.chase_time_seconds) || 45) * 1000;
     
     // Use user offset, but ensure a minimum of 0.05 (1 tick) for the chase to actually move
     const userOffsetAmt = getLimitOffsetAmt(baseLtp, config);
@@ -732,7 +732,7 @@ async function chaseOrderFill({ orderId, uniqueOrderId, instrument, config, legS
         if (strategyId) addStrategyLog(strategyId, `[CHASE] ${msg}`, level);
     };
 
-    logChase(`STARTING CHASE for ${legSide} ${instrument.symbol}. Base price: ₹${baseLtp || '?'}. Offset to use: ₹${offset.toFixed(2)} (User Raw: ${config.entry_limit_offset}${config.entry_limit_offset_type === 'PERCENTAGE' ? '%' : 'pts'})`);
+    logChase(`STARTING CHASE for ${legSide} ${instrument.symbol} (${parseInt(config.chase_time_seconds) || 45}s). Base price: ₹${baseLtp || '?'}. Offset to use: ₹${offset.toFixed(2)} (User Raw: ${config.entry_limit_offset}${config.entry_limit_offset_type === 'PERCENTAGE' ? '%' : 'pts'})`);
 
     // Phase 1: Wait 1 second for the initial fill (order may fill at the original price)
     await new Promise(r => setTimeout(r, INITIAL_WAIT_MS));
