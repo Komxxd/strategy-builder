@@ -820,25 +820,40 @@ export const StrategyFormContent = ({ config, setConfig, editingId, setEditingId
                         </SelectContent>
                     </Select>
                 </div>
-                <div className="space-y-1 w-full min-w-[100px] md:w-[120px] flex-1 md:flex-none">
+                <div className="space-y-1 w-full min-w-[180px] md:w-[220px] flex-1 md:flex-none">
                     <Label className="text-[8.5px] font-medium uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
                         Limit Offset
                     </Label>
-                    <Input
-                        className="h-9 rounded-lg text-[11px]"
-                        type="text"
-                        placeholder="0.0"
-                        value={config.entry_limit_offset}
-                        onChange={(e) => {
-                            const val = e.target.value;
-                            if (val === '' || /^\d*\.?\d*$/.test(val)) {
-                                setConfig({ ...config, entry_limit_offset: val });
-                            }
-                        }}
-                        onBlur={(e) => {
-                            setConfig({ ...config, entry_limit_offset: parseFloat(e.target.value) || 0 });
-                        }}
-                    />
+                    <div className="flex items-center gap-2">
+                        <div className="w-[75px] shrink-0">
+                            <Select value={config.entry_limit_offset_type || 'POINTS'} onValueChange={(v) => setConfig({ ...config, entry_limit_offset_type: v })}>
+                                <SelectTrigger className="h-9 rounded-lg text-[10px] bg-background border-input">
+                                    <SelectValue placeholder="Type" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="POINTS">Pts</SelectItem>
+                                    <SelectItem value="PERCENTAGE">%</SelectItem>
+                                </SelectContent>
+                            </Select>
+                        </div>
+                        <div className="flex-1">
+                            <Input
+                                className="h-9 rounded-lg text-[11px]"
+                                type="text"
+                                placeholder="0.0"
+                                value={config.entry_limit_offset}
+                                onChange={(e) => {
+                                    const val = e.target.value;
+                                    if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                                        setConfig({ ...config, entry_limit_offset: val });
+                                    }
+                                }}
+                                onBlur={(e) => {
+                                    setConfig({ ...config, entry_limit_offset: parseFloat(e.target.value) || 0 });
+                                }}
+                            />
+                        </div>
+                    </div>
                 </div>
                 <div className="space-y-1 w-full min-w-[120px] md:w-[150px] flex-none">
                     <Label className="text-[8.5px] font-medium uppercase tracking-wider text-muted-foreground flex items-center">
@@ -1089,6 +1104,7 @@ export const StrategyBuilder = ({ isConnected }) => {
         overall_target_value: 0,
         overall_target_enabled: false,
         entry_limit_offset: 0,
+        entry_limit_offset_type: 'POINTS',
         legs: [
             { strike_criteria: 'STRIKE_TYPE', option_type: 'CE', strike: 'ATM', premium: 0, side: 'BUY', lots: 1, sl_type: 'PERCENTAGE', stop_loss: 10, simple_mntm_enabled: false, simple_mntm_mode: 'SIMPLE_PLUS_PCT', simple_mntm_value: 0, recost_enabled: false, recost_mode: 'RECOST_PLUS_PCT', recost_value: 0, max_reentry: 1, reentry_sl_enabled: false, reentry_sl_type: 'PERCENTAGE', reentry_sl_value: 10, re_asap_enabled: false, re_asap_max_entries: 1, lazy_leg_enabled: false, lazy_leg: null, tsl_enabled: false, tsl_type: 'PERCENTAGE', tsl_move: 0 }
         ]

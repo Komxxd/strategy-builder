@@ -495,10 +495,18 @@ async function placeOrder(config, instrument, connectionId) {
         throw error;
     }
 }
+function getLimitOffsetAmt(basePrice, config) {
+    const val = parseFloat(config.entry_limit_offset || 0);
+    if (!basePrice || val <= 0) return val;
+    if (config.entry_limit_offset_type === 'PERCENTAGE') {
+        return basePrice * (val / 100);
+    }
+    return val;
+}
 
-function computeStopLossExitPrices(entryPrice, side, slType, slValue, limitMargin) {
+function computeStopLossExitPrices(entryPrice, side, slType, slValue, limitMargin, marginType = 'POINTS') {
     const val = Number(slValue || 0);
-    const margin = Number(limitMargin || 0);
+    const rawMargin = Number(limitMargin || 0);
     if (!entryPrice || val <= 0) return null;
 
     let trigger;
@@ -512,6 +520,8 @@ function computeStopLossExitPrices(entryPrice, side, slType, slValue, limitMargi
             ? entryPrice * (1 - val / 100)
             : entryPrice * (1 + val / 100);
     }
+
+    const margin = marginType === 'PERCENTAGE' ? (trigger * (rawMargin / 100)) : rawMargin;
 
     const limit = side === "BUY"
         ? trigger - margin
@@ -711,8 +721,8 @@ async function chaseOrderFill({ orderId, uniqueOrderId, instrument, config, legS
     const MAX_CHASE_MS = 45000;
     
     // Use user offset, but ensure a minimum of 0.05 (1 tick) for the chase to actually move
-    const userOffset = parseFloat(config.entry_limit_offset || 0);
-    const offset = Math.max(userOffset, 0.05); 
+    const userOffsetAmt = getLimitOffsetAmt(baseLtp, config);
+    const offset = Math.max(userOffsetAmt, 0.05); 
     
     const start = Date.now();
 
@@ -722,7 +732,7 @@ async function chaseOrderFill({ orderId, uniqueOrderId, instrument, config, legS
         if (strategyId) addStrategyLog(strategyId, `[CHASE] ${msg}`, level);
     };
 
-    logChase(`STARTING CHASE for ${legSide} ${instrument.symbol}. Base price: ₹${baseLtp || '?'}. Offset to use: ₹${offset.toFixed(2)} (User: ₹${userOffset.toFixed(2)})`);
+    logChase(`STARTING CHASE for ${legSide} ${instrument.symbol}. Base price: ₹${baseLtp || '?'}. Offset to use: ₹${offset.toFixed(2)} (User Raw: ${config.entry_limit_offset}${config.entry_limit_offset_type === 'PERCENTAGE' ? '%' : 'pts'})`);
 
     // Phase 1: Wait 1 second for the initial fill (order may fill at the original price)
     await new Promise(r => setTimeout(r, INITIAL_WAIT_MS));
@@ -817,13 +827,14 @@ async function chaseOrderFill({ orderId, uniqueOrderId, instrument, config, legS
     return null;
 }
 
-async function placeStopLossExitOrder({ baseConfig, legSide, entryPrice, instrument, lots, slType, slValue, slLimitMargin, connectionId }) {
+async function placeStopLossExitOrder({ baseConfig, legSide, entryPrice, instrument, lots, slType, slValue, slLimitMargin, slLimitMarginType = 'POINTS', connectionId }) {
     const prices = computeStopLossExitPrices(
         entryPrice,
         legSide,
         slType,
         slValue,
-        slLimitMargin
+        slLimitMargin,
+        slLimitMarginType
     );
     if (!prices) return null;
 
@@ -840,7 +851,7 @@ async function placeStopLossExitOrder({ baseConfig, legSide, entryPrice, instrum
     return await placeOrder(slConfig, instrument, connectionId);
 }
 
-async function placeStopLossWithRetry({ baseConfig, legSide, entryPrice, instrument, lots, slType, slValue, slLimitMargin, connectionId, strategyId }) {
+async function placeStopLossWithRetry({ baseConfig, legSide, entryPrice, instrument, lots, slType, slValue, slLimitMargin, slLimitMarginType = 'POINTS', connectionId, strategyId }) {
     let attempts = 3;
     let slOrder = null;
     let lastError = "";
@@ -848,7 +859,7 @@ async function placeStopLossWithRetry({ baseConfig, legSide, entryPrice, instrum
     while (attempts > 0) {
         try {
             slOrder = await placeStopLossExitOrder({
-                baseConfig, legSide, entryPrice, instrument, lots, slType, slValue, slLimitMargin, connectionId
+                baseConfig, legSide, entryPrice, instrument, lots, slType, slValue, slLimitMargin, slLimitMarginType, connectionId
             });
             if (slOrder?.orderid) {
                 if (attempts < 3) {
@@ -931,14 +942,14 @@ async function placeExitOrder({ config, leg, instrument, exitType }) {
         });
         if (ltpRes.status && ltpRes.data?.fetched?.[0]) {
             exitBaseLtp = ltpRes.data.fetched[0].ltp;
-            const offset = parseFloat(config.entry_limit_offset || 0);
-            if (exitSide === "SELL") finalPrice = roundToTick(exitBaseLtp - offset).toString();
-            else finalPrice = roundToTick(exitBaseLtp + offset).toString();
+            const offsetAmt = getLimitOffsetAmt(exitBaseLtp, config);
+            if (exitSide === "SELL") finalPrice = roundToTick(exitBaseLtp - offsetAmt).toString();
+            else finalPrice = roundToTick(exitBaseLtp + offsetAmt).toString();
         } else if (leg.currentLtp) {
             exitBaseLtp = leg.currentLtp;
-            const offset = parseFloat(config.entry_limit_offset || 0);
-            if (exitSide === "SELL") finalPrice = roundToTick(exitBaseLtp - offset).toString();
-            else finalPrice = roundToTick(exitBaseLtp + offset).toString();
+            const offsetAmt = getLimitOffsetAmt(exitBaseLtp, config);
+            if (exitSide === "SELL") finalPrice = roundToTick(exitBaseLtp - offsetAmt).toString();
+            else finalPrice = roundToTick(exitBaseLtp + offsetAmt).toString();
         }
 
         const closeConfig = {
@@ -1144,7 +1155,7 @@ async function handleLegStopOut(leg, exitType, strategy) {
 
         let variety = config.variety || "NORMAL";
         let ordertype = config.ordertype || "LIMIT";
-        const offset = parseFloat(config.entry_limit_offset || 0);
+        const offsetAmt = getLimitOffsetAmt(newRtp, config);
 
         let finalPriceStr = newRtp.toString();
         let triggerPriceStr = newRtp.toString();
@@ -1153,21 +1164,21 @@ async function handleLegStopOut(leg, exitType, strategy) {
             if (newRtp < currentLtp) {
                 variety = "STOPLOSS";
                 ordertype = "STOPLOSS_LIMIT";
-                finalPriceStr = roundToTick(newRtp - offset).toString();
+                finalPriceStr = roundToTick(newRtp - offsetAmt).toString();
             } else {
                 variety = "NORMAL";
                 ordertype = "LIMIT";
-                finalPriceStr = roundToTick(newRtp - offset).toString();
+                finalPriceStr = roundToTick(newRtp - offsetAmt).toString();
             }
         } else if (side === "BUY") {
             if (newRtp > currentLtp) {
                 variety = "STOPLOSS";
                 ordertype = "STOPLOSS_LIMIT";
-                finalPriceStr = roundToTick(newRtp + offset).toString();
+                finalPriceStr = roundToTick(newRtp + offsetAmt).toString();
             } else {
                 variety = "NORMAL";
                 ordertype = "LIMIT";
-                finalPriceStr = roundToTick(newRtp + offset).toString();
+                finalPriceStr = roundToTick(newRtp + offsetAmt).toString();
             }
         }
 
@@ -1267,11 +1278,12 @@ async function handleLegStopOut(leg, exitType, strategy) {
                         slType: activeSlType,
                         slValue: activeSlValue,
                         slLimitMargin: config.entry_limit_offset,
+                        slLimitMarginType: config.entry_limit_offset_type || 'POINTS',
                         connectionId: config.connectionId,
                         strategyId: strategy.id
                     });
                     if (slOrder?.orderid) {
-                        const prices = computeStopLossExitPrices(newLeg.entryPrice, newLeg.leg.side, activeSlType, activeSlValue, config.entry_limit_offset);
+                        const prices = computeStopLossExitPrices(newLeg.entryPrice, newLeg.leg.side, activeSlType, activeSlValue, config.entry_limit_offset, config.entry_limit_offset_type || 'POINTS');
                         newLeg.slOrderId = slOrder.orderid;
                         newLeg.slUniqueOrderId = slOrder.uniqueorderid;
                         newLeg.slTriggerPrice = prices?.trigger;
@@ -1449,7 +1461,7 @@ async function executeStrategy(strategyId) {
                                 else if (mntmMode === "SIMPLE_MINUS_PTS") mntmTarget = instLtp - mntmVal;
 
                                 const roundedMntmTarget = roundToTick(mntmTarget);
-                                const offset = parseFloat(config.entry_limit_offset || 0);
+                                const offsetAmt = getLimitOffsetAmt(roundedMntmTarget, config);
 
                                 if (config.is_paper_trading) {
                                     // Paper: We wait in our code loop
@@ -1467,7 +1479,7 @@ async function executeStrategy(strategyId) {
                                         targetPrice: roundedMntmTarget,
                                         currentLtp: instLtp,
                                         side: item.leg.side,
-                                        offset
+                                        offset: offsetAmt
                                     });
 
                                     addStrategyLog(strategyId, `[LIVE] Simple Mntm: Snapshot ₹${instLtp}. Target ₹${roundedMntmTarget}. Placing ${variety} ${ordertype} at ${price}...`, "INFO");
@@ -1490,11 +1502,11 @@ async function executeStrategy(strategyId) {
                             } else {
                                 // STANDARD ENTRY LOGIC
                                 if (config.ordertype === 'LIMIT') {
-                                    const offset = parseFloat(config.entry_limit_offset || 0);
+                                    const offsetAmt = getLimitOffsetAmt(instLtp, config);
                                     if (item.leg.side === "BUY") {
-                                        finalPrice = roundToTick(instLtp + offset).toString();
+                                        finalPrice = roundToTick(instLtp + offsetAmt).toString();
                                     } else {
-                                        finalPrice = roundToTick(instLtp - offset).toString();
+                                        finalPrice = roundToTick(instLtp - offsetAmt).toString();
                                     }
                                 }
 
@@ -1625,15 +1637,18 @@ async function executeStrategy(strategyId) {
                                     lots: leg.leg.lots,
                                     slType: leg.leg.sl_type || "PERCENTAGE",
                                     slValue: leg.leg.stop_loss,
-                                    slLimitMargin: config.entry_limit_offset,
-                                    connectionId: config.connectionId
+                                    slLimitMargin: getLimitOffsetAmt(leg.entryPrice, config),
+                                    slLimitMarginType: config.entry_limit_offset_type || 'POINTS',
+                                    connectionId: config.connectionId,
+                                    strategyId: strategyId
                                 });
                                 const prices = computeStopLossExitPrices(
                                     leg.entryPrice,
                                     leg.leg.side,
                                     leg.leg.sl_type || "PERCENTAGE",
                                     leg.leg.stop_loss,
-                                    config.entry_limit_offset
+                                    getLimitOffsetAmt(leg.entryPrice, config),
+                                    config.entry_limit_offset_type || 'POINTS'
                                 );
 
                                 if (slOrder?.orderid) {
@@ -1766,13 +1781,13 @@ async function executeStrategy(strategyId) {
                                             if (config.variety === "STOPLOSS") {
                                                 const slType = leg.leg.reentry_sl_enabled ? leg.leg.reentry_sl_type : (leg.leg.sl_type || "PERCENTAGE");
                                                 const slVal = leg.leg.reentry_sl_enabled ? leg.leg.reentry_sl_value : (leg.leg.stop_loss || 0);
-                                                const prices = computeStopLossExitPrices(leg.entryPrice, leg.leg.side, slType, slVal, config.entry_limit_offset);
+                                                const prices = computeStopLossExitPrices(leg.entryPrice, leg.leg.side, slType, slVal, getLimitOffsetAmt(leg.entryPrice, config), config.entry_limit_offset_type || 'POINTS');
                                                 leg.slTriggerPrice = prices?.trigger;
                                                 leg.slLimitPrice = prices?.limit;
                                             }
                                         } else {
-                                            const offset = parseFloat(config.entry_limit_offset || 0);
-                                            const params = resolveUniversalOrderParams({ targetPrice: instLtp, currentLtp: instLtp, side: leg.leg.side, offset });
+                                            const offsetAmt = getLimitOffsetAmt(instLtp, config);
+                                            const params = resolveUniversalOrderParams({ targetPrice: instLtp, currentLtp: instLtp, side: leg.leg.side, offset: offsetAmt });
                                             const orderRes = await placeOrder({ ...config, ...params, side: leg.leg.side, lots: leg.leg.lots }, targetInstrument, config.connectionId);
                                             leg.orderId = orderRes.orderid;
                                             leg.uniqueOrderId = orderRes.uniqueorderid;
@@ -1838,13 +1853,13 @@ async function executeStrategy(strategyId) {
                                             leg.tslReferencePrice = instLtp; // Initialize step-based TSL anchor
                                             addStrategyLog(strategyId, `[LAZY LEG PAPER] ${targetInstrument.symbol} entered at ₹${instLtp}`, "INFO");
                                             if (config.variety === "STOPLOSS") {
-                                                const prices = computeStopLossExitPrices(leg.entryPrice, leg.leg.side, leg.leg.sl_type || "PERCENTAGE", leg.leg.stop_loss || 0, config.entry_limit_offset);
+                                                const prices = computeStopLossExitPrices(leg.entryPrice, leg.leg.side, leg.leg.sl_type || "PERCENTAGE", leg.leg.stop_loss || 0, getLimitOffsetAmt(leg.entryPrice, config), config.entry_limit_offset_type || 'POINTS');
                                                 leg.slTriggerPrice = prices?.trigger;
                                                 leg.slLimitPrice = prices?.limit;
                                             }
                                         } else {
-                                            const offset = parseFloat(config.entry_limit_offset || 0);
-                                            const params = resolveUniversalOrderParams({ targetPrice: instLtp, currentLtp: instLtp, side: leg.leg.side, offset });
+                                            const offsetAmt = getLimitOffsetAmt(instLtp, config);
+                                            const params = resolveUniversalOrderParams({ targetPrice: instLtp, currentLtp: instLtp, side: leg.leg.side, offset: offsetAmt });
                                             const orderRes = await placeOrder({ ...config, ...params, side: leg.leg.side, lots: leg.leg.lots }, targetInstrument, config.connectionId);
                                             leg.orderId = orderRes.orderid;
                                             leg.uniqueOrderId = orderRes.uniqueorderid;
@@ -1898,11 +1913,12 @@ async function executeStrategy(strategyId) {
                                                 slType: leg.leg.sl_type || "PERCENTAGE",
                                                 slValue: leg.leg.stop_loss,
                                                 slLimitMargin: config.entry_limit_offset,
+                                                slLimitMarginType: config.entry_limit_offset_type || 'POINTS',
                                                 connectionId: config.connectionId,
                                                 strategyId: strategyId
                                             });
 
-                                            const prices = computeStopLossExitPrices(leg.entryPrice, leg.leg.side, leg.leg.sl_type || "PERCENTAGE", leg.leg.stop_loss, config.entry_limit_offset);
+                                            const prices = computeStopLossExitPrices(leg.entryPrice, leg.leg.side, leg.leg.sl_type || "PERCENTAGE", leg.leg.stop_loss, getLimitOffsetAmt(leg.entryPrice, config), config.entry_limit_offset_type || 'POINTS');
                                             if (slOrder?.orderid) {
                                                 leg.slOrderId = slOrder.orderid;
                                                 leg.slUniqueOrderId = slOrder.uniqueorderid;
@@ -1952,7 +1968,7 @@ async function executeStrategy(strategyId) {
                                         // Now determine Stoploss vs Limit exactly like the immediate mode
                                         let variety = config.variety || "NORMAL";
                                         let ordertype = config.ordertype || "LIMIT";
-                                        const offset = parseFloat(config.entry_limit_offset || 0);
+                                        const offsetAmt = getLimitOffsetAmt(roundedMtp, config);
                                         let finalPriceStr = roundedMtp.toString();
                                         let triggerPriceStr = roundedMtp.toString();
                                         const side = leg.leg.side;
@@ -1961,21 +1977,21 @@ async function executeStrategy(strategyId) {
                                             if (roundedMtp < currentTick) {
                                                 variety = "STOPLOSS";
                                                 ordertype = "STOPLOSS_LIMIT";
-                                                finalPriceStr = roundToTick(roundedMtp - offset).toString();
+                                                finalPriceStr = roundToTick(roundedMtp - offsetAmt).toString();
                                             } else {
                                                 variety = "NORMAL";
                                                 ordertype = "LIMIT";
-                                                finalPriceStr = roundToTick(roundedMtp - offset).toString();
+                                                finalPriceStr = roundToTick(roundedMtp - offsetAmt).toString();
                                             }
                                         } else if (side === "BUY") {
                                             if (roundedMtp > currentTick) {
                                                 variety = "STOPLOSS";
                                                 ordertype = "STOPLOSS_LIMIT";
-                                                finalPriceStr = roundToTick(roundedMtp + offset).toString();
+                                                finalPriceStr = roundToTick(roundedMtp + offsetAmt).toString();
                                             } else {
                                                 variety = "NORMAL";
                                                 ordertype = "LIMIT";
-                                                finalPriceStr = roundToTick(roundedMtp + offset).toString();
+                                                finalPriceStr = roundToTick(roundedMtp + offsetAmt).toString();
                                             }
                                         }
 
@@ -2042,11 +2058,12 @@ async function executeStrategy(strategyId) {
                                                         slType: activeSlType,
                                                         slValue: activeSlValue,
                                                         slLimitMargin: config.entry_limit_offset,
+                                                        slLimitMarginType: config.entry_limit_offset_type || 'POINTS',
                                                         connectionId: config.connectionId,
                                                         strategyId: strategyId
                                                     });
 
-                                                    const prices = computeStopLossExitPrices(leg.entryPrice, leg.leg.side, activeSlType, activeSlValue, config.entry_limit_offset);
+                                                    const prices = computeStopLossExitPrices(leg.entryPrice, leg.leg.side, activeSlType, activeSlValue, getLimitOffsetAmt(leg.entryPrice, config), config.entry_limit_offset_type || 'POINTS');
                                                     if (slOrder?.orderid) {
                                                         leg.slOrderId = slOrder.orderid;
                                                         leg.slUniqueOrderId = slOrder.uniqueorderid;
@@ -2321,9 +2338,10 @@ async function executeStrategy(strategyId) {
                                         // We evaluate the validity of the trail, even if leg.slTriggerPrice isn't explicitly set yet (like in simple paper)
                                         if (isValidTrail) {
                                             const roundedTrigger = roundToTick(newTrigger);
+                                            const offsetAmt = getLimitOffsetAmt(roundedTrigger, config);
                                             const newLimit = roundToTick(leg.leg.side === "BUY" ?
-                                                roundedTrigger - parseFloat(config.entry_limit_offset || 0) :
-                                                roundedTrigger + parseFloat(config.entry_limit_offset || 0));
+                                                roundedTrigger - offsetAmt :
+                                                roundedTrigger + offsetAmt);
 
                                             // Attempt Exchange Modify if needed (only for live & exchange SL mode)
                                             if (config.variety === "STOPLOSS" && !config.is_paper_trading && leg.slOrderId) {
@@ -2419,7 +2437,8 @@ async function executeStrategy(strategyId) {
                                             leg.leg.side,
                                             activeSlType,
                                             activeSlValue,
-                                            config.entry_limit_offset
+                                            config.entry_limit_offset,
+                                            config.entry_limit_offset_type || 'POINTS'
                                         );
                                         if (prices) {
                                             leg.slTriggerPrice = prices.trigger;
