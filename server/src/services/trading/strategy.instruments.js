@@ -1,0 +1,201 @@
+const fs = require("fs");
+const path = require("path");
+const redis = require("../../config/redis");
+const { getLtpSecure } = require("./strategy.state");
+
+// Note: Instruments path changed from ../data/... to ../../data/... because this file is in a subdirectory
+const INSTRUMENT_PATH = path.join(__dirname, "../../data/instruments.json");
+let instruments = [];
+
+function loadInstruments() {
+    if (instruments.length > 0) return;
+    try {
+        if (fs.existsSync(INSTRUMENT_PATH)) {
+            const raw = fs.readFileSync(INSTRUMENT_PATH, "utf-8");
+            instruments = JSON.parse(raw);
+            const fileSizeMB = (Buffer.byteLength(raw, 'utf-8') / (1024 * 1024)).toFixed(1);
+            console.log(`Instruments loaded: ${instruments.length} records (${fileSizeMB} MB file)`);
+        }
+    } catch (err) {
+        console.error("Strategy Service: Error loading instruments", err.message);
+    }
+}
+
+function getATMStrike(indexName, spotPrice) {
+    let step = 100;
+    if (indexName === "NIFTY") step = 50;
+    return Math.round(spotPrice / step) * step;
+}
+
+function getLegStrikeSelection({ index, option_type, strike, spotPrice }) {
+    const atmStrike = getATMStrike(index, spotPrice);
+    const strikeStr = strike || "ATM";
+    const match = strikeStr.match(/^([A-Z]+)(\d*)$/);
+    const type = match ? match[1] : "ATM";
+    const offset = match && match[2] ? parseInt(match[2]) : 0;
+
+    let step = 100;
+    if (index === "NIFTY") step = 50;
+    else if (index === "FINNIFTY") step = 50;
+
+    let targetStrike = atmStrike;
+    if (type === "OTM") {
+        targetStrike = option_type === "CE" ? atmStrike + (offset * step) : atmStrike - (offset * step);
+    } else if (type === "ITM") {
+        targetStrike = option_type === "CE" ? atmStrike - (offset * step) : atmStrike + (offset * step);
+    }
+
+    return { atmStrike, targetStrike, strikeLabel: strikeStr };
+}
+
+async function findOptionInstrument(indexName, optionType, strike) {
+    let matches = [];
+    try {
+        const cacheKey = `instr:OPTIDX:${indexName}:${optionType}:${strike}`;
+        const cached = await redis.get(cacheKey);
+        
+        if (cached) {
+            matches = JSON.parse(cached);
+        } else {
+            loadInstruments();
+            matches = instruments.filter(inst =>
+                inst.name === indexName &&
+                inst.instrumenttype === "OPTIDX" &&
+                inst.symbol.endsWith(optionType) &&
+                (parseFloat(inst.strike) / 100) === strike
+            );
+            await redis.set(cacheKey, JSON.stringify(matches));
+        }
+    } catch (err) {
+        loadInstruments();
+        matches = instruments.filter(inst =>
+            inst.name === indexName &&
+            inst.instrumenttype === "OPTIDX" &&
+            inst.symbol.endsWith(optionType) &&
+            (parseFloat(inst.strike) / 100) === strike
+        );
+    }
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    matches = matches.filter(inst => new Date(inst.expiry) >= today);
+
+    if (matches.length === 0) return null;
+
+    // Sort by expiry to get the nearest one
+    matches.sort((a, b) => new Date(a.expiry) - new Date(b.expiry));
+
+    return matches[0];
+}
+
+async function findClosestPremiumInstrument(indexName, optionType, targetPremium, connectionId) {
+    const exchange = indexName === "SENSEX" ? "BFO" : "NFO";
+    let matchesRaw = [];
+
+    try {
+        const cacheKey = `instr:OPTIDX:${indexName}:${optionType}:ALL`;
+        const cached = await redis.get(cacheKey);
+        
+        if (cached) {
+            matchesRaw = JSON.parse(cached);
+        } else {
+            loadInstruments();
+            matchesRaw = instruments.filter(inst =>
+                inst.name === indexName &&
+                inst.instrumenttype === "OPTIDX" &&
+                inst.symbol.endsWith(optionType)
+            );
+            await redis.set(cacheKey, JSON.stringify(matchesRaw));
+        }
+    } catch (err) {
+        loadInstruments();
+        matchesRaw = instruments.filter(inst =>
+            inst.name === indexName &&
+            inst.instrumenttype === "OPTIDX" &&
+            inst.symbol.endsWith(optionType)
+        );
+    }
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    // 1. Get all options for this index and type
+    const matches = matchesRaw.filter(inst => new Date(inst.expiry) >= today);
+
+    if (matches.length === 0) {
+        throw new Error(`[Closest Premium] No ${optionType} instruments found for ${indexName} expiring after today.`);
+    }
+
+    // 2. Find the nearest expiry date
+    matches.sort((a, b) => new Date(a.expiry) - new Date(b.expiry));
+    const nearestExpiry = matches[0].expiry;
+
+    // 3. Filter down to ONLY the strikes for that nearest expiry
+    const currentExpiryOptions = matches.filter(inst => inst.expiry === nearestExpiry);
+    const tokens = currentExpiryOptions.map(inst => inst.token).filter(Boolean);
+
+    if (tokens.length === 0) {
+        throw new Error(`[Closest Premium] No tokens found for ${indexName} ${optionType} expiring on ${nearestExpiry}.`);
+    }
+
+    // 4. Batch get LTP for all tokens in this expiry (SmartAPI limits to ~50 per request)
+    const tokenChunks = [];
+    for (let i = 0; i < tokens.length; i += 40) {
+        tokenChunks.push(tokens.slice(i, i + 40));
+    }
+
+    let allFetchedData = [];
+    for (let i = 0; i < tokenChunks.length; i++) {
+        try {
+            const chunk = tokenChunks[i];
+            const ltpRes = await getLtpSecure({
+                exchange,
+                symboltoken: chunk,
+                connectionId
+            });
+            if (ltpRes?.status && ltpRes?.data?.fetched) {
+                allFetchedData = allFetchedData.concat(ltpRes.data.fetched);
+            } else if (ltpRes?.message) {
+                console.error(`SmartAPI Error on chunk ${i}: ${ltpRes.message}`);
+            }
+        } catch (err) {
+            console.error(`Error fetching chunk ${i} for nearest premium:`, err.message);
+        }
+    }
+
+    if (allFetchedData.length === 0) {
+        throw new Error(`[Closest Premium] SmartAPI returned 0 prices. Exchange: ${exchange}, Tokens requested: ${tokens.length}. Connection active?`);
+    }
+
+    let closestFound = null;
+    let minDiff = Infinity;
+
+    // 5. Find the one with the LTP closest to targetPremium
+    for (const fetched of allFetchedData) {
+        const diff = Math.abs(fetched.ltp - targetPremium);
+        if (diff < minDiff) {
+            minDiff = diff;
+            closestFound = fetched;
+        }
+    }
+
+    if (!closestFound) {
+        throw new Error(`[Closest Premium] Could not determine closest premium mathematically for ₹${targetPremium}.`);
+    }
+
+    // 6. Return the full instrument object for the winning token
+    const matchingTarget = closestFound.symbolToken || closestFound.symboltoken;
+    const winner = currentExpiryOptions.find(inst => inst.token === matchingTarget);
+    if (!winner) {
+        throw new Error(`[Closest Premium] Matched token ${matchingTarget} not found in options list!`);
+    }
+    return winner;
+}
+
+module.exports = {
+   loadInstruments,
+   getATMStrike,
+   getLegStrikeSelection,
+   findOptionInstrument,
+   findClosestPremiumInstrument
+};

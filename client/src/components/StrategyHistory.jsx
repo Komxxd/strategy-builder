@@ -123,205 +123,183 @@ export const StrategyHistory = () => {
                 </div>
             </div>
 
-            {/* History Table/List */}
-            <div className="space-y-2">
-                {filteredHistory.length === 0 ? (
-                    <div className="bg-white rounded-lg border border-dashed border-slate-200 p-12 flex flex-col items-center justify-center text-center">
-                        <div className="h-12 w-12 bg-slate-50 rounded-full flex items-center justify-center mb-4">
-                            <FilterX className="h-6 w-6 text-slate-300" />
-                        </div>
-                        <h3 className="text-base font-bold text-slate-900 mb-1">No history found</h3>
-                        <p className="text-xs text-slate-500 max-w-xs transition-opacity opacity-70">Try adjusting your search or filters.</p>
-                        <Button variant="outline" size="sm" className="mt-4 rounded-md font-bold text-xs" onClick={() => { setSearchTerm(''); setFilterType('ALL'); }}>
-                            Clear All Filters
-                        </Button>
-                    </div>
-                ) : (
-                    filteredHistory.map((item) => (
-                        <Card key={item.id} className="overflow-hidden border border-slate-100 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-300 group rounded-2xl bg-white">
-                            <CardContent className="p-0">
-                                <div className="flex flex-col lg:flex-row">
-                                    {/* Left Accent Bar Striped based on status */}
-                                    <div className={`w-full lg:w-1.5 h-1.5 lg:h-auto shrink-0 ${
-                                        item.status === 'COMPLETED' ? 'bg-emerald-500' : 
-                                        item.status === 'FAILED' ? 'bg-red-500' : 'bg-slate-300'
-                                    }`} />
-                                    
-                                    <div className="flex-1 flex flex-col min-w-0">
-                                        <div className="p-3.5 flex flex-col md:flex-row items-center justify-between gap-4">
-                                            {/* Info Section */}
-                                        <div className="flex items-center gap-4 w-full md:w-auto">
-                                            <div className={`h-11 w-11 rounded-xl flex items-center justify-center shadow-sm shrink-0 transition-transform group-hover:scale-105 ${
-                                                item.config?.is_paper_trading ? 'bg-blue-50 text-blue-600 border border-blue-100' : 'bg-orange-50 text-orange-600 border border-orange-100'
-                                            }`}>
-                                                {item.config?.is_paper_trading ? <ShieldCheck className="h-5 w-5" /> : <Zap className="h-5 w-5" />}
-                                            </div>
-                                            <div>
-                                                <h3 className="font-black text-slate-800 text-[15px] leading-tight group-hover:text-indigo-600 transition-colors">
-                                                    {item.name}
-                                                </h3>
-                                                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1">
-                                                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1">
-                                                        <Activity className="h-3 w-3 text-slate-300" /> {item.config?.index || '---'}
-                                                    </span>
-                                                    <div className="h-1 w-1 bg-slate-200 rounded-full" />
-                                                    <span className="text-[10px] font-bold text-slate-400 flex items-center gap-1">
-                                                        <Clock className="h-3 w-3 text-slate-300" /> {formatDate(item.started_at)}
-                                                    </span>
-                                                    <span className={`text-[9px] font-black tracking-tight uppercase px-2 py-0.5 rounded-full border ${
-                                                        item.status === 'COMPLETED' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 
-                                                        item.status === 'FAILED' ? 'bg-red-50 text-red-700 border-red-100' : 'bg-slate-50 text-slate-600 border-slate-200'
-                                                    }`}>
-                                                        {item.status}
-                                                    </span>
-                                                </div>
-                                            </div>
-                                        </div>
-                                        
-                                        {/* Performance Section */}
-                                        <div className="flex items-center gap-6 w-full md:w-auto justify-between md:justify-end">
-                                            <div className="text-right">
-                                                <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Final Performance</p>
-                                                <div className={`flex items-center gap-1 font-black text-lg tracking-tighter ${
-                                                    item.totalPnlRupees >= 0 ? 'text-emerald-600' : 'text-red-600'
-                                                }`}>
-                                                    ₹{Number(item.totalPnlRupees || 0).toFixed(0)}
-                                                    <span className={`text-xs ml-0.5 font-bold ${item.totalPnlRupees >= 0 ? 'text-emerald-500/80' : 'text-red-500/80'}`}>
-                                                        ({Number(item.pnlPercent || 0).toFixed(2)}%)
-                                                    </span>
-                                                </div>
-                                            </div>
+            {/* History Grid Container */}
+            <div className="bg-white rounded-lg border border-slate-200 overflow-hidden shadow-sm">
+                {/* Desktop Header */}
+                <div className="hidden lg:grid lg:grid-cols-12 gap-4 px-4 py-2 bg-muted/50 text-muted-foreground border-b text-[10px] font-bold uppercase tracking-wider items-center">
+                    <div className="col-span-3">Strategy Name</div>
+                    <div className="col-span-2">Executed At</div>
+                    <div className="col-span-2 text-center">Index / Mode</div>
+                    <div className="col-span-2 text-right">Final PnL</div>
+                    <div className="col-span-3 text-right">Actions</div>
+                </div>
 
-                                            <div className="flex items-center gap-2">
-                                                <Button 
-                                                    variant="outline" 
-                                                    size="sm" 
-                                                    className={`h-9 px-4 text-[11px] font-black uppercase tracking-wider gap-2 rounded-xl border-slate-200 shadow-sm transition-all ${expandedId === item.id ? 'bg-indigo-600 text-white border-indigo-600 hover:bg-indigo-700' : 'hover:bg-slate-50 hover:border-indigo-200 hover:text-indigo-600'}`}
-                                                    onClick={() => setExpandedId(expandedId === item.id ? null : item.id)}
-                                                >
-                                                    <Activity className="h-3.5 w-3.5" />
-                                                    Snapshot
-                                                </Button>
-                                                <div className="w-px h-6 bg-slate-100 mx-1" />
-                                                <Button 
-                                                    variant="ghost" 
-                                                    size="sm" 
-                                                    className="h-9 w-9 p-0 rounded-xl hover:bg-indigo-50 hover:text-indigo-600 border border-transparent hover:border-indigo-100 transition-all"
-                                                    onClick={() => setSelectedConfig({ id: item.id, config: item.config, name: item.name })}
-                                                    title="View Config"
-                                                >
-                                                    <Settings2 className="h-4 w-4" />
-                                                </Button>
-                                                <Button 
-                                                    variant="ghost" 
-                                                    size="sm" 
-                                                    className="h-9 w-9 p-0 rounded-xl hover:bg-indigo-50 hover:text-indigo-600 border border-transparent hover:border-indigo-100 transition-all"
-                                                    onClick={() => setSelectedLogs({ id: item.id, logs: item.logs, name: item.name })}
-                                                    title="View Logs"
-                                                >
-                                                    <MessageSquare className="h-4 w-4" />
-                                                </Button>
-                                            </div>
+                <div className="divide-y divide-slate-100 flex flex-col">
+                    {filteredHistory.length === 0 ? (
+                        <div className="p-12 flex flex-col items-center justify-center text-center bg-slate-50/30">
+                            <FilterX className="h-8 w-8 text-slate-200 mb-3" />
+                            <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest">No matching history found</h3>
+                        </div>
+                    ) : (
+                        filteredHistory.map((item) => (
+                            <div key={item.id} className="flex flex-col">
+                                {/* Main Row */}
+                                <div className="grid grid-cols-1 lg:grid-cols-12 gap-2 lg:gap-4 px-4 py-2.5 items-center hover:bg-slate-50/80 transition-colors group cursor-default">
+                                    {/* Name Column */}
+                                    <div className="col-span-1 lg:col-span-3">
+                                        <div className="font-bold text-slate-800 text-[11px] truncate" title={item.name}>
+                                            {item.name}
+                                        </div>
+                                        <div className="text-[9px] font-mono text-slate-400 mt-0.5 flex items-center gap-1.5">
+                                            <span>#{item.id.split('-')[0]}</span>
+                                            <span className={`px-1 rounded-[4px] uppercase font-black tracking-tighter scale-90 ${
+                                                item.status === 'COMPLETED' ? 'bg-emerald-50 text-emerald-600' : 
+                                                item.status === 'FAILED' ? 'bg-red-50 text-red-600' : 'bg-slate-100 text-slate-500'
+                                            }`}>
+                                                {item.status}
+                                            </span>
                                         </div>
                                     </div>
-                                    
-                                    {/* Expanded Snapshot View */}
-                                    {expandedId === item.id && (
-                                        <div className="border-t border-slate-100 bg-slate-50/80 p-5 animate-in slide-in-from-top-2 duration-300">
-                                            <div className="flex items-center justify-between px-1 mb-4">
-                                                <div className="flex items-center gap-2.5">
-                                                    <div className="h-5 w-1.5 bg-indigo-500 rounded-full shadow-sm shadow-indigo-200" />
-                                                    <h4 className="text-[12px] font-black uppercase text-slate-600 tracking-widest">Execution Blueprint</h4>
-                                                </div>
-                                                <div className="flex items-center gap-3">
-                                                    <div className="flex items-center gap-2 px-3 py-1.5 bg-white border border-slate-200 rounded-xl shadow-sm">
-                                                        <span className="text-[9px] font-black text-slate-400 uppercase tracking-tight">Exit Reason</span>
-                                                        <span className="text-[11px] font-black text-slate-700">{item.exitType || 'SQUARED_OFF'}</span>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                            
-                                            <div className="space-y-1.5">
-                                                {item.legs && item.legs.length > 0 ? (
-                                                    item.legs.map((leg, idx) => (
-                                                        <div key={`${item.id}-leg-${idx}`} className="flex items-center justify-between p-3 bg-white hover:bg-slate-50 border border-slate-200/60 rounded-xl transition-all shadow-sm">
-                                                            <div className="flex flex-col gap-1.5 flex-1">
-                                                                <div className="flex items-center gap-2 flex-wrap">
-                                                                    <span className="text-sm font-black text-slate-800 tracking-tight">{leg.instrument?.symbol || "---"}</span>
-                                                                    <div className="flex items-center gap-1">
-                                                                        <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase ${leg.leg?.side === 'BUY' ? 'bg-blue-600 text-white' : 'bg-orange-600 text-white'}`}>
-                                                                            {leg.leg?.side}
-                                                                        </span>
-                                                                        <span className="px-2 py-0.5 bg-slate-100 text-[9px] font-bold text-slate-500 rounded border border-slate-200">
-                                                                            {leg.leg?.lots} L
-                                                                        </span>
-                                                                    </div>
-                                                                    {leg.instrument?.strike && (
-                                                                        <span className="px-2 py-0.5 bg-indigo-50 text-[9px] font-black text-indigo-600 rounded border border-indigo-100">
-                                                                            STRIKE {parseFloat(leg.instrument.strike) / 100 || leg.instrument.strike}
-                                                                        </span>
-                                                                    )}
-                                                                </div>
-                                                                
-                                                                <div className="flex items-center gap-3 text-[10px] font-mono whitespace-nowrap overflow-x-auto no-scrollbar">
-                                                                    <div className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-50 text-slate-400 border border-slate-100">
-                                                                        <Clock className="h-2.5 w-2.5" />
-                                                                        <span>{leg.entryTime || "---"}</span>
-                                                                    </div>
-                                                                    
-                                                                    <div className="flex items-center gap-1 text-slate-500">
-                                                                        <span className="text-slate-400 uppercase text-[9px] font-bold">Entry</span>
-                                                                        <span className="font-bold">₹{Number(leg.entryPrice || 0).toFixed(2)}</span>
-                                                                    </div>
 
-                                                                    <div className="flex items-center gap-1 text-slate-900">
-                                                                        <span className="text-slate-400 uppercase text-[9px] font-bold">Exit</span>
-                                                                        <span className="font-bold">₹{Number(leg.currentLtp || 0).toFixed(2)}</span>
-                                                                    </div>
-                                                                    
-                                                                    <div className="flex gap-1.5 flex-wrap">
-                                                                        {leg.initialSlTriggerPrice != null && (
-                                                                            <span className="text-slate-400 font-bold px-1.5 py-0.5 bg-slate-50 border border-slate-100 rounded text-[9px] uppercase tracking-tighter shrink-0">Init SL: {Number(leg.initialSlTriggerPrice).toFixed(1)}</span>
-                                                                        )}
-                                                                        {leg.slTriggerPrice != null && (
-                                                                            <span className={`font-bold px-1.5 py-0.5 border rounded text-[9px] uppercase tracking-tighter shrink-0 ${Number(leg.slTriggerPrice) !== Number(leg.initialSlTriggerPrice) ? 'text-indigo-600 bg-indigo-50 border-indigo-100' : 'text-red-600 bg-red-50/50 border-red-100/50'}`}>
-                                                                                Now SL: {Number(leg.slTriggerPrice).toFixed(1)}
-                                                                            </span>
-                                                                        )}
-                                                                        {leg.rtp != null && (
-                                                                            <span className="text-orange-600 font-bold px-1.5 py-0.5 bg-orange-50/50 border border-orange-100/50 rounded">RTP {Number(leg.rtp).toFixed(2)}</span>
-                                                                        )}
-                                                                        {leg.mtp != null && (
-                                                                            <span className="text-purple-600 font-bold px-1.5 py-0.5 bg-purple-50/50 border border-purple-100/50 rounded">MTP {Number(leg.mtp).toFixed(2)}</span>
-                                                                        )}
-                                                                    </div>
-                                                                </div>
-                                                            </div>
-                                                            
-                                                            <div className="flex flex-col items-end pl-4 ml-4 border-l border-slate-100 min-w-[70px]">
-                                                                <div className={`text-base font-mono font-black tracking-tighter ${Number(leg.currentActivePnlPercent || 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                                                                    {Number(leg.currentActivePnlPercent || 0) > 0 ? '+' : ''}{Number(leg.currentActivePnlPercent || 0).toFixed(2)}%
-                                                                </div>
-                                                                <div className={`text-[10px] font-mono font-bold leading-none ${Number(leg.currentActivePnlRupees || 0) >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>
-                                                                    {Number(leg.currentActivePnlRupees || 0) > 0 ? '+' : ''}₹{Number(leg.currentActivePnlRupees || 0).toFixed(1)}
-                                                                </div>
-                                                            </div>
-                                                        </div>
-                                                    ))
-                                                ) : (
-                                                    <div className="text-center py-4 bg-white border border-dashed border-slate-200 rounded-lg">
-                                                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">No Leg Snapshot Available</p>
-                                                    </div>
-                                                )}
-                                            </div>
+                                    {/* Date Column */}
+                                    <div className="col-span-1 lg:col-span-2 text-[10px] font-medium text-slate-500 flex lg:block items-center justify-between">
+                                        <span className="lg:hidden uppercase text-[9px] text-slate-400">Date</span>
+                                        <span>{formatDate(item.started_at)}</span>
+                                    </div>
+
+                                    {/* Index Column */}
+                                    <div className="col-span-1 lg:col-span-2 flex lg:block items-center justify-between text-center">
+                                        <span className="lg:hidden uppercase text-[9px] text-slate-400">Setup</span>
+                                        <div className="flex items-center justify-center gap-1.5">
+                                            <span className="text-[10px] font-bold text-slate-600">{item.config?.index}</span>
+                                            <span className={`text-[9px] font-black uppercase px-1.5 py-0.5 rounded border ${
+                                                item.config?.is_paper_trading 
+                                                ? 'border-blue-100 bg-blue-50 text-blue-600' 
+                                                : 'border-orange-100 bg-orange-50 text-orange-600'
+                                            }`}>
+                                                {item.config?.is_paper_trading ? 'Paper' : 'Live'}
+                                            </span>
                                         </div>
-                                    )}
+                                    </div>
+
+                                    {/* PnL Column */}
+                                    <div className="col-span-1 lg:col-span-2 text-right flex lg:block items-center justify-between">
+                                        <span className="lg:hidden uppercase text-[9px] text-slate-400">Total PnL</span>
+                                        <div className={`font-mono font-bold text-[11px] ${item.totalPnlRupees >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                                            ₹{Number(item.totalPnlRupees || 0).toFixed(0)} 
+                                            <span className="ml-1 opacity-70 text-[9px]">({Number(item.pnlPercent || 0).toFixed(2)}%)</span>
+                                        </div>
+                                    </div>
+
+                                    {/* Actions Column */}
+                                    <div className="col-span-1 lg:col-span-3 text-right">
+                                        <div className="flex items-center justify-end gap-1">
+                                            <Button 
+                                                variant="ghost" 
+                                                size="sm" 
+                                                className={`h-7 px-2 text-[9px] font-bold uppercase tracking-wider rounded-md transition-all ${expandedId === item.id ? 'bg-indigo-600 text-white hover:bg-indigo-700' : 'text-indigo-600 hover:bg-indigo-50'}`}
+                                                onClick={() => setExpandedId(expandedId === item.id ? null : item.id)}
+                                            >
+                                                Details
+                                            </Button>
+                                            <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-slate-400 hover:text-slate-900" onClick={() => setSelectedConfig({ id: item.id, config: item.config, name: item.name })}>
+                                                <Settings2 className="h-3.5 w-3.5" />
+                                            </Button>
+                                            <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-slate-400 hover:text-slate-900" onClick={() => setSelectedLogs({ id: item.id, logs: item.logs, name: item.name })}>
+                                                <MessageSquare className="h-3.5 w-3.5" />
+                                            </Button>
+                                        </div>
+                                    </div>
                                 </div>
+
+                                {/* Snapshot Drawer */}
+                                {expandedId === item.id && (
+                                    <div className="bg-slate-50/50 border-t border-slate-100 p-3 lg:px-6 animate-in slide-in-from-top-1 duration-200">
+                                        <div className="flex items-center gap-2 mb-2">
+                                            <div className="h-1 w-3 bg-indigo-500 rounded-full" />
+                                            <span className="text-[9px] font-black uppercase text-slate-400 tracking-widest">Leg Snapshots</span>
+                                            <span className="text-[9px] text-slate-300 ml-auto">Outcome: {item.exitType || 'SQUARED_OFF'}</span>
+                                        </div>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                            {item.legs?.map((leg, idx) => (
+                                                <div key={idx} className="bg-white border border-slate-200/60 rounded-lg p-2.5 flex flex-col gap-2 shadow-sm">
+                                                    {/* Header Info */}
+                                                    <div className="flex items-center justify-between">
+                                                        <div className="flex items-center gap-1.5 min-w-0">
+                                                            <span className="text-[11px] font-bold text-slate-700 truncate">{leg.instrument?.symbol}</span>
+                                                            <span className={`text-[8px] font-black px-1 rounded uppercase ${leg.leg?.side === 'BUY' ? 'bg-blue-600 text-white' : 'bg-orange-600 text-white'}`}>
+                                                                {leg.leg?.side}
+                                                            </span>
+                                                            <span className="text-[9px] font-bold text-slate-400 bg-slate-50 px-1 border border-slate-100 rounded">{leg.leg?.lots}L</span>
+                                                        </div>
+                                                        <div className="text-right shrink-0">
+                                                            <div className={`text-[11px] font-mono font-black leading-none ${(leg.pnlPercent || leg.currentActivePnlPercent || 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                                                                {(leg.pnlPercent || leg.currentActivePnlPercent || 0) > 0 ? '+' : ''}{(leg.pnlPercent || leg.currentActivePnlPercent || 0).toFixed(2)}%
+                                                            </div>
+                                                            <div className="text-[8px] font-black text-slate-300 uppercase mt-0.5">{leg.exitType || 'CLOSED'}</div>
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Data Grid */}
+                                                    <div className="grid grid-cols-2 lg:grid-cols-3 gap-x-4 gap-y-1.5 py-1.5 border-y border-slate-50">
+                                                        <div className="flex justify-between items-center text-[9px]">
+                                                            <span className="text-slate-400 font-medium">Entry</span>
+                                                            <span className="font-mono font-bold text-slate-600">₹{Number(leg.entryPrice || 0).toFixed(1)}</span>
+                                                        </div>
+                                                        <div className="flex justify-between items-center text-[9px]">
+                                                            <span className="text-slate-400 font-medium">Exit</span>
+                                                            <span className="font-mono font-bold text-slate-600">₹{Number(leg.exitSnapshot?.exitLtp || leg.currentLtp || 0).toFixed(1)}</span>
+                                                        </div>
+                                                        <div className="flex justify-between items-center text-[9px]">
+                                                            <span className="text-slate-400 font-medium">PnL Cash</span>
+                                                            <span className={`font-mono font-bold ${(leg.pnlRupees || leg.currentActivePnlRupees || 0) >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>₹{Number(leg.pnlRupees || leg.currentActivePnlRupees || 0).toFixed(0)}</span>
+                                                        </div>
+
+                                                        <div className="flex justify-between items-center text-[9px]">
+                                                            <span className="text-slate-400 font-medium">Init SL</span>
+                                                            <span className="font-mono font-bold text-red-400">₹{Number(leg.initialSlTriggerPrice || 0).toFixed(1)}</span>
+                                                        </div>
+                                                        <div className="flex justify-between items-center text-[9px]">
+                                                            <span className="text-slate-400 font-medium">Final SL</span>
+                                                            <span className="font-mono font-bold text-red-500">₹{Number(leg.slTriggerPrice || 0).toFixed(1)}</span>
+                                                        </div>
+
+
+                                                        {leg.rtp != null && (
+                                                            <div className="flex justify-between items-center text-[9px]">
+                                                                <span className="text-slate-400 font-medium">RTP/Cost</span>
+                                                                <span className="font-mono font-bold text-orange-500">₹{Number(leg.rtp).toFixed(1)}</span>
+                                                            </div>
+                                                        )}
+                                                        {(leg.mntmTargetPrice != null || leg.mtp != null) && (
+                                                            <div className="flex justify-between items-center text-[9px]">
+                                                                <span className="text-slate-400 font-medium">Momentum</span>
+                                                                <span className="font-mono font-bold text-purple-500">₹{Number(leg.mntmTargetPrice || leg.mtp || 0).toFixed(1)}</span>
+                                                            </div>
+                                                        )}
+
+                                                    </div>
+
+                                                    {/* Time Row */}
+                                                    <div className="flex items-center justify-between text-[8px] font-mono text-slate-300">
+                                                        <div className="flex items-center gap-1">
+                                                            <Clock className="h-2.5 w-2.5" />
+                                                            <span>IN {leg.entryTime}</span>
+                                                        </div>
+                                                        <div className="flex items-center gap-1">
+                                                            <Clock className="h-2.5 w-2.5" />
+                                                            <span>OUT {leg.exitTime || leg.exitSnapshot?.exitTime}</span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
                             </div>
-                        </CardContent>
-                    </Card>
-                    ))
-                )}
+                        ))
+                    )}
+                </div>
             </div>
 
             {/* Modal Components */}
@@ -345,3 +323,4 @@ export const StrategyHistory = () => {
         </div>
     );
 };
+

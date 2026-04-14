@@ -1537,8 +1537,12 @@ export const StrategyBuilder = ({ isConnected }) => {
                             {!collapsedSections['active-strategies'] && (
                                 <div className="space-y-4 animate-in fade-in slide-in-from-top-2 duration-200">
                                     {Object.entries(runningStrategies)
+                                        .filter(([_, strategyData]) => {
+                                            const isPaper = !!strategyData.config?.is_paper_trading;
+                                            return activeTab === 'paper' ? isPaper : !isPaper;
+                                        })
                                         .map(([id, strategyData]) => (
-                                            <Card key={id} className={`w-full border-border animate-in fade-in slide-in-from-bottom-4 duration-500 ${strategyData.config?.is_paper_trading ? 'bg-blue-50/50' : 'bg-orange-50/50'}`}>
+                                            <Card key={id} className={`w-full border-border animate-in fade-in slide-in-from-bottom-4 duration-500 shadow-sm ${strategyData.config?.is_paper_trading ? 'bg-blue-50/50' : 'bg-orange-50/50'}`}>
                                                 <CardContent className="p-3 space-y-2">
                                                     <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3">
                                                         <div className="flex items-center gap-x-2.5 gap-y-1.5 flex-wrap">
@@ -1809,6 +1813,18 @@ export const StrategyBuilder = ({ isConnected }) => {
                                                 </CardContent>
                                             </Card>
                                         ))}
+                                    {Object.entries(runningStrategies).filter(([_, strategyData]) => {
+                                        const isPaper = !!strategyData.config?.is_paper_trading;
+                                        return activeTab === 'paper' ? isPaper : !isPaper;
+                                    }).length === 0 && (
+                                        <div className="flex flex-col items-center justify-center p-12 bg-white border-2 border-dashed border-slate-200 rounded-[2rem] text-center">
+                                            <div className="h-16 w-16 bg-slate-50 text-slate-300 rounded-2xl flex items-center justify-center mb-4">
+                                                <Play className="h-8 w-8" />
+                                            </div>
+                                            <h3 className="text-sm font-medium text-slate-900">No {activeTab === 'paper' ? 'Paper' : 'Live'} Strategies Active</h3>
+                                            <p className="text-xs text-slate-500 mt-1">Deploy a strategy from your templates to see it here.</p>
+                                        </div>
+                                    )}
                                 </div>
                             )}
                         </div>

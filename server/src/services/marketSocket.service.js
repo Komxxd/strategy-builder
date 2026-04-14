@@ -260,9 +260,9 @@ function attachSocketListeners(clientCode, onConnected) {
         const ltp = parseFloat(ltpRaw) / 100;
 
         if (exchStr && token) {
-            // Lazy require to avoid circular dependency
-            const strategyService = require("./strategy.service");
-            strategyService.updateLtp(`${exchStr}_${token}`, ltp);
+            // Updated to use the modular state management
+            const { updateLtp } = require("./trading/strategy.state");
+            updateLtp(`${exchStr}_${token}`, ltp);
 
             if (io) {
                 io.emit("ltp_update", { exchange: exchStr, token, ltp });
