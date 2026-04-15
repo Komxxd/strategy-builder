@@ -1487,14 +1487,6 @@ export const StrategyBuilder = ({ isConnected }) => {
     return (
         <div className="space-y-4">
             <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-                <TabsList className="grid w-full grid-cols-2 mb-4 h-10 bg-muted/50 p-1 rounded-lg">
-                    <TabsTrigger value="paper" className="rounded-md font-medium text-[10px] data-[state=active]:bg-blue-600 data-[state=active]:text-white flex items-center gap-2">
-                        <ShieldCheck className="h-3.5 w-3.5" /> Paper Trading
-                    </TabsTrigger>
-                    <TabsTrigger value="live" className="rounded-md font-medium text-[10px] data-[state=active]:bg-orange-600 data-[state=active]:text-white flex items-center gap-2">
-                        <Zap className="h-3.5 w-3.5" /> Live Market
-                    </TabsTrigger>
-                </TabsList>
 
                 <Card className="w-full border-border bg-card overflow-hidden">
                     <CardHeader
@@ -1551,12 +1543,12 @@ export const StrategyBuilder = ({ isConnected }) => {
                                                                 <span className={`relative inline-flex rounded-full h-2 w-2 ${strategyData.status === 'FAILED' ? 'bg-red-500' : strategyData.status === 'PAUSED' ? 'bg-amber-500' : 'bg-green-500'}`}></span>
                                                             </span>
 
-                                                            <span className="text-xs font-medium text-slate-800">
+                                                            <span className="text-xs font-bold text-black">
                                                                 {strategyData.name || strategyData.config?.name || 'Strategy Execution'}
-                                                                <span className="text-[10px] font-mono text-muted-foreground ml-1.5">#{id.split('-')[0] || id}</span>
+                                                                <span className="text-[10px] font-mono text-black/60 ml-1.5">#{id.split('-')[0] || id}</span>
                                                             </span>
 
-                                                            <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded shadow-sm uppercase ${strategyData.config?.is_paper_trading ? 'bg-blue-100/80 text-blue-700 border border-blue-200' : 'bg-orange-100/80 text-orange-700 border border-orange-200'}`}>
+                                                            <span className={`text-[9px] font-black px-1.5 py-0.5 rounded shadow-sm uppercase ${strategyData.config?.is_paper_trading ? 'bg-blue-100/80 text-blue-700 border border-blue-200' : 'bg-orange-100/80 text-orange-700 border border-orange-200'}`}>
                                                                 {strategyData.status} • {strategyData.config?.is_paper_trading ? 'PAPER' : 'LIVE'} • {strategyData.config?.index}
                                                             </span>
 
@@ -1572,7 +1564,7 @@ export const StrategyBuilder = ({ isConnected }) => {
                                                                         }`}>
                                                                         PnL: {(strategyData.pnlPercent || 0) > 0 ? '+' : ''}{(strategyData.pnlPercent || 0).toFixed(2)}% | {(strategyData.totalPnlRupees || 0) > 0 ? '+' : ''}₹{(strategyData.totalPnlRupees || 0).toFixed(0)}
                                                                     </span>
-                                                                    <span className="text-[10px] font-mono font-medium text-slate-500 bg-slate-50 border border-slate-200 px-1.5 py-0.5 shadow-sm rounded">
+                                                                    <span className="text-[10px] font-mono font-bold text-black bg-slate-50 border border-slate-200 px-1.5 py-0.5 shadow-sm rounded">
                                                                         Trade Value: ₹{(strategyData.totalOriginalValue || 0).toFixed(0)}
                                                                     </span>
                                                                     {strategyData.config?.overall_sl_enabled && strategyData.totalOriginalValue > 0 && (
@@ -1781,20 +1773,20 @@ export const StrategyBuilder = ({ isConnected }) => {
                                                                                 <div key={idx} className="flex flex-col md:flex-row items-start md:items-center justify-between p-2.5 bg-muted/50 border border-border/50 rounded-xl opacity-90 gap-3">
                                                                                     <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between w-full gap-y-2 gap-x-4">
                                                                                         <div className="flex flex-1 items-center gap-1 flex-wrap">
-                                                                                            <span className="text-[12px] font-medium text-muted-foreground">{l.instrument?.symbol || "---"} ({l.leg?.side})</span>
-                                                                                            <span className="text-[11px] font-medium text-slate-400">
+                                                                                            <span className="text-[12px] font-bold text-black">{l.instrument?.symbol || "---"} ({l.leg?.side})</span>
+                                                                                            <span className="text-[11px] font-bold text-black/40">
                                                                                                 {l.leg?.lots} {l.leg?.lots > 1 ? 'Lots' : 'Lot'}
                                                                                             </span>
-                                                                                            <span className="text-muted-foreground text-[10px] font-mono">|</span>
-                                                                                            <span className="text-primary font-medium text-[10px] font-mono">{l.entryTime || "---"}</span>
-                                                                                            <span className="text-muted-foreground text-[10px] font-mono">|</span>
-                                                                                            <span className="text-[10px] font-mono text-muted-foreground">Entry: {(l.entryPrice || 0).toFixed(2)}</span>
-                                                                                            <span className="text-muted-foreground text-[10px] font-mono">|</span>
-                                                                                            <span className="text-red-500 font-medium text-[10px] font-mono">Exit: {l.exitTime || l.exitSnapshot?.exitTime || "---"}</span>
-                                                                                            <span className="text-muted-foreground text-[10px] font-mono">|</span>
-                                                                                            <span className="text-foreground text-[10px] font-mono">Price: {(l.exitSnapshot?.exitLtp || l.currentLtp || 0).toFixed(2)}</span>
-                                                                                            <span className="text-muted-foreground text-[10px] font-mono">|</span>
-                                                                                            <span className="text-slate-500 text-[10px] font-mono font-medium">Type: {l.exitType}</span>
+                                                                                            <span className="text-black/30 text-[10px] font-mono">|</span>
+                                                                                            <span className="text-black font-bold text-[10px] font-mono">{l.entryTime || "---"}</span>
+                                                                                            <span className="text-black/30 text-[10px] font-mono">|</span>
+                                                                                            <span className="text-[10px] font-mono text-black">Entry: {(l.entryPrice || 0).toFixed(2)}</span>
+                                                                                            <span className="text-black/30 text-[10px] font-mono">|</span>
+                                                                                            <span className="text-black font-bold text-[10px] font-mono">Exit: {l.exitTime || l.exitSnapshot?.exitTime || "---"}</span>
+                                                                                            <span className="text-black/30 text-[10px] font-mono">|</span>
+                                                                                            <span className="text-black text-[10px] font-mono">Price: {(l.exitSnapshot?.exitLtp || l.currentLtp || 0).toFixed(2)}</span>
+                                                                                            <span className="text-black/30 text-[10px] font-mono">|</span>
+                                                                                            <span className="text-black text-[10px] font-mono font-bold">Type: {l.exitType}</span>
                                                                                             {l.exitSnapshot?.slTriggerPrice != null && (
                                                                                                 <>
                                                                                                     <span className="text-muted-foreground text-[10px] font-mono">|</span>
@@ -1803,14 +1795,14 @@ export const StrategyBuilder = ({ isConnected }) => {
                                                                                             )}
                                                                                             {l.rtp != null && (
                                                                                                 <>
-                                                                                                    <span className="text-muted-foreground text-[10px] font-mono">|</span>
-                                                                                                    <span className="text-orange-500 font-medium text-[10px] font-mono">RTP: {l.rtp.toFixed(2)}</span>
+                                                                                                    <span className="text-black/30 text-[10px] font-mono">|</span>
+                                                                                                    <span className="text-orange-600 font-bold text-[10px] font-mono">RTP: {l.rtp.toFixed(2)}</span>
                                                                                                 </>
                                                                                             )}
                                                                                             {l.mtp != null && (
                                                                                                 <>
-                                                                                                    <span className="text-muted-foreground text-[10px] font-mono">|</span>
-                                                                                                    <span className="text-purple-600 font-medium text-[10px] font-mono">MTP: {l.mtp.toFixed(2)}</span>
+                                                                                                    <span className="text-black/30 text-[10px] font-mono">|</span>
+                                                                                                    <span className="text-purple-600 font-bold text-[10px] font-mono">MTP: {l.mtp.toFixed(2)}</span>
                                                                                                 </>
                                                                                             )}
                                                                                         </div>
@@ -1821,7 +1813,7 @@ export const StrategyBuilder = ({ isConnected }) => {
                                                                                             <span className={`text-[12px] font-mono font-medium ${(l.pnlRupees || 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
                                                                                                 {(l.pnlRupees || 0) > 0 ? '+' : ''}₹{(l.pnlRupees || 0).toFixed(2)}
                                                                                             </span>
-                                                                                            <span className="px-2 py-0.5 text-[10px] font-medium bg-slate-200 text-slate-500 rounded uppercase">Closed</span>
+                                                                                            <span className="px-2 py-0.5 text-[10px] font-bold bg-slate-200 text-black rounded uppercase">Closed</span>
                                                                                         </div>
                                                                                     </div>
                                                                                 </div>
@@ -1853,9 +1845,18 @@ export const StrategyBuilder = ({ isConnected }) => {
                     )
                 }
 
+                <TabsList className="grid w-full grid-cols-2 mb-4 mt-8 h-10 bg-muted/50 p-1 rounded-lg shadow-sm">
+                    <TabsTrigger value="paper" className="rounded-md font-medium text-[11px] data-[state=active]:bg-blue-600 data-[state=active]:text-white flex items-center gap-2 transition-all">
+                        <ShieldCheck className="h-4 w-4" /> Paper Trading
+                    </TabsTrigger>
+                    <TabsTrigger value="live" className="rounded-md font-medium text-[11px] data-[state=active]:bg-orange-600 data-[state=active]:text-white flex items-center gap-2 transition-all">
+                        <Zap className="h-4 w-4" /> Live Market
+                    </TabsTrigger>
+                </TabsList>
+
                 {
                     savedStrategies.length > 0 && (
-                        <Card className="w-full border-border bg-card mt-6">
+                        <Card className="w-full border-border bg-card mt-2">
                             <div
                                 className="border-b bg-muted/60 py-3 px-4 flex flex-col md:flex-row items-center justify-between gap-2 cursor-pointer hover:bg-muted/80 transition-colors"
                                 onClick={(e) => {
@@ -1864,7 +1865,7 @@ export const StrategyBuilder = ({ isConnected }) => {
                                 }}
                             >
                                 <CardTitle className="flex items-center gap-2 text-[12px] font-medium">
-                                    <Save className="h-4 w-4 text-primary" /> Saved Strategies (Templates)
+                                    <Save className="h-4 w-4 text-primary" /> Saved Strategies
                                 </CardTitle>
                                 <div className="flex items-center gap-3 w-full md:w-auto">
                                     <div className="relative w-full md:w-64" onClick={e => e.stopPropagation()}>
@@ -1886,7 +1887,7 @@ export const StrategyBuilder = ({ isConnected }) => {
                                 <CardContent className="p-0 animate-in fade-in slide-in-from-top-2 duration-200">
                                     <div className="flex flex-col w-full">
                                         {/* Desktop Header */}
-                                        <div className="hidden lg:grid lg:grid-cols-12 gap-4 px-4 py-2 bg-muted text-muted-foreground border-b text-[10px] font-medium uppercase tracking-wider items-center">
+                                        <div className="hidden lg:grid lg:grid-cols-12 gap-4 px-4 py-2 bg-muted text-black border-b text-[10px] font-black uppercase tracking-wider items-center">
                                             <div className="col-span-3">Name</div>
                                             <div className="col-span-2">Date Created</div>
                                             <div className="col-span-1">Index</div>
@@ -1969,25 +1970,25 @@ export const StrategyBuilder = ({ isConnected }) => {
                                                             }}
                                                         >
                                                             <div className="col-span-1 xl:col-span-3 font-medium text-[12px] flex items-start xl:items-center gap-2">
-                                                                <div className="p-1 rounded text-slate-400 hover:text-slate-700 transition-colors mt-0.5 xl:mt-0">
+                                                                <div className="p-1 rounded text-black hover:text-black transition-colors mt-0.5 xl:mt-0">
                                                                     <GripVertical className="h-4 w-4 shrink-0" />
                                                                 </div>
                                                                 <div>
                                                                     {s.name || s.config?.name || 'Unnamed Strategy'}
-                                                                    <div className="text-[9px] font-mono text-muted-foreground font-normal">ID: {s.id.split('-')[0] || s.id}</div>
+                                                                    <div className="text-[9px] font-mono text-black font-normal">ID: {s.id.split('-')[0] || s.id}</div>
                                                                 </div>
                                                             </div>
-                                                            <div className="col-span-1 xl:col-span-2 font-mono text-[11px] xl:text-[10px] text-slate-600 xl:text-muted-foreground flex xl:block items-center justify-between">
-                                                                <span className="xl:hidden text-[10px] uppercase font-medium text-muted-foreground tracking-wider">Created</span>
+                                                            <div className="col-span-1 xl:col-span-2 font-mono text-[11px] xl:text-[10px] text-black xl:text-black flex xl:block items-center justify-between">
+                                                                <span className="xl:hidden text-[10px] uppercase font-medium text-black tracking-wider">Created</span>
                                                                 <span>{new Date(s.created_at).toLocaleDateString()} {new Date(s.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                                                             </div>
                                                             <div className="col-span-1 xl:col-span-1 font-medium text-[12px] xl:text-[10px] flex xl:block items-center justify-between">
-                                                                <span className="xl:hidden text-[10px] uppercase font-medium text-muted-foreground tracking-wider">Index</span>
+                                                                <span className="xl:hidden text-[10px] uppercase font-medium text-black tracking-wider">Index</span>
                                                                 <span>{s.config?.index}</span>
                                                             </div>
                                                             <div className="col-span-1 xl:col-span-3 flex xl:block items-center justify-between">
-                                                                <span className="xl:hidden text-[10px] uppercase font-medium text-muted-foreground tracking-wider pr-4">Type</span>
-                                                                <span className="px-1.5 py-0.5 rounded text-[10px] xl:text-[9px] font-medium bg-slate-100 text-slate-700 text-right xl:text-left line-clamp-2">
+                                                                <span className="xl:hidden text-[10px] uppercase font-medium text-black tracking-wider pr-4">Type</span>
+                                                                <span className="px-1.5 py-0.5 rounded text-[10px] xl:text-[9px] font-medium bg-slate-100 text-black text-right xl:text-left line-clamp-2">
                                                                     {s.config?.legs?.map((l) => `${l.side} ${l.option_type} (${l.lots} ${l.lots > 1 ? 'L' : 'L'})`).join(' | ') || '---'}
                                                                 </span>
                                                             </div>

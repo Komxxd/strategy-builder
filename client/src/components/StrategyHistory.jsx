@@ -126,7 +126,7 @@ export const StrategyHistory = () => {
             {/* History Grid Container */}
             <div className="bg-white rounded-lg border border-slate-200 overflow-hidden shadow-sm">
                 {/* Desktop Header */}
-                <div className="hidden lg:grid lg:grid-cols-12 gap-4 px-4 py-2 bg-muted/50 text-muted-foreground border-b text-[10px] font-bold uppercase tracking-wider items-center">
+                <div className="hidden lg:grid lg:grid-cols-12 gap-4 px-4 py-2 bg-muted/50 text-black border-b text-[10px] font-black uppercase tracking-wider items-center">
                     <div className="col-span-3">Strategy Name</div>
                     <div className="col-span-2">Executed At</div>
                     <div className="col-span-2 text-center">Index / Mode</div>
@@ -147,10 +147,10 @@ export const StrategyHistory = () => {
                                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-2 lg:gap-4 px-4 py-2.5 items-center hover:bg-slate-50/80 transition-colors group cursor-default">
                                     {/* Name Column */}
                                     <div className="col-span-1 lg:col-span-3">
-                                        <div className="font-bold text-slate-800 text-[11px] truncate" title={item.name}>
+                                        <div className="font-black text-black text-[11px] truncate" title={item.name}>
                                             {item.name}
                                         </div>
-                                        <div className="text-[9px] font-mono text-slate-400 mt-0.5 flex items-center gap-1.5">
+                                        <div className="text-[9px] font-mono text-black/60 mt-0.5 flex items-center gap-1.5">
                                             <span>#{item.id.split('-')[0]}</span>
                                             <span className={`px-1 rounded-[4px] uppercase font-black tracking-tighter scale-90 ${
                                                 item.status === 'COMPLETED' ? 'bg-emerald-50 text-emerald-600' : 
@@ -162,16 +162,16 @@ export const StrategyHistory = () => {
                                     </div>
 
                                     {/* Date Column */}
-                                    <div className="col-span-1 lg:col-span-2 text-[10px] font-medium text-slate-500 flex lg:block items-center justify-between">
-                                        <span className="lg:hidden uppercase text-[9px] text-slate-400">Date</span>
+                                    <div className="col-span-1 lg:col-span-2 text-[10px] font-bold text-black flex lg:block items-center justify-between">
+                                        <span className="lg:hidden uppercase text-[9px] text-black/60">Date</span>
                                         <span>{formatDate(item.started_at)}</span>
                                     </div>
 
                                     {/* Index Column */}
                                     <div className="col-span-1 lg:col-span-2 flex lg:block items-center justify-between text-center">
-                                        <span className="lg:hidden uppercase text-[9px] text-slate-400">Setup</span>
+                                        <span className="lg:hidden uppercase text-[9px] text-black/60">Setup</span>
                                         <div className="flex items-center justify-center gap-1.5">
-                                            <span className="text-[10px] font-bold text-slate-600">{item.config?.index}</span>
+                                            <span className="text-[10px] font-black text-black">{item.config?.index}</span>
                                             <span className={`text-[9px] font-black uppercase px-1.5 py-0.5 rounded border ${
                                                 item.config?.is_paper_trading 
                                                 ? 'border-blue-100 bg-blue-50 text-blue-600' 
@@ -217,8 +217,8 @@ export const StrategyHistory = () => {
                                     <div className="bg-slate-50/50 border-t border-slate-100 p-3 lg:px-6 animate-in slide-in-from-top-1 duration-200">
                                         <div className="flex items-center gap-2 mb-2">
                                             <div className="h-1 w-3 bg-indigo-500 rounded-full" />
-                                            <span className="text-[9px] font-black uppercase text-slate-400 tracking-widest">Leg Snapshots</span>
-                                            <span className="text-[9px] text-slate-300 ml-auto">Outcome: {item.exitType || 'SQUARED_OFF'}</span>
+                                            <span className="text-[9px] font-black uppercase text-black tracking-widest">Leg Snapshots</span>
+                                            <span className="text-[9px] text-black font-bold ml-auto">Outcome: {item.exitType || 'SQUARED_OFF'}</span>
                                         </div>
                                         <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                                             {item.legs?.map((leg, idx) => (
@@ -226,73 +226,67 @@ export const StrategyHistory = () => {
                                                     {/* Header Info */}
                                                     <div className="flex items-center justify-between">
                                                         <div className="flex items-center gap-1.5 min-w-0">
-                                                            <span className="text-[11px] font-bold text-slate-700 truncate">{leg.instrument?.symbol}</span>
+                                                            <span className="text-[11px] font-black text-black truncate">{leg.instrument?.symbol}</span>
                                                             <span className={`text-[8px] font-black px-1 rounded uppercase ${leg.leg?.side === 'BUY' ? 'bg-blue-600 text-white' : 'bg-orange-600 text-white'}`}>
                                                                 {leg.leg?.side}
                                                             </span>
-                                                            <span className="text-[9px] font-bold text-slate-400 bg-slate-50 px-1 border border-slate-100 rounded">{leg.leg?.lots}L</span>
+                                                            <span className="text-[9px] font-bold text-black bg-slate-50 px-1 border border-slate-100 rounded">{leg.leg?.lots}L</span>
                                                         </div>
                                                         <div className="text-right shrink-0">
                                                             <div className={`text-[11px] font-mono font-black leading-none ${(leg.pnlPercent || leg.currentActivePnlPercent || 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                                                                {(leg.pnlPercent || leg.currentActivePnlPercent || 0) > 0 ? '+' : ''}{(leg.pnlPercent || leg.currentActivePnlPercent || 0).toFixed(2)}%
+                                                                PnL : {(leg.pnlPercent || leg.currentActivePnlPercent || 0) > 0 ? '+' : ''}{(leg.pnlPercent || leg.currentActivePnlPercent || 0).toFixed(2)}% | {(leg.pnlRupees || leg.currentActivePnlRupees || 0) > 0 ? '+' : ''}₹{(leg.pnlRupees || leg.currentActivePnlRupees || 0).toFixed(0)}
                                                             </div>
-                                                            <div className="text-[8px] font-black text-slate-300 uppercase mt-0.5">{leg.exitType || 'CLOSED'}</div>
+                                                            <div className="text-[8px] font-black text-black uppercase mt-1">Out Reason : {leg.exitType || 'CLOSED'}</div>
                                                         </div>
                                                     </div>
 
-                                                    {/* Data Grid */}
-                                                    <div className="grid grid-cols-2 lg:grid-cols-3 gap-x-4 gap-y-1.5 py-1.5 border-y border-slate-50">
+                                                    {/* Data Grid - Single Line */}
+                                                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-x-6 gap-y-1.5 py-1.5 border-y border-slate-50">
                                                         <div className="flex justify-between items-center text-[9px]">
-                                                            <span className="text-slate-400 font-medium">Entry</span>
-                                                            <span className="font-mono font-bold text-slate-600">₹{Number(leg.entryPrice || 0).toFixed(1)}</span>
+                                                            <span className="text-black font-bold">Entry</span>
+                                                            <span className="font-mono font-bold text-black ml-2">₹{Number(leg.entryPrice || 0).toFixed(1)}</span>
                                                         </div>
                                                         <div className="flex justify-between items-center text-[9px]">
-                                                            <span className="text-slate-400 font-medium">Exit</span>
-                                                            <span className="font-mono font-bold text-slate-600">₹{Number(leg.exitSnapshot?.exitLtp || leg.currentLtp || 0).toFixed(1)}</span>
+                                                            <span className="text-black font-bold">Exit</span>
+                                                            <span className="font-mono font-bold text-black ml-2">₹{Number(leg.exitSnapshot?.exitLtp || leg.currentLtp || 0).toFixed(1)}</span>
                                                         </div>
                                                         <div className="flex justify-between items-center text-[9px]">
-                                                            <span className="text-slate-400 font-medium">PnL Cash</span>
-                                                            <span className={`font-mono font-bold ${(leg.pnlRupees || leg.currentActivePnlRupees || 0) >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>₹{Number(leg.pnlRupees || leg.currentActivePnlRupees || 0).toFixed(0)}</span>
-                                                        </div>
-
-                                                        <div className="flex justify-between items-center text-[9px]">
-                                                            <span className="text-slate-400 font-medium">Init SL</span>
-                                                            <span className="font-mono font-bold text-red-400">₹{Number(leg.initialSlTriggerPrice || 0).toFixed(1)}</span>
+                                                            <span className="text-black font-bold">Init SL</span>
+                                                            <span className="font-mono font-bold text-red-500 ml-2">₹{Number(leg.initialSlTriggerPrice || 0).toFixed(1)}</span>
                                                         </div>
                                                         <div className="flex justify-between items-center text-[9px]">
-                                                            <span className="text-slate-400 font-medium">Final SL</span>
-                                                            <span className="font-mono font-bold text-red-500">₹{Number(leg.slTriggerPrice || 0).toFixed(1)}</span>
+                                                            <span className="text-black font-bold">Final SL</span>
+                                                            <span className="font-mono font-bold text-red-600 ml-2">₹{Number(leg.slTriggerPrice || 0).toFixed(1)}</span>
                                                         </div>
+                                                    </div>
 
 
                                                         {leg.rtp != null && (
                                                             <div className="flex justify-between items-center text-[9px]">
-                                                                <span className="text-slate-400 font-medium">RTP/Cost</span>
+                                                                <span className="text-black font-bold">RTP/Cost</span>
                                                                 <span className="font-mono font-bold text-orange-500">₹{Number(leg.rtp).toFixed(1)}</span>
                                                             </div>
                                                         )}
-                                                        {(leg.mntmTargetPrice != null || leg.mtp != null) && (
+                                                        {(leg.mntmTargetPrice || leg.mtp) && (
                                                             <div className="flex justify-between items-center text-[9px]">
-                                                                <span className="text-slate-400 font-medium">Momentum</span>
+                                                                <span className="text-black font-bold">Momentum</span>
                                                                 <span className="font-mono font-bold text-purple-500">₹{Number(leg.mntmTargetPrice || leg.mtp || 0).toFixed(1)}</span>
                                                             </div>
                                                         )}
 
-                                                    </div>
-
-                                                    {/* Time Row */}
-                                                    <div className="flex items-center justify-between text-[8px] font-mono text-slate-300">
-                                                        <div className="flex items-center gap-1">
-                                                            <Clock className="h-2.5 w-2.5" />
-                                                            <span>IN {leg.entryTime}</span>
+                                                        {/* Time Row */}
+                                                        <div className="flex items-center justify-between text-[8px] font-mono text-black font-bold mt-1">
+                                                            <div className="flex items-center gap-1">
+                                                                <Clock className="h-2.5 w-2.5" />
+                                                                <span>IN {leg.entryTime}</span>
+                                                            </div>
+                                                            <div className="flex items-center gap-1">
+                                                                <Clock className="h-2.5 w-2.5" />
+                                                                <span>OUT {leg.exitTime || leg.exitSnapshot?.exitTime}</span>
+                                                            </div>
                                                         </div>
-                                                        <div className="flex items-center gap-1">
-                                                            <Clock className="h-2.5 w-2.5" />
-                                                            <span>OUT {leg.exitTime || leg.exitSnapshot?.exitTime}</span>
-                                                        </div>
                                                     </div>
-                                                </div>
-                                            ))}
+                                                ))}
                                         </div>
                                     </div>
                                 )}
