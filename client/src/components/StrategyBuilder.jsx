@@ -1570,11 +1570,33 @@ export const StrategyBuilder = ({ isConnected }) => {
                                                                         ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
                                                                         : 'bg-red-50 text-red-700 border-red-200'
                                                                         }`}>
-                                                                        {(strategyData.pnlPercent || 0) > 0 ? '+' : ''}{(strategyData.pnlPercent || 0).toFixed(2)}% | {(strategyData.totalPnlRupees || 0) > 0 ? '+' : ''}₹{(strategyData.totalPnlRupees || 0).toFixed(2)}
+                                                                        PnL: {(strategyData.pnlPercent || 0) > 0 ? '+' : ''}{(strategyData.pnlPercent || 0).toFixed(2)}% | {(strategyData.totalPnlRupees || 0) > 0 ? '+' : ''}₹{(strategyData.totalPnlRupees || 0).toFixed(0)}
                                                                     </span>
                                                                     <span className="text-[10px] font-mono font-medium text-slate-500 bg-slate-50 border border-slate-200 px-1.5 py-0.5 shadow-sm rounded">
-                                                                        Value: ₹{(strategyData.totalOriginalValue || 0).toFixed(2)}
+                                                                        Trade Value: ₹{(strategyData.totalOriginalValue || 0).toFixed(0)}
                                                                     </span>
+                                                                    {strategyData.config?.overall_sl_enabled && strategyData.totalOriginalValue > 0 && (
+                                                                        <span className="text-[10px] font-mono font-medium text-red-500 bg-red-50 border border-red-100 px-1.5 py-0.5 shadow-sm rounded">
+                                                                            SL: ₹{(() => {
+                                                                                const total = strategyData.totalOriginalValue;
+                                                                                const val = strategyData.config.overall_sl_value || 0;
+                                                                                return (strategyData.config.overall_sl_type === 'PERCENTAGE' 
+                                                                                    ? total * (1 - val/100) 
+                                                                                    : total - val).toFixed(0);
+                                                                            })()}
+                                                                        </span>
+                                                                    )}
+                                                                    {strategyData.config?.overall_target_enabled && strategyData.totalOriginalValue > 0 && (
+                                                                        <span className="text-[10px] font-mono font-medium text-emerald-600 bg-emerald-50 border border-emerald-100 px-1.5 py-0.5 shadow-sm rounded">
+                                                                            Tgt: ₹{(() => {
+                                                                                const total = strategyData.totalOriginalValue;
+                                                                                const val = strategyData.config.overall_target_value || 0;
+                                                                                return (strategyData.config.overall_target_type === 'PERCENTAGE' 
+                                                                                    ? total * (1 + val/100) 
+                                                                                    : total + val).toFixed(0);
+                                                                            })()}
+                                                                        </span>
+                                                                    )}
                                                                 </div>
                                                             )}
                                                         </div>

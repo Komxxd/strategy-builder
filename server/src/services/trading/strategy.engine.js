@@ -74,6 +74,7 @@ async function startStrategy(strategyId, overrideIsPaperTrading) {
     };
 
     activeStrategies.set(execution.id, runtimeStrategy);
+    updateStrategyInMemory(execution.id, { config: runtimeStrategy.config });
     executeStrategy(execution.id);
     return execution.id;
 }
