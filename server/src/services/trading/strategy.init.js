@@ -85,6 +85,7 @@ async function handleInitialEntry(strategyId, strategy) {
             const isSimpleMntm = item.leg.simple_mntm_enabled === true;
             let legState = "ACTIVE";
             let instLtp = 0;
+            let roundedMntmTarget = null;
 
             const instLtpRes = await getLtpSecure({
                 exchange: item.instrument.exch_seg,
@@ -96,7 +97,7 @@ async function handleInitialEntry(strategyId, strategy) {
             }
 
             if (isSimpleMntm) {
-                const roundedMntmTarget = calculateMomentumTarget(instLtp, item.leg);
+                roundedMntmTarget = calculateMomentumTarget(instLtp, item.leg);
                 const offsetAmt = getLimitOffsetAmt(roundedMntmTarget, config);
 
                 if (config.is_paper_trading) {
