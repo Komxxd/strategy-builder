@@ -53,6 +53,8 @@ async function monitorStrategyLoop(strategyId, strategy) {
                         leg.entryTime = getISTTime();
                         leg.original_traded_price = target;
                         leg.state = "ACTIVE";
+                        leg.peakPrice = target;
+                        leg.tslReferencePrice = target;
                         addStrategyLog(strategyId, `Simple Momentum Target Reached: ₹${target} for ${leg.instrument.symbol}. Entry triggered.`, "INFO");
 
                         if (config.variety === "STOPLOSS" && leg.entryPrice && leg.leg.sl_enabled !== false) {
