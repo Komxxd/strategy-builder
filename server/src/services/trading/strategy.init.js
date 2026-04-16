@@ -233,11 +233,11 @@ async function handleInitialEntry(strategyId, strategy) {
                     slType: leg.leg.sl_type || "PERCENTAGE",
                     slValue: leg.leg.stop_loss,
                     slLimitMargin: getLimitOffsetAmt(leg.entryPrice, config),
-                    slLimitMarginType: config.entry_limit_offset_type || 'POINTS',
+                    slLimitMarginType: 'POINTS',
                     connectionId: config.connectionId,
                     strategyId: strategyId
                 });
-                const prices = computeStopLossExitPrices(leg.entryPrice, leg.leg.side, leg.leg.sl_type || "PERCENTAGE", leg.leg.stop_loss, getLimitOffsetAmt(leg.entryPrice, config), config.entry_limit_offset_type || 'POINTS');
+                const prices = computeStopLossExitPrices(leg.entryPrice, leg.leg.side, leg.leg.sl_type || "PERCENTAGE", leg.leg.stop_loss, getLimitOffsetAmt(leg.entryPrice, config), 'POINTS');
                 if (slOrder?.orderid) {
                     leg.slOrderId = slOrder.orderid;
                     leg.slUniqueOrderId = slOrder.uniqueorderid;

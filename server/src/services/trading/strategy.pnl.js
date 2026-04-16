@@ -167,7 +167,7 @@ function evaluateLegLimits({ leg, config }) {
                     activeSlType,
                     activeSlValue,
                     offsetAmount, 
-                    config.entry_limit_offset_type || 'POINTS'
+                    'POINTS'
                 );
                 
                 if (prices) {

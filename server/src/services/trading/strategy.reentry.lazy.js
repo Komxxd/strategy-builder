@@ -49,7 +49,7 @@ async function handleLazyLeg({ leg, config, strategyId, addStrategyLog }) {
                 leg.tslReferencePrice = instLtp; 
                 addStrategyLog(strategyId, `[LAZY LEG PAPER] ${targetInstrument.symbol} entered at ₹${instLtp}`, "INFO");
                 if (config.variety === "STOPLOSS") {
-                    const prices = computeStopLossExitPrices(leg.entryPrice, leg.leg.side, leg.leg.sl_type || "PERCENTAGE", leg.leg.stop_loss || 0, getLimitOffsetAmt(leg.entryPrice, config), config.entry_limit_offset_type || 'POINTS');
+                    const prices = computeStopLossExitPrices(leg.entryPrice, leg.leg.side, leg.leg.sl_type || "PERCENTAGE", leg.leg.stop_loss || 0, getLimitOffsetAmt(leg.entryPrice, config), 'POINTS');
                     leg.slTriggerPrice = prices?.trigger;
                     leg.initialSlTriggerPrice = prices?.trigger;
                     leg.slLimitPrice = prices?.limit;

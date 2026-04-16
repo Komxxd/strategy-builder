@@ -19,6 +19,7 @@ async function handleLegStopOut(leg, exitType, strategy) {
     // Capture the exact trigger and execution price at the very millisecond of stop-out for the UI history
     leg.exitSnapshot = {
         slTriggerPrice: leg.slTriggerPrice,
+        initialSlTriggerPrice: leg.initialSlTriggerPrice,
         exitLtp: leg.currentLtp,
         exitTime: getISTTime()
     };

@@ -180,6 +180,7 @@ async function monitorStrategyLoop(strategyId, strategy) {
                 leg.initialSlTriggerPrice = evalResult.tslUpdates.initTrigger;
                 if (!leg.slTriggerPrice) leg.slTriggerPrice = evalResult.tslUpdates.initTrigger;
                 if (!leg.slLimitPrice) leg.slLimitPrice = evalResult.tslUpdates.initLimit;
+                addStrategyLog(strategyId, `[MONITOR] Recovered missing Initial SL for ${leg.instrument?.symbol}: ₹${leg.initialSlTriggerPrice}`, "INFO");
             }
 
             if (evalResult.tslStepped) {

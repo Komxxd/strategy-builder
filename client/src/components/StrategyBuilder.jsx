@@ -1787,10 +1787,16 @@ export const StrategyBuilder = ({ isConnected }) => {
                                                                                             <span className="text-black text-[10px] font-mono">Price: {(l.exitSnapshot?.exitLtp || l.currentLtp || 0).toFixed(2)}</span>
                                                                                             <span className="text-black/30 text-[10px] font-mono">|</span>
                                                                                             <span className="text-black text-[10px] font-mono font-bold">Type: {l.exitType}</span>
+                                                                                            {l.initialSlTriggerPrice != null && (
+                                                                                                <>
+                                                                                                    <span className="text-muted-foreground text-[10px] font-mono">|</span>
+                                                                                                    <span className="text-red-400 font-medium text-[10px] font-mono">Init SL: {Number(l.initialSlTriggerPrice).toFixed(1)}</span>
+                                                                                                </>
+                                                                                            )}
                                                                                             {l.exitSnapshot?.slTriggerPrice != null && (
                                                                                                 <>
                                                                                                     <span className="text-muted-foreground text-[10px] font-mono">|</span>
-                                                                                                    <span className="text-red-500 font-medium text-[10px] font-mono">Initial SL: {Number(l.exitSnapshot.slTriggerPrice).toFixed(1)}</span>
+                                                                                                    <span className="text-red-600 font-bold text-[10px] font-mono">Exit SL: {Number(l.exitSnapshot.slTriggerPrice).toFixed(1)}</span>
                                                                                                 </>
                                                                                             )}
                                                                                             {l.rtp != null && (

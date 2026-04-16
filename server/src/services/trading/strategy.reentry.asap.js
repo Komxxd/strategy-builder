@@ -49,9 +49,9 @@ async function handleReentryAsap({ leg, config, strategyId, addStrategyLog }) {
                 leg.tslReferencePrice = instLtp; 
                 addStrategyLog(strategyId, `[RE-ASAP PAPER] ${targetInstrument.symbol} re-entered at ₹${instLtp}`, "INFO");
                 if (config.variety === "STOPLOSS") {
-                    const slType = leg.leg.reentry_sl_enabled ? leg.leg.reentry_sl_type : (leg.leg.sl_type || "PERCENTAGE");
+                    const slType = leg.leg.reentry_sl_enabled && leg.leg.reentry_sl_type ? leg.leg.reentry_sl_type : (leg.leg.sl_type || "PERCENTAGE");
                     const slVal = leg.leg.reentry_sl_enabled ? leg.leg.reentry_sl_value : (leg.leg.stop_loss || 0);
-                    const prices = computeStopLossExitPrices(leg.entryPrice, leg.leg.side, slType, slVal, getLimitOffsetAmt(leg.entryPrice, config), config.entry_limit_offset_type || 'POINTS');
+                    const prices = computeStopLossExitPrices(leg.entryPrice, leg.leg.side, slType, slVal, getLimitOffsetAmt(leg.entryPrice, config), 'POINTS');
                     leg.slTriggerPrice = prices?.trigger;
                     leg.initialSlTriggerPrice = prices?.trigger;
                     leg.slLimitPrice = prices?.limit;
