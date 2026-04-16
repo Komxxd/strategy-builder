@@ -1544,7 +1544,7 @@ export const StrategyBuilder = ({ isConnected }) => {
                                                             </span>
 
                                                             <span className="text-xs font-bold text-black">
-                                                                {strategyData.name || strategyData.config?.name || 'Strategy Execution'}
+                                                                {strategyData.name || strategyData.config?.name || 'Strategy Execution'} ✨
                                                                 <span className="text-[10px] font-mono text-black/60 ml-1.5">#{id.split('-')[0] || id}</span>
                                                             </span>
 
@@ -1569,23 +1569,25 @@ export const StrategyBuilder = ({ isConnected }) => {
                                                                     </span>
                                                                     {strategyData.config?.overall_sl_enabled && strategyData.totalOriginalValue > 0 && (
                                                                         <span className="text-[10px] font-mono font-medium text-red-500 bg-red-50 border border-red-100 px-1.5 py-0.5 shadow-sm rounded">
-                                                                            SL: ₹{(() => {
+                                                                            SL: -₹{(() => {
                                                                                 const total = strategyData.totalOriginalValue;
                                                                                 const val = strategyData.config.overall_sl_value || 0;
-                                                                                return (strategyData.config.overall_sl_type === 'PERCENTAGE' 
-                                                                                    ? total * (1 - val/100) 
-                                                                                    : total - val).toFixed(0);
+                                                                                const amt = (strategyData.config.overall_sl_type === 'PERCENTAGE' 
+                                                                                    ? total * (val/100) 
+                                                                                    : val);
+                                                                                return amt.toFixed(2);
                                                                             })()}
                                                                         </span>
                                                                     )}
                                                                     {strategyData.config?.overall_target_enabled && strategyData.totalOriginalValue > 0 && (
                                                                         <span className="text-[10px] font-mono font-medium text-emerald-600 bg-emerald-50 border border-emerald-100 px-1.5 py-0.5 shadow-sm rounded">
-                                                                            Tgt: ₹{(() => {
+                                                                            Tgt: +₹{(() => {
                                                                                 const total = strategyData.totalOriginalValue;
                                                                                 const val = strategyData.config.overall_target_value || 0;
-                                                                                return (strategyData.config.overall_target_type === 'PERCENTAGE' 
-                                                                                    ? total * (1 + val/100) 
-                                                                                    : total + val).toFixed(0);
+                                                                                const amt = (strategyData.config.overall_target_type === 'PERCENTAGE' 
+                                                                                    ? total * (val/100) 
+                                                                                    : val);
+                                                                                return amt.toFixed(2);
                                                                             })()}
                                                                         </span>
                                                                     )}
