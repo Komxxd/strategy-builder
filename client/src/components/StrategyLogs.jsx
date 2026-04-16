@@ -76,7 +76,7 @@ export function StrategyLogs({ isOpen, onClose, logs, strategyName }) {
                                             {/* Time Column */}
                                             <div className="shrink-0 w-20 pt-0.5">
                                                 <span className="text-[10px] font-bold text-slate-400 font-mono tracking-tighter block whitespace-nowrap opacity-80">
-                                                    {log.time.split(' at ')[1]}
+                                                    {log.time.includes(' at ') ? log.time.split(' at ')[1] : log.time.slice(11, 19)}
                                                 </span>
                                             </div>
 

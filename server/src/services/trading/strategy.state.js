@@ -1,6 +1,7 @@
 const prisma = require("../../config/prisma");
 const marketService = require("../market.service");
 const marketSocketService = require("../marketSocket.service");
+const { getISTFullDate } = require("./strategy.time");
 let activeStrategies = new Map();
 let globalLtpMap = {};
 
@@ -115,21 +116,33 @@ async function runGlobalWebsocketSync() {
 setInterval(runGlobalWebsocketSync, 1000);
 
 function updateStrategyInMemory(executionId, data) {
+    const strategy = activeStrategies.get(executionId);
+    
     // Merge into pending updates instead of direct DB call
     const existing = pendingDbUpdates.get(executionId) || { execution_details: {} };
-
     const updateData = { ...existing };
+    
+    // Core fields
     if (data.status) updateData.status = data.status;
     if (data.final_pnl_percent !== undefined) updateData.final_pnl_percent = data.final_pnl_percent;
     if (data.totalPnlRupees !== undefined) updateData.total_pnl_rupees = data.totalPnlRupees;
     if (data.exit_type) updateData.exit_type = data.exit_type;
 
+    // Build/Merge JSON details
+    const currentDetails = updateData.execution_details || {};
+    
     updateData.execution_details = {
-        ...updateData.execution_details,
+        ...currentDetails,
         ...(data.execution_details || {}),
         _latest: new Date().toISOString()
     };
 
+    // Ensure we ALWAYS preserve the runtime config if available in memory
+    if (strategy && strategy.config) {
+        updateData.execution_details.config = strategy.config;
+    }
+
+    // Capture arbitrary keys from 'data' into the JSON blob
     for (const key of Object.keys(data)) {
         if (['status', 'final_pnl_percent', 'totalPnlRupees', 'exit_type', 'execution_details'].includes(key)) continue;
 
@@ -140,10 +153,8 @@ function updateStrategyInMemory(executionId, data) {
         updateData.execution_details[key] = val;
     }
 
-    if (data.status === "COMPLETED" || data.status === "FAILED" || data.status === "TERMINATED") {
+    if (data.status === "COMPLETED" || data.status === "FAILED" || data.status === "TERMINATED" || data.status === "SQUARED_OFF") {
         updateData.completed_at = new Date().toISOString();
-        // For completions, we could potentially force an immediate write, 
-        // but for a single user, 5s delay is acceptable and safer for the event loop.
     }
 
     pendingDbUpdates.set(executionId, updateData);
@@ -154,7 +165,7 @@ function addStrategyLog(strategyId, message, level = "INFO") {
     if (!strategy) return;
 
     const logEntry = {
-        time: new Date().toISOString(), // Fallback if getISTFullDate not available, or import it
+        time: getISTFullDate(),
         message,
         level: level.toUpperCase()
     };

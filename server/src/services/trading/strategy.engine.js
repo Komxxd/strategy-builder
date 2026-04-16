@@ -57,16 +57,22 @@ async function startStrategy(strategyId, overrideIsPaperTrading) {
     const template = await withDbRetry(() => prisma.strategies.findUnique({ where: { id: strategyId } }));
     if (!template) throw new Error("Strategy template not found");
 
+    const runtimeConfig = {
+        ...template.config,
+        is_paper_trading: overrideIsPaperTrading !== undefined ? overrideIsPaperTrading : (template.config.is_paper_trading || false)
+    };
+
     const execution = await withDbRetry(() => prisma.strategy_executions.create({
-        data: { strategy_id: template.id, status: 'WAITING', execution_details: {} }
+        data: { 
+            strategy_id: template.id, 
+            status: 'WAITING', 
+            execution_details: { config: runtimeConfig } 
+        }
     }));
 
     const runtimeStrategy = {
         id: execution.id,
-        config: {
-            ...template.config,
-            is_paper_trading: overrideIsPaperTrading !== undefined ? overrideIsPaperTrading : (template.config.is_paper_trading || false)
-        },
+        config: runtimeConfig,
         status: "WAITING",
         entryAttempted: false,
         startTime: new Date(),
@@ -74,7 +80,6 @@ async function startStrategy(strategyId, overrideIsPaperTrading) {
     };
 
     activeStrategies.set(execution.id, runtimeStrategy);
-    updateStrategyInMemory(execution.id, { config: runtimeStrategy.config });
     executeStrategy(execution.id);
     return execution.id;
 }
