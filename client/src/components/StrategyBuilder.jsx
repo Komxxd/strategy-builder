@@ -1544,7 +1544,7 @@ export const StrategyBuilder = ({ isConnected }) => {
                                                             </span>
 
                                                             <span className="text-xs font-bold text-black">
-                                                                {strategyData.name || strategyData.config?.name || 'Strategy Execution'} ✨
+                                                                {strategyData.name || strategyData.config?.name || 'Strategy Execution'}
                                                                 <span className="text-[10px] font-mono text-black/60 ml-1.5">#{id.split('-')[0] || id}</span>
                                                             </span>
 
