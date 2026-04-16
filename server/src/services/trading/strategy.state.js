@@ -153,8 +153,10 @@ function updateStrategyInMemory(executionId, data) {
         updateData.execution_details[key] = val;
     }
 
-    if (data.status === "COMPLETED" || data.status === "FAILED" || data.status === "TERMINATED" || data.status === "SQUARED_OFF") {
+    if (["COMPLETED", "FAILED", "STOPPED", "SQUARED_OFF", "TERMINATED"].includes(data.status)) {
         updateData.completed_at = new Date().toISOString();
+        // Trigger immediate DB flush for terminal states so they appear in history instantly
+        setTimeout(runGlobalDbWriter, 0);
     }
 
     pendingDbUpdates.set(executionId, updateData);

@@ -327,6 +327,10 @@ function pauseStrategy(strategyId, reason) {
     updateStrategyInMemory(strategyId, { 
         status: "PAUSED", 
         error: reason,
+        pnlPercent: strategy.pnlPercent || 0,
+        totalPnlRupees: strategy.totalPnlRupees || 0,
+        totalOriginalValue: strategy.totalOriginalValue || 0,
+        legs: strategy.legs,
         _pausedAt: new Date().toISOString()
     });
 
@@ -370,7 +374,12 @@ async function squareOffStrategy(strategyId) {
 
         strategy.status = "COMPLETED";
         updateStrategyInMemory(strategyId, {
-            status: "COMPLETED", exit_type: "MANUAL_SQUARE_OFF", totalPnlRupees: strategy.totalPnlRupees || 0
+            status: "COMPLETED", 
+            exit_type: "MANUAL_SQUARE_OFF", 
+            final_pnl_percent: strategy.pnlPercent || 0,
+            totalPnlRupees: strategy.totalPnlRupees || 0,
+            totalOriginalValue: strategy.totalOriginalValue || 0,
+            legs: strategy.legs
         });
 
         if (strategy.interval) clearInterval(strategy.interval);

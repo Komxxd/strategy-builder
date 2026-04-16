@@ -287,6 +287,25 @@ async function monitorStrategyLoop(strategyId, strategy) {
             return "TERMINATE";
         }
 
+        /**
+         * PERIODIC STATE SYNC (Heartbeat)
+         * We flush the current runtime state — including the latest leg snapshots and PnL — 
+         * to the memory buffer. The global DbWriter will pick this up every 5 seconds and 
+         * persist it to the database. This prevents data loss (missing legs in history) 
+         * if the server restarts or if a strategy is running for many hours.
+         */
+        if (strategy.status === "IN_POSITION" || strategy.status === "WAITING") {
+            updateStrategyInMemory(strategyId, {
+                status: strategy.status,
+                pnlPercent: strategy.pnlPercent,
+                totalPnlRupees: strategy.totalPnlRupees,
+                totalOriginalValue: strategy.totalOriginalValue,
+                legs: strategy.legs,
+                entryAttempted: strategy.entryAttempted || false,
+                exitAttempted: strategy.exitAttempted || false
+            });
+        }
+
     } catch (err) {
         console.error(`[${strategyId}] Monitor Loop Error:`, err.message);
     }

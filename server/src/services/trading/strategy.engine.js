@@ -92,8 +92,14 @@ async function stopStrategy(strategyId) {
     const strategy = activeStrategies.get(strategyId);
     if (!strategy) return;
     if (strategy.interval) clearInterval(strategy.interval);
+    strategy.status = "STOPPED";
+    updateStrategyInMemory(strategyId, { 
+        status: "STOPPED",
+        final_pnl_percent: strategy.pnlPercent || 0,
+        totalPnlRupees: strategy.totalPnlRupees || 0,
+        legs: strategy.legs
+    });
     activeStrategies.delete(strategyId);
-    await prisma.strategy_executions.update({ where: { id: strategyId }, data: { status: "STOPPED", completed_at: new Date() } });
 }
 
 async function deleteStrategyExecution(executionId) {

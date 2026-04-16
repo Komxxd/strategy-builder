@@ -75,8 +75,8 @@ export function StrategyLogs({ isOpen, onClose, logs, strategyName }) {
                                         <div key={i} className="group flex items-start gap-2.5 py-1 px-2.5 rounded hover:bg-white hover:shadow-sm border border-transparent hover:border-slate-100 transition-all duration-200">
                                             {/* Time Column */}
                                             <div className="shrink-0 w-20 pt-0.5">
-                                                <span className="text-[10px] font-bold text-slate-400 font-mono tracking-tighter block whitespace-nowrap opacity-80">
-                                                    {log.time.includes(' at ') ? log.time.split(' at ')[1] : log.time.slice(11, 19)}
+                                                <span className="text-[10px] font-bold text-black font-mono tracking-tighter block whitespace-nowrap opacity-100">
+                                                    {log.status_time || (log.time.includes(' at ') ? log.time.split(' at ')[1] : log.time.slice(11, 19))}
                                                 </span>
                                             </div>
 
