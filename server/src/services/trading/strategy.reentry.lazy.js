@@ -51,6 +51,7 @@ async function handleLazyLeg({ leg, config, strategyId, addStrategyLog }) {
                 if (config.variety === "STOPLOSS") {
                     const prices = computeStopLossExitPrices(leg.entryPrice, leg.leg.side, leg.leg.sl_type || "PERCENTAGE", leg.leg.stop_loss || 0, getLimitOffsetAmt(leg.entryPrice, config), config.entry_limit_offset_type || 'POINTS');
                     leg.slTriggerPrice = prices?.trigger;
+                    leg.initialSlTriggerPrice = prices?.trigger;
                     leg.slLimitPrice = prices?.limit;
                 }
             } else {
@@ -97,6 +98,7 @@ async function handleLazyLeg({ leg, config, strategyId, addStrategyLog }) {
                                 leg.slUniqueOrderId = slOrder.uniqueorderid;
                             }
                             leg.slTriggerPrice = prices?.trigger;
+                            leg.initialSlTriggerPrice = prices?.trigger;
                             leg.slLimitPrice = prices?.limit;
                         }
                     } catch (e) {

@@ -176,6 +176,12 @@ async function monitorStrategyLoop(strategyId, strategy) {
 
             const evalResult = evaluateLegLimits({ leg, config });
 
+            if (evalResult.initSlReq) {
+                leg.initialSlTriggerPrice = evalResult.tslUpdates.initTrigger;
+                if (!leg.slTriggerPrice) leg.slTriggerPrice = evalResult.tslUpdates.initTrigger;
+                if (!leg.slLimitPrice) leg.slLimitPrice = evalResult.tslUpdates.initLimit;
+            }
+
             if (evalResult.tslStepped) {
                 const { oldTrigger, newTrigger, newLimit, newReferencePrice } = evalResult.tslUpdates;
                 if (config.variety === "STOPLOSS" && !config.is_paper_trading && leg.slOrderId) {

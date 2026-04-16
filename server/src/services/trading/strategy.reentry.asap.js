@@ -53,6 +53,7 @@ async function handleReentryAsap({ leg, config, strategyId, addStrategyLog }) {
                     const slVal = leg.leg.reentry_sl_enabled ? leg.leg.reentry_sl_value : (leg.leg.stop_loss || 0);
                     const prices = computeStopLossExitPrices(leg.entryPrice, leg.leg.side, slType, slVal, getLimitOffsetAmt(leg.entryPrice, config), config.entry_limit_offset_type || 'POINTS');
                     leg.slTriggerPrice = prices?.trigger;
+                    leg.initialSlTriggerPrice = prices?.trigger;
                     leg.slLimitPrice = prices?.limit;
                 }
             } else {
@@ -102,6 +103,7 @@ async function handleReentryAsap({ leg, config, strategyId, addStrategyLog }) {
                                leg.slUniqueOrderId = slOrder.uniqueorderid;
                            }
                            leg.slTriggerPrice = prices?.trigger;
+                           leg.initialSlTriggerPrice = prices?.trigger;
                            leg.slLimitPrice = prices?.limit;
                        }
                    } catch (e) {
