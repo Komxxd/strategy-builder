@@ -12,7 +12,16 @@ async function handleReentryLow({ leg, config, strategyId, addStrategyLog, curre
     // Increment re-entry count
     leg.reentry_count = (leg.reentry_count || 0) + 1;
     
-    // We already crossed the trigger (re_low_trigger_price), now we place the order
+    // Proactively set state to ACTIVE to prevent duplicate triggers
+    leg.state = "ACTIVE";
+    leg.exited = false;
+    leg.exitType = null;
+    leg.isExiting = false;
+    leg.entryPrice = null;
+    leg.orderId = null;
+    leg.uniqueOrderId = null;
+    leg.slOrderId = null;
+    leg.slUniqueOrderId = null;
     const side = leg.leg.side;
     const rtp = leg.re_low_trigger_price; 
     const currentPrice = currentTick || leg.currentLtp;
@@ -20,38 +29,48 @@ async function handleReentryLow({ leg, config, strategyId, addStrategyLog, curre
     console.log(`[RE-LOW] Triggered for ${leg.instrument?.symbol}. Low Price was ${leg.max_low_price}. Current LTP=${currentPrice}`);
     addStrategyLog(strategyId, `[RE-LOW] Triggered for ${leg.instrument?.symbol}. Low Price was ${leg.max_low_price}. Current LTP=${currentPrice}`, "INFO");
 
+    const mntmMode = leg.leg.relow_mntm_mode || "RELOW_PLUS_PTS";
+    const mntmVal = leg.leg.relow_mntm_value || 0;
+    
+    let mtp = rtp;
+    if (mntmMode === "RELOW_PLUS_PCT") mtp = rtp + (rtp * mntmVal / 100);
+    else if (mntmMode === "RELOW_PLUS_PTS") mtp = rtp + mntmVal;
+    else if (mntmMode === "RELOW_MINUS_PCT") mtp = rtp - (rtp * mntmVal / 100);
+    else if (mntmMode === "RELOW_MINUS_PTS") mtp = rtp - mntmVal;
+    mtp = roundToTick(mtp);
+
     let variety = config.variety || "NORMAL";
     let ordertype = config.ordertype || "LIMIT";
-    const offsetAmt = getLimitOffsetAmt(rtp, config);
+    const offsetAmt = getLimitOffsetAmt(mtp, config);
 
-    let finalPriceStr = rtp.toString();
-    let triggerPriceStr = rtp.toString();
+    let finalPriceStr = mtp.toString();
+    let triggerPriceStr = mtp.toString();
 
-    // Determine order type based on LTP vs Trigger
-    // Use STOPLOSS variety if the target price is "worse" than current market price
+    // Determine order type based on LTP vs MTP
     if (side === "SELL") {
-        if (rtp < currentPrice) {
+        if (mtp < currentPrice) {
             variety = "STOPLOSS";
             ordertype = "STOPLOSS_LIMIT";
-            finalPriceStr = roundToTick(rtp - offsetAmt).toString();
+            finalPriceStr = roundToTick(mtp - offsetAmt).toString();
+            triggerPriceStr = mtp.toString();
         } else {
             variety = "NORMAL";
             ordertype = "LIMIT";
-            finalPriceStr = roundToTick(rtp - offsetAmt).toString();
+            finalPriceStr = roundToTick(mtp - offsetAmt).toString();
         }
     } else if (side === "BUY") {
-        if (rtp > currentPrice) {
+        if (mtp > currentPrice) {
             variety = "STOPLOSS";
             ordertype = "STOPLOSS_LIMIT";
-            finalPriceStr = roundToTick(rtp + offsetAmt).toString();
+            finalPriceStr = roundToTick(mtp + offsetAmt).toString();
+            triggerPriceStr = mtp.toString();
         } else {
             variety = "NORMAL";
             ordertype = "LIMIT";
-            finalPriceStr = roundToTick(rtp + offsetAmt).toString();
+            finalPriceStr = roundToTick(mtp + offsetAmt).toString();
         }
     }
 
-    leg.state = "ACTIVE";
     leg.exited = false;
     leg.exitType = null;
     leg.isExiting = false;

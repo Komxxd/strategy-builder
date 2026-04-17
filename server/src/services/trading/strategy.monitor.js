@@ -171,26 +171,18 @@ async function monitorStrategyLoop(strategyId, strategy) {
                     }
                 }
 
-                // 2c. Re-High Cross Logic (Breakout from Peak)
+                // 2c. Re-High Cross Logic (RTP reached)
                 if (leg.state === "WAITING_FOR_RE_HIGH" && leg.last_tick_price !== null) {
                     const currentTick = leg.currentLtp;
                     const prevTick = leg.last_tick_price;
-                    const peak = leg.re_high_trigger_price;
-                    
-                    const mntmMode = leg.leg.rehigh_mntm_mode || "REHIGH_PLUS_PTS";
-                    const mntmVal = leg.leg.rehigh_mntm_value || 1;
-                    
-                    let target = peak;
-                    if (mntmMode === "REHIGH_PLUS_PCT") target = peak + (peak * mntmVal / 100);
-                    else if (mntmMode === "REHIGH_PLUS_PTS") target = peak + mntmVal;
-                    else if (mntmMode === "REHIGH_MINUS_PCT") target = peak - (peak * mntmVal / 100);
-                    else if (mntmMode === "REHIGH_MINUS_PTS") target = peak - mntmVal;
+                    const rtp = leg.re_high_trigger_price;
+                    const mode = leg.leg.rehigh_mode || 'REHIGH_MINUS_PTS';
 
                     let triggerReEntry = false;
-                    if (mntmMode.includes("PLUS")) {
-                        if (prevTick < target && currentTick >= target) triggerReEntry = true;
+                    if (mode.includes("PLUS")) {
+                        if (prevTick < rtp && currentTick >= rtp) triggerReEntry = true;
                     } else {
-                        if (prevTick > target && currentTick <= target) triggerReEntry = true;
+                        if (prevTick > rtp && currentTick <= rtp) triggerReEntry = true;
                     }
 
                     if (triggerReEntry) {
@@ -198,26 +190,18 @@ async function monitorStrategyLoop(strategyId, strategy) {
                     }
                 }
 
-                // 2d. Re-Low Cross Logic (Breakout from Low)
+                // 2d. Re-Low Cross Logic (RTP reached)
                 if (leg.state === "WAITING_FOR_RE_LOW" && leg.last_tick_price !== null) {
                     const currentTick = leg.currentLtp;
                     const prevTick = leg.last_tick_price;
-                    const lowTrigger = leg.re_low_trigger_price;
+                    const rtp = leg.re_low_trigger_price;
+                    const mode = leg.leg.relow_mode || 'RELOW_PLUS_PTS';
                     
-                    const mntmMode = leg.leg.relow_mntm_mode || "RELOW_PLUS_PTS";
-                    const mntmVal = leg.leg.relow_mntm_value || 1;
-                    
-                    let target = lowTrigger;
-                    if (mntmMode === "RELOW_PLUS_PCT") target = lowTrigger + (lowTrigger * mntmVal / 100);
-                    else if (mntmMode === "RELOW_PLUS_PTS") target = lowTrigger + mntmVal;
-                    else if (mntmMode === "RELOW_MINUS_PCT") target = lowTrigger - (lowTrigger * mntmVal / 100);
-                    else if (mntmMode === "RELOW_MINUS_PTS") target = lowTrigger - mntmVal;
-
                     let triggerReEntry = false;
-                    if (mntmMode.includes("PLUS")) {
-                        if (prevTick < target && currentTick >= target) triggerReEntry = true;
+                    if (mode.includes("PLUS")) {
+                        if (prevTick < rtp && currentTick >= rtp) triggerReEntry = true;
                     } else {
-                        if (prevTick > target && currentTick <= target) triggerReEntry = true;
+                        if (prevTick > rtp && currentTick <= rtp) triggerReEntry = true;
                     }
 
                     if (triggerReEntry) {

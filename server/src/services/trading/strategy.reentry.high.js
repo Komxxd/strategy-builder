@@ -12,7 +12,16 @@ async function handleReentryHigh({ leg, config, strategyId, addStrategyLog, curr
     // Increment re-entry count
     leg.reentry_count = (leg.reentry_count || 0) + 1;
     
-    // We already crossed the trigger (re_high_trigger_price), now we place the order
+    // Proactively set state to ACTIVE to prevent duplicate triggers
+    leg.state = "ACTIVE";
+    leg.exited = false;
+    leg.exitType = null;
+    leg.isExiting = false;
+    leg.entryPrice = null;
+    leg.orderId = null;
+    leg.uniqueOrderId = null;
+    leg.slOrderId = null;
+    leg.slUniqueOrderId = null;
     const side = leg.leg.side;
     const rtp = leg.re_high_trigger_price; 
     const currentPrice = currentTick || leg.currentLtp;
@@ -20,37 +29,48 @@ async function handleReentryHigh({ leg, config, strategyId, addStrategyLog, curr
     console.log(`[RE-HIGH] Triggered for ${leg.instrument?.symbol}. Peak Price was ${rtp}. Current LTP=${currentPrice}`);
     addStrategyLog(strategyId, `[RE-HIGH] Triggered for ${leg.instrument?.symbol}. Peak Price was ${rtp}. Current LTP=${currentPrice}`, "INFO");
 
+    const mntmMode = leg.leg.rehigh_mntm_mode || "REHIGH_PLUS_PTS";
+    const mntmVal = leg.leg.rehigh_mntm_value || 0;
+    
+    let mtp = rtp;
+    if (mntmMode === "REHIGH_PLUS_PCT") mtp = rtp + (rtp * mntmVal / 100);
+    else if (mntmMode === "REHIGH_PLUS_PTS") mtp = rtp + mntmVal;
+    else if (mntmMode === "REHIGH_MINUS_PCT") mtp = rtp - (rtp * mntmVal / 100);
+    else if (mntmMode === "REHIGH_MINUS_PTS") mtp = rtp - mntmVal;
+    mtp = roundToTick(mtp);
+
     let variety = config.variety || "NORMAL";
     let ordertype = config.ordertype || "LIMIT";
-    const offsetAmt = getLimitOffsetAmt(rtp, config);
+    const offsetAmt = getLimitOffsetAmt(mtp, config);
 
-    let finalPriceStr = rtp.toString();
-    let triggerPriceStr = rtp.toString();
+    let finalPriceStr = mtp.toString();
+    let triggerPriceStr = mtp.toString();
 
-    // Determine order type based on LTP vs Trigger
+    // Determine order type based on LTP vs MTP
     if (side === "SELL") {
-        if (rtp < currentPrice) {
+        if (mtp < currentPrice) {
             variety = "STOPLOSS";
             ordertype = "STOPLOSS_LIMIT";
-            finalPriceStr = roundToTick(rtp - offsetAmt).toString();
+            finalPriceStr = roundToTick(mtp - offsetAmt).toString();
+            triggerPriceStr = mtp.toString();
         } else {
             variety = "NORMAL";
             ordertype = "LIMIT";
-            finalPriceStr = roundToTick(rtp - offsetAmt).toString();
+            finalPriceStr = roundToTick(mtp - offsetAmt).toString();
         }
     } else if (side === "BUY") {
-        if (rtp > currentPrice) {
+        if (mtp > currentPrice) {
             variety = "STOPLOSS";
             ordertype = "STOPLOSS_LIMIT";
-            finalPriceStr = roundToTick(rtp + offsetAmt).toString();
+            finalPriceStr = roundToTick(mtp + offsetAmt).toString();
+            triggerPriceStr = mtp.toString();
         } else {
             variety = "NORMAL";
             ordertype = "LIMIT";
-            finalPriceStr = roundToTick(rtp + offsetAmt).toString();
+            finalPriceStr = roundToTick(mtp + offsetAmt).toString();
         }
     }
 
-    leg.state = "ACTIVE";
     leg.exited = false;
     leg.exitType = null;
     leg.isExiting = false;
