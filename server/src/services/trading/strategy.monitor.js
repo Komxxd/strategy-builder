@@ -3,6 +3,8 @@ const { getAuthorizedInstance } = require("../../config/smartapi");
 const { handleReentryAsap } = require("./strategy.reentry.asap");
 const { handleLazyLeg } = require("./strategy.reentry.lazy");
 const { handleReentryCost } = require("./strategy.reentry.cost");
+const { handleReentryReSL } = require("./strategy.reentry.resl");
+const { handleReentryHigh } = require("./strategy.reentry.high");
 const { checkMomentumHit } = require("./strategy.momentum");
 const { getISTTime } = require("./strategy.time");
 const { computeStopLossExitPrices, getLimitOffsetAmt } = require("./strategy.offset");
@@ -18,7 +20,7 @@ async function monitorStrategyLoop(strategyId, strategy) {
     const currentTime = getISTTime();
 
     try {
-        const activeLegs = strategy.legs.filter(leg => !(leg.exited && !["WAITING_FOR_RECOST", "WAITING_FOR_RE_ASAP", "WAITING_FOR_LAZY"].includes(leg.state)));
+        const activeLegs = strategy.legs.filter(leg => !(leg.exited && !["WAITING_FOR_RECOST", "WAITING_FOR_MNTM", "WAITING_FOR_RE_ASAP", "WAITING_FOR_LAZY", "WAITING_FOR_RESL_MNTM", "WAITING_FOR_RE_HIGH"].includes(leg.state)));
         if (activeLegs.length === 0) return;
 
         const ltpMap = globalLtpMap;
@@ -42,6 +44,13 @@ async function monitorStrategyLoop(strategyId, strategy) {
 
             if (tickPrice !== undefined) {
                 leg.currentLtp = tickPrice;
+
+                // Track Peak Price for RE-HIGH
+                if (leg.state === "ACTIVE") {
+                    if (!leg.max_peak_price || tickPrice > leg.max_peak_price) {
+                        leg.max_peak_price = tickPrice;
+                    }
+                }
 
                 // 1. Simple Momentum Entry (Paper Only)
                 if (leg.state === "WAITING_FOR_SIMPLE_MNTM" && leg.last_tick_price !== null) {
@@ -90,6 +99,51 @@ async function monitorStrategyLoop(strategyId, strategy) {
 
                     if (triggerReEntry) {
                         await handleReentryCost({ leg, config, strategyId, addStrategyLog, currentTick });
+                    }
+                }
+
+                // 2b. Re-SL Cross Logic
+                if (leg.state === "WAITING_FOR_RESL_MNTM" && leg.last_tick_price !== null) {
+                    const currentTick = leg.currentLtp;
+                    const prevTick = leg.last_tick_price;
+                    const rtp = leg.resl_trigger_price;
+                    let triggerReEntry = false;
+
+                    if (leg.leg.resl_mode.includes("PLUS")) {
+                        if (prevTick <= rtp && currentTick >= rtp) triggerReEntry = true;
+                    } else {
+                        if (prevTick >= rtp && currentTick <= rtp) triggerReEntry = true;
+                    }
+
+                    if (triggerReEntry) {
+                        await handleReentryReSL({ leg, config, strategyId, addStrategyLog, currentTick });
+                    }
+                }
+
+                // 2c. Re-High Cross Logic (Breakout from Peak)
+                if (leg.state === "WAITING_FOR_RE_HIGH" && leg.last_tick_price !== null) {
+                    const currentTick = leg.currentLtp;
+                    const prevTick = leg.last_tick_price;
+                    const peak = leg.re_high_trigger_price;
+                    
+                    const mntmMode = leg.leg.rehigh_mntm_mode || "REHIGH_PLUS_PTS";
+                    const mntmVal = leg.leg.rehigh_mntm_value || 1;
+                    
+                    let target = peak;
+                    if (mntmMode === "REHIGH_PLUS_PCT") target = peak + (peak * mntmVal / 100);
+                    else if (mntmMode === "REHIGH_PLUS_PTS") target = peak + mntmVal;
+                    else if (mntmMode === "REHIGH_MINUS_PCT") target = peak - (peak * mntmVal / 100);
+                    else if (mntmMode === "REHIGH_MINUS_PTS") target = peak - mntmVal;
+
+                    let triggerReEntry = false;
+                    if (mntmMode.includes("PLUS")) {
+                        if (prevTick < target && currentTick >= target) triggerReEntry = true;
+                    } else {
+                        if (prevTick > target && currentTick <= target) triggerReEntry = true;
+                    }
+
+                    if (triggerReEntry) {
+                        await handleReentryHigh({ leg, config, strategyId, addStrategyLog, currentTick });
                     }
                 }
 

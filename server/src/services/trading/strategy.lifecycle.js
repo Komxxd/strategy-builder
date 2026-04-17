@@ -49,18 +49,18 @@ async function handleLegStopOut(leg, exitType, strategy) {
             exitType: null,
             isExiting: false,
             entryPrice: null,
-            currentLtp: leg.currentLtp,
-            last_tick_price: leg.currentLtp,
+            currentLtp: null,
+            last_tick_price: null,
             reentry_count: leg.reentry_count + 1,
             original_traded_price: 0,
-            base_otp: leg.base_otp || leg.original_traded_price,
-            bookedPnlPoints: (leg.bookedPnlPoints || 0) + (leg.currentActivePnlPoints || 0),
-            bookedPnlRupees: (leg.bookedPnlRupees || 0) + (leg.currentActivePnlRupees || 0),
+            base_otp: 0,
+            bookedPnlPoints: 0,
+            bookedPnlRupees: 0,
             currentActivePnlPoints: 0,
             currentActivePnlRupees: 0,
-            pnlPercent: leg.pnlPercent || 0,
-            pnlPoints: leg.pnlPoints || 0,
-            pnlRupees: leg.pnlRupees || 0,
+            pnlPercent: 0,
+            pnlPoints: 0,
+            pnlRupees: 0,
             slOrderId: null,
             slUniqueOrderId: null,
             slTriggerPrice: null,
@@ -273,7 +273,259 @@ async function handleLegStopOut(leg, exitType, strategy) {
         return;
     }
 
-    // LAZY LEG
+    // RE-SL (Re-Entry at SL Price Basis)
+    if (leg.leg.resl_enabled && (leg.reentry_count < (leg.leg.max_reentry || 1))) {
+        const slPrice = leg.currentLtp || leg.exitSnapshot?.exitLtp;
+        const mode = leg.leg.resl_mode || "RESL_PLUS_PCT";
+        const val = leg.leg.resl_value || 0;
+        let rtp = slPrice;
+
+        if (mode === "RESL_PLUS_PCT") rtp = slPrice + (slPrice * val / 100);
+        else if (mode === "RESL_PLUS_PTS") rtp = slPrice + val;
+        else if (mode === "RESL_MINUS_PCT") rtp = slPrice - (slPrice * val / 100);
+        else if (mode === "RESL_MINUS_PTS") rtp = slPrice - val;
+
+        const newRtp = roundToTick(rtp);
+        const currentLtp = leg.currentLtp || newRtp;
+        const side = leg.leg.side;
+
+        if (leg.leg.resl_mntm_enabled) {
+            console.log(`[RE-SL] SL Hit for ${leg.instrument?.symbol}. Setting state to WAITING_FOR_RESL_MNTM. Target Price=${newRtp}`);
+            const newLeg = {
+                leg: { ...leg.leg },
+                instrument: { ...leg.instrument },
+                orderId: null,
+                uniqueOrderId: null,
+                exitOrderId: null,
+                state: "WAITING_FOR_RESL_MNTM",
+                legIndex: leg.legIndex,
+                exited: false,
+                exitType: null,
+                isExiting: false,
+                entryPrice: null,
+                currentLtp: currentLtp,
+                last_tick_price: currentLtp,
+                reentry_count: leg.reentry_count, 
+                original_traded_price: 0,
+                base_otp: leg.base_otp || leg.original_traded_price,
+                resl_trigger_price: newRtp,
+                bookedPnlPoints: 0,
+                bookedPnlRupees: 0,
+                currentActivePnlPoints: 0,
+                currentActivePnlRupees: 0,
+                currentActivePnlPercent: 0,
+                pnlPercent: 0,
+                pnlPoints: 0,
+                pnlRupees: 0,
+                slOrderId: null,
+                slUniqueOrderId: null,
+                slTriggerPrice: null,
+                slLimitPrice: null,
+                rtp: newRtp,
+                mtp: null,
+                exchangeSlProcessed: false
+            };
+            strategy.legs.push(newLeg);
+            return; 
+        }
+
+        let variety = config.variety || "NORMAL";
+        let ordertype = config.ordertype || "LIMIT";
+        const offsetAmt = getLimitOffsetAmt(newRtp, config);
+
+        let finalPriceStr = newRtp.toString();
+        let triggerPriceStr = newRtp.toString();
+
+        if (side === "SELL") {
+            if (newRtp < currentLtp) {
+                variety = "STOPLOSS";
+                ordertype = "STOPLOSS_LIMIT";
+                finalPriceStr = roundToTick(newRtp - offsetAmt).toString();
+            } else {
+                variety = "NORMAL";
+                ordertype = "LIMIT";
+                finalPriceStr = roundToTick(newRtp - offsetAmt).toString();
+            }
+        } else if (side === "BUY") {
+            if (newRtp > currentLtp) {
+                variety = "STOPLOSS";
+                ordertype = "STOPLOSS_LIMIT";
+                finalPriceStr = roundToTick(newRtp + offsetAmt).toString();
+            } else {
+                variety = "NORMAL";
+                ordertype = "LIMIT";
+                finalPriceStr = roundToTick(newRtp + offsetAmt).toString();
+            }
+        }
+
+        const newLeg = {
+            leg: { ...leg.leg },
+            instrument: { ...leg.instrument },
+            orderId: null,
+            uniqueOrderId: null,
+            exitOrderId: null,
+            legIndex: leg.legIndex,
+            state: "ACTIVE", 
+            exited: false,
+            exitType: null,
+            isExiting: false,
+            entryPrice: null,
+            currentLtp: currentLtp,
+            last_tick_price: currentLtp,
+            reentry_count: leg.reentry_count + 1,
+            original_traded_price: 0,
+            base_otp: leg.base_otp || leg.original_traded_price,
+            resl_trigger_price: newRtp,
+            bookedPnlPoints: 0,
+            bookedPnlRupees: 0,
+            currentActivePnlPoints: 0,
+            currentActivePnlRupees: 0,
+            currentActivePnlPercent: 0,
+            pnlPercent: 0,
+            pnlPoints: 0,
+            pnlRupees: 0,
+            slOrderId: null,
+            slUniqueOrderId: null,
+            slTriggerPrice: null,
+            slLimitPrice: null,
+            rtp: newRtp,
+            mtp: null,
+            exchangeSlProcessed: false
+        };
+
+        strategy.legs.push(newLeg);
+
+        try {
+            console.log(`[RE-SL] Firing Immediate Re-Entry Order for ${newLeg.instrument.symbol}. RTP=${newRtp}, LTP=${currentLtp}, Var/Type=${variety}/${ordertype}`);
+            const reEntryOrder = await placeOrder(
+                {
+                    ...config,
+                    side: side,
+                    variety: variety,
+                    ordertype: ordertype,
+                    price: finalPriceStr,
+                    triggerprice: triggerPriceStr,
+                    lots: newLeg.leg.lots
+                },
+                newLeg.instrument,
+                config.connectionId
+            );
+
+            newLeg.orderId = reEntryOrder.orderid;
+            newLeg.uniqueOrderId = reEntryOrder.uniqueorderid;
+
+            setTimeout(async () => {
+                try {
+                    const fill = await waitForOrderFillPrice(
+                        newLeg.uniqueOrderId,
+                        config.connectionId,
+                        config.is_paper_trading === true,
+                        newLeg.instrument,
+                        28800000, 
+                        1000,     
+                        {         
+                            side: side,
+                            ordertype: ordertype,
+                            price: parseFloat(finalPriceStr || 0),
+                            triggerprice: parseFloat(triggerPriceStr || 0),
+                            isInstantFill: false
+                        }
+                    );
+                    newLeg.entryPrice = fill || currentLtp;
+                    newLeg.entryTime = getISTTime();
+                    newLeg.original_traded_price = newLeg.entryPrice;
+                } catch (e) {
+                    newLeg.entryPrice = currentLtp;
+                    newLeg.entryTime = getISTTime();
+                }
+
+                const isSlEnabled = newLeg.leg.reentry_sl_enabled ? true : newLeg.leg.sl_enabled !== false;
+                if (config.variety === "STOPLOSS" && newLeg.entryPrice && isSlEnabled) {
+                    const activeSlType = newLeg.leg.reentry_sl_enabled ? newLeg.leg.reentry_sl_type : (newLeg.leg.sl_type || "PERCENTAGE");
+                    const activeSlValue = newLeg.leg.reentry_sl_enabled ? newLeg.leg.reentry_sl_value : newLeg.leg.stop_loss;
+
+                    const slOrder = await placeStopLossWithRetry({
+                        baseConfig: config,
+                        legSide: newLeg.leg.side,
+                        entryPrice: newLeg.entryPrice,
+                        instrument: newLeg.instrument,
+                        lots: newLeg.leg.lots,
+                        slType: activeSlType,
+                        slValue: activeSlValue,
+                        slLimitMargin: config.entry_limit_offset,
+                        slLimitMarginType: config.entry_limit_offset_type || 'POINTS',
+                        connectionId: config.connectionId,
+                        strategyId: strategyId
+                    });
+                    if (slOrder?.orderid) {
+                        const prices = computeStopLossExitPrices(newLeg.entryPrice, newLeg.leg.side, activeSlType, activeSlValue, config.entry_limit_offset, config.entry_limit_offset_type || 'POINTS');
+                        newLeg.slOrderId = slOrder.orderid;
+                        newLeg.slUniqueOrderId = slOrder.uniqueorderid;
+                        newLeg.slTriggerPrice = prices?.trigger;
+                        newLeg.slLimitPrice = prices?.limit;
+                        newLeg.exchangeSlProcessed = false;
+                    }
+                }
+            }, 1000);
+        } catch (err) {
+            console.error("[RE-SL] Immediate Re-entry failed. Halting leg completely.", err);
+            newLeg.state = "COMPLETED";
+            newLeg.exited = true;
+        }
+        return;
+    }
+
+
+    // RE-HIGH (Re-Entry at High Price Basis)
+    if (leg.leg.rehigh_enabled && (leg.reentry_count < (leg.leg.max_reentry || 1))) {
+        const peakPrice = leg.max_peak_price || leg.original_traded_price;
+        const currentLtp = leg.currentLtp || peakPrice;
+        
+        let triggerPrice = peakPrice;
+        const mode = leg.leg.rehigh_mode || 'REHIGH_MINUS_PTS';
+        const val = leg.leg.rehigh_value || 0;
+
+        if (mode === 'REHIGH_MINUS_PCT') triggerPrice = peakPrice - (peakPrice * val / 100);
+        else if (mode === 'REHIGH_MINUS_PTS') triggerPrice = peakPrice - val;
+
+        console.log(`[RE-HIGH] SL Hit for ${leg.instrument?.symbol}. Peak Price=${peakPrice}. Trigger Price=${triggerPrice}`);
+        const newLeg = {
+            leg: { ...leg.leg },
+            instrument: { ...leg.instrument },
+            orderId: null,
+            uniqueOrderId: null,
+            exitOrderId: null,
+            state: "WAITING_FOR_RE_HIGH",
+            legIndex: leg.legIndex,
+            exited: false,
+            exitType: null,
+            isExiting: false,
+            entryPrice: null,
+            currentLtp: currentLtp,
+            last_tick_price: currentLtp,
+            reentry_count: leg.reentry_count, 
+            original_traded_price: 0,
+            base_otp: leg.base_otp || leg.original_traded_price,
+            re_high_trigger_price: triggerPrice,
+            bookedPnlPoints: 0,
+            bookedPnlRupees: 0,
+            currentActivePnlPoints: 0,
+            currentActivePnlRupees: 0,
+            currentActivePnlPercent: 0,
+            pnlPercent: 0,
+            pnlPoints: 0,
+            pnlRupees: 0,
+            slOrderId: null,
+            slUniqueOrderId: null,
+            slTriggerPrice: null,
+            slLimitPrice: null,
+            rtp: triggerPrice,
+            mtp: null,
+            exchangeSlProcessed: false
+        };
+        strategy.legs.push(newLeg);
+        return; 
+    }
     if (leg.leg.lazy_leg_enabled && leg.leg.lazy_leg) {
         addStrategyLog(strategyId, `Lazy Leg triggered after ${leg.instrument?.symbol || "leg"} stop-out. Initializing lazy leg...`, "INFO");
 

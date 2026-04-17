@@ -36,7 +36,7 @@ async function handleReentryAsap({ leg, config, strategyId, addStrategyLog }) {
         if (leg.leg.simple_mntm_enabled) {
             const roundedMntmTarget = calculateMomentumTarget(instLtp, leg.leg);
             leg.mntmTargetPrice = roundedMntmTarget;
-            leg.baseOtp = instLtp;
+            leg.base_otp = instLtp;
             leg.state = "WAITING_FOR_SIMPLE_MNTM";
             addStrategyLog(strategyId, `[RE-ASAP] ${targetInstrument.symbol} re-entry #${leg.reentry_count} waiting for Momentum @ ₹${leg.mntmTargetPrice}`, "INFO");
         } else {
