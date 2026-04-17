@@ -478,7 +478,7 @@ async function handleLegStopOut(leg, exitType, strategy) {
 
     // RE-HIGH (Re-Entry at High Price Basis)
     if (leg.leg.rehigh_enabled && (leg.reentry_count < (leg.leg.max_reentry || 1))) {
-        const peakPrice = leg.max_peak_price || leg.original_traded_price;
+        const peakPrice = leg.currentLtp || leg.original_traded_price;
         const currentLtp = leg.currentLtp || peakPrice;
         
         let triggerPrice = peakPrice;
@@ -507,6 +507,61 @@ async function handleLegStopOut(leg, exitType, strategy) {
             original_traded_price: 0,
             base_otp: leg.base_otp || leg.original_traded_price,
             re_high_trigger_price: triggerPrice,
+            max_peak_price: peakPrice,
+            bookedPnlPoints: 0,
+            bookedPnlRupees: 0,
+            currentActivePnlPoints: 0,
+            currentActivePnlRupees: 0,
+            currentActivePnlPercent: 0,
+            pnlPercent: 0,
+            pnlPoints: 0,
+            pnlRupees: 0,
+            slOrderId: null,
+            slUniqueOrderId: null,
+            slTriggerPrice: null,
+            slLimitPrice: null,
+            rtp: triggerPrice,
+            mtp: null,
+            exchangeSlProcessed: false
+        };
+        strategy.legs.push(newLeg);
+        return; 
+    }
+
+    // RE-LOW (Re-Entry at Low Price Basis)
+    if (leg.leg.relow_enabled && (leg.reentry_count < (leg.leg.max_reentry || 1))) {
+        const currentLtp = leg.currentLtp || leg.original_traded_price;
+        const lowPrice = currentLtp; // Baseline is SL hit price
+        
+        let triggerPrice = lowPrice;
+        const mode = leg.leg.relow_mode || 'RELOW_PLUS_PTS';
+        const val = leg.leg.relow_value || 0;
+
+        if (mode === 'RELOW_PLUS_PCT') triggerPrice = lowPrice + (lowPrice * val / 100);
+        else if (mode === 'RELOW_PLUS_PTS') triggerPrice = lowPrice + val;
+        else if (mode === 'RELOW_MINUS_PCT') triggerPrice = lowPrice - (lowPrice * val / 100);
+        else if (mode === 'RELOW_MINUS_PTS') triggerPrice = lowPrice - val;
+
+        console.log(`[RE-LOW] SL Hit for ${leg.instrument?.symbol}. Baseline Low=${lowPrice}. Trigger Price=${triggerPrice}`);
+        const newLeg = {
+            leg: { ...leg.leg },
+            instrument: { ...leg.instrument },
+            orderId: null,
+            uniqueOrderId: null,
+            exitOrderId: null,
+            state: "WAITING_FOR_RE_LOW",
+            legIndex: leg.legIndex,
+            exited: false,
+            exitType: null,
+            isExiting: false,
+            entryPrice: null,
+            currentLtp: currentLtp,
+            last_tick_price: currentLtp,
+            reentry_count: leg.reentry_count, 
+            original_traded_price: 0,
+            base_otp: leg.base_otp || leg.original_traded_price,
+            re_low_trigger_price: triggerPrice,
+            max_low_price: lowPrice,
             bookedPnlPoints: 0,
             bookedPnlRupees: 0,
             currentActivePnlPoints: 0,

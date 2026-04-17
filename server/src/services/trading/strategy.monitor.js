@@ -5,6 +5,7 @@ const { handleLazyLeg } = require("./strategy.reentry.lazy");
 const { handleReentryCost } = require("./strategy.reentry.cost");
 const { handleReentryReSL } = require("./strategy.reentry.resl");
 const { handleReentryHigh } = require("./strategy.reentry.high");
+const { handleReentryLow } = require("./strategy.reentry.low");
 const { checkMomentumHit } = require("./strategy.momentum");
 const { getISTTime } = require("./strategy.time");
 const { computeStopLossExitPrices, getLimitOffsetAmt } = require("./strategy.offset");
@@ -20,7 +21,7 @@ async function monitorStrategyLoop(strategyId, strategy) {
     const currentTime = getISTTime();
 
     try {
-        const activeLegs = strategy.legs.filter(leg => !(leg.exited && !["WAITING_FOR_RECOST", "WAITING_FOR_MNTM", "WAITING_FOR_RE_ASAP", "WAITING_FOR_LAZY", "WAITING_FOR_RESL_MNTM", "WAITING_FOR_RE_HIGH"].includes(leg.state)));
+        const activeLegs = strategy.legs.filter(leg => !(leg.exited && !["WAITING_FOR_RECOST", "WAITING_FOR_MNTM", "WAITING_FOR_RE_ASAP", "WAITING_FOR_LAZY", "WAITING_FOR_RESL_MNTM", "WAITING_FOR_RE_HIGH", "WAITING_FOR_RE_LOW"].includes(leg.state)));
         if (activeLegs.length === 0) return;
 
         const ltpMap = globalLtpMap;
@@ -46,9 +47,59 @@ async function monitorStrategyLoop(strategyId, strategy) {
                 leg.currentLtp = tickPrice;
 
                 // Track Peak Price for RE-HIGH
-                if (leg.state === "ACTIVE") {
+                // Track Peak Price for RE-HIGH (favorable move) ONLY after Stop-Loss occurs
+                if (leg.state === "WAITING_FOR_RE_HIGH") {
+                    let isNewPeak = false;
+                    // Track absolute High (Max LTP) since SL hit
                     if (!leg.max_peak_price || tickPrice > leg.max_peak_price) {
                         leg.max_peak_price = tickPrice;
+                        isNewPeak = true;
+                    }
+
+                    // Dynamic Trigger Update for RE-HIGH
+                    if (isNewPeak && leg.state === "WAITING_FOR_RE_HIGH") {
+                        const mode = leg.leg.rehigh_mode || 'REHIGH_MINUS_PTS';
+                        const val = leg.leg.rehigh_value || 0;
+                        const peak = leg.max_peak_price;
+                        let newTrigger = peak;
+
+                        if (mode === 'REHIGH_MINUS_PCT') newTrigger = peak - (peak * val / 100);
+                        else if (mode === 'REHIGH_MINUS_PTS') newTrigger = peak - val;
+                        else if (mode === 'REHIGH_PLUS_PCT') newTrigger = peak + (peak * val / 100);
+                        else if (mode === 'REHIGH_PLUS_PTS') newTrigger = peak + val;
+
+                        if (newTrigger !== leg.re_high_trigger_price) {
+                            leg.re_high_trigger_price = newTrigger;
+                            addStrategyLog(strategyId, `[RE-HIGH] New Peak detected: ₹${peak}. Re-entry trigger moved to ₹${newTrigger}`, "INFO");
+                        }
+                    }
+                }
+                
+                // Track Low Price (Lowest LTP since SL) for RE-LOW
+                if (leg.state === "WAITING_FOR_RE_LOW") {
+                    let isNewLow = false;
+                    // Track absolute Low (Min LTP) since SL hit
+                    if (!leg.max_low_price || tickPrice < leg.max_low_price) {
+                        leg.max_low_price = tickPrice;
+                        isNewLow = true;
+                    }
+
+                    // Dynamic Trigger Update for RE-LOW
+                    if (isNewLow) {
+                        const mode = leg.leg.relow_mode || 'RELOW_PLUS_PTS';
+                        const val = leg.leg.relow_value || 0;
+                        const low = leg.max_low_price;
+                        let newTrigger = low;
+
+                        if (mode === 'RELOW_PLUS_PCT') newTrigger = low + (low * val / 100);
+                        else if (mode === 'RELOW_PLUS_PTS') newTrigger = low + val;
+                        else if (mode === 'RELOW_MINUS_PCT') newTrigger = low - (low * val / 100);
+                        else if (mode === 'RELOW_MINUS_PTS') newTrigger = low - val;
+
+                        if (newTrigger !== leg.re_low_trigger_price) {
+                            leg.re_low_trigger_price = newTrigger;
+                            addStrategyLog(strategyId, `[RE-LOW] New Low detected: ₹${low}. Re-entry trigger moved to ₹${newTrigger}`, "INFO");
+                        }
                     }
                 }
 
@@ -144,6 +195,33 @@ async function monitorStrategyLoop(strategyId, strategy) {
 
                     if (triggerReEntry) {
                         await handleReentryHigh({ leg, config, strategyId, addStrategyLog, currentTick });
+                    }
+                }
+
+                // 2d. Re-Low Cross Logic (Breakout from Low)
+                if (leg.state === "WAITING_FOR_RE_LOW" && leg.last_tick_price !== null) {
+                    const currentTick = leg.currentLtp;
+                    const prevTick = leg.last_tick_price;
+                    const lowTrigger = leg.re_low_trigger_price;
+                    
+                    const mntmMode = leg.leg.relow_mntm_mode || "RELOW_PLUS_PTS";
+                    const mntmVal = leg.leg.relow_mntm_value || 1;
+                    
+                    let target = lowTrigger;
+                    if (mntmMode === "RELOW_PLUS_PCT") target = lowTrigger + (lowTrigger * mntmVal / 100);
+                    else if (mntmMode === "RELOW_PLUS_PTS") target = lowTrigger + mntmVal;
+                    else if (mntmMode === "RELOW_MINUS_PCT") target = lowTrigger - (lowTrigger * mntmVal / 100);
+                    else if (mntmMode === "RELOW_MINUS_PTS") target = lowTrigger - mntmVal;
+
+                    let triggerReEntry = false;
+                    if (mntmMode.includes("PLUS")) {
+                        if (prevTick < target && currentTick >= target) triggerReEntry = true;
+                    } else {
+                        if (prevTick > target && currentTick <= target) triggerReEntry = true;
+                    }
+
+                    if (triggerReEntry) {
+                        await handleReentryLow({ leg, config, strategyId, addStrategyLog, currentTick });
                     }
                 }
 
