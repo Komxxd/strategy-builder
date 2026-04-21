@@ -901,8 +901,14 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
                                         <Input
                                             className="h-9 rounded-lg text-[9px]"
                                             type="number"
-                                            value={leg.rehigh_value === undefined ? '' : leg.rehigh_value}
-                                            onChange={(e) => onChange({ ...leg, rehigh_value: parseFloat(e.target.value) || 0 })}
+                                            value={leg.rehigh_value === undefined || leg.rehigh_value === '' ? '' : leg.rehigh_value}
+                                            onChange={(e) => onChange({ ...leg, rehigh_value: e.target.value === '' ? '' : parseFloat(e.target.value) })}
+                                            onBlur={(e) => {
+                                                const val = parseFloat(e.target.value);
+                                                if (isNaN(val) || val < 1) {
+                                                    onChange({ ...leg, rehigh_value: 1 });
+                                                }
+                                            }}
                                         />
                                     </div>
                                     <div className="space-y-1">
@@ -927,14 +933,22 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
 
                                 <div className="space-y-2 pt-1">
                                     <div className="flex items-center gap-2">
-                                        <Label className="text-[10px] cursor-pointer">Re-Entry Momentum</Label>
+                                        <input
+                                            type="checkbox"
+                                            id={`rehigh-mntm-${idPrefix}`}
+                                            className="w-3.5 h-3.5 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                            checked={leg.rehigh_mntm_enabled || false}
+                                            onChange={(e) => onChange({ ...leg, rehigh_mntm_enabled: e.target.checked })}
+                                        />
+                                        <Label htmlFor={`rehigh-mntm-${idPrefix}`} className="text-[10px] cursor-pointer">Re-Entry Momentum</Label>
                                     </div>
 
-                                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pl-4 animate-in slide-in-from-top-2 border-l-2 border-primary/20">
+                                    {leg.rehigh_mntm_enabled && (
+                                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pl-5 animate-in slide-in-from-top-2 border-l-2 border-primary/20">
                                             <div className="space-y-1">
                                                 <Label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground block mb-2">Mntm Mode</Label>
                                                 <Select
-                                                    value={leg.rehigh_mntm_mode || 'REHIGH_PLUS_PTS'}
+                                                    value={leg.rehigh_mntm_mode || 'REHIGH_PLUS_PCT'}
                                                     onValueChange={(v) => onChange({ ...leg, rehigh_mntm_mode: v })}
                                                 >
                                                     <SelectTrigger className="h-9 rounded-lg text-[10px]">
@@ -974,6 +988,7 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
                                                 />
                                             </div>
                                         </div>
+                                    )}
 
                                     <div className="flex items-center gap-2">
                                         <input
@@ -1044,8 +1059,14 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
                                         <Input
                                             className="h-9 rounded-lg text-[9px]"
                                             type="number"
-                                            value={leg.relow_value === undefined ? '' : leg.relow_value}
-                                            onChange={(e) => onChange({ ...leg, relow_value: parseFloat(e.target.value) || 0 })}
+                                            value={leg.relow_value === undefined || leg.relow_value === '' ? '' : leg.relow_value}
+                                            onChange={(e) => onChange({ ...leg, relow_value: e.target.value === '' ? '' : parseFloat(e.target.value) })}
+                                            onBlur={(e) => {
+                                                const val = parseFloat(e.target.value);
+                                                if (isNaN(val) || val < 1) {
+                                                    onChange({ ...leg, relow_value: 1 });
+                                                }
+                                            }}
                                         />
                                     </div>
                                     <div className="space-y-1">
@@ -1070,14 +1091,22 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
 
                                 <div className="space-y-2 pt-1">
                                     <div className="flex items-center gap-2">
-                                        <Label className="text-[10px] cursor-pointer">Re-Entry Momentum</Label>
+                                        <input
+                                            type="checkbox"
+                                            id={`relow-mntm-${idPrefix}`}
+                                            className="w-3.5 h-3.5 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                            checked={leg.relow_mntm_enabled || false}
+                                            onChange={(e) => onChange({ ...leg, relow_mntm_enabled: e.target.checked })}
+                                        />
+                                        <Label htmlFor={`relow-mntm-${idPrefix}`} className="text-[10px] cursor-pointer">Re-Entry Momentum</Label>
                                     </div>
 
-                                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pl-4 animate-in slide-in-from-top-2 border-l-2 border-primary/20">
+                                    {leg.relow_mntm_enabled && (
+                                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pl-5 animate-in slide-in-from-top-2 border-l-2 border-primary/20">
                                             <div className="space-y-1">
                                                 <Label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground block mb-2">Mntm Mode</Label>
                                                 <Select
-                                                    value={leg.relow_mntm_mode || 'RELOW_PLUS_PTS'}
+                                                    value={leg.relow_mntm_mode || 'RELOW_PLUS_PCT'}
                                                     onValueChange={(v) => onChange({ ...leg, relow_mntm_mode: v })}
                                                 >
                                                     <SelectTrigger className="h-9 rounded-lg text-[10px]">
@@ -1114,6 +1143,7 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
                                                 />
                                             </div>
                                         </div>
+                                    )}
 
                                     <div className="flex items-center gap-2">
                                         <input

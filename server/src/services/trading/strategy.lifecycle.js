@@ -483,10 +483,10 @@ async function handleLegStopOut(leg, exitType, strategy) {
         
         let triggerPrice = peakPrice;
         const mode = leg.leg.rehigh_mode || 'REHIGH_MINUS_PTS';
-        const val = leg.leg.rehigh_value || 0;
+        const effectiveVal = Math.max(1, parseFloat(val || 0));
 
-        if (mode === 'REHIGH_MINUS_PCT') triggerPrice = peakPrice - (peakPrice * val / 100);
-        else if (mode === 'REHIGH_MINUS_PTS') triggerPrice = peakPrice - val;
+        if (mode === 'REHIGH_MINUS_PCT') triggerPrice = peakPrice - (peakPrice * effectiveVal / 100);
+        else if (mode === 'REHIGH_MINUS_PTS') triggerPrice = peakPrice - effectiveVal;
 
         console.log(`[RE-HIGH] SL Hit for ${leg.instrument?.symbol}. Peak Price=${peakPrice}. Trigger Price=${triggerPrice}`);
         const newLeg = {

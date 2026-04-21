@@ -62,11 +62,12 @@ async function monitorStrategyLoop(strategyId, strategy) {
                         const val = leg.leg.rehigh_value || 0;
                         const peak = leg.max_peak_price;
                         let newTrigger = peak;
+                        const effectiveVal = Math.max(1, parseFloat(val || 0));
 
-                        if (mode === 'REHIGH_MINUS_PCT') newTrigger = peak - (peak * val / 100);
-                        else if (mode === 'REHIGH_MINUS_PTS') newTrigger = peak - val;
-                        else if (mode === 'REHIGH_PLUS_PCT') newTrigger = peak + (peak * val / 100);
-                        else if (mode === 'REHIGH_PLUS_PTS') newTrigger = peak + val;
+                        if (mode === 'REHIGH_MINUS_PCT') newTrigger = peak - (peak * effectiveVal / 100);
+                        else if (mode === 'REHIGH_MINUS_PTS') newTrigger = peak - effectiveVal;
+                        else if (mode === 'REHIGH_PLUS_PCT') newTrigger = peak + (peak * effectiveVal / 100);
+                        else if (mode === 'REHIGH_PLUS_PTS') newTrigger = peak + effectiveVal;
 
                         if (newTrigger !== leg.re_high_trigger_price) {
                             leg.re_high_trigger_price = newTrigger;
@@ -90,11 +91,12 @@ async function monitorStrategyLoop(strategyId, strategy) {
                         const val = leg.leg.relow_value || 0;
                         const low = leg.max_low_price;
                         let newTrigger = low;
+                        const effectiveVal = Math.max(1, parseFloat(val || 0));
 
-                        if (mode === 'RELOW_PLUS_PCT') newTrigger = low + (low * val / 100);
-                        else if (mode === 'RELOW_PLUS_PTS') newTrigger = low + val;
-                        else if (mode === 'RELOW_MINUS_PCT') newTrigger = low - (low * val / 100);
-                        else if (mode === 'RELOW_MINUS_PTS') newTrigger = low - val;
+                        if (mode === 'RELOW_PLUS_PCT') newTrigger = low + (low * effectiveVal / 100);
+                        else if (mode === 'RELOW_PLUS_PTS') newTrigger = low + effectiveVal;
+                        else if (mode === 'RELOW_MINUS_PCT') newTrigger = low - (low * effectiveVal / 100);
+                        else if (mode === 'RELOW_MINUS_PTS') newTrigger = low - effectiveVal;
 
                         if (newTrigger !== leg.re_low_trigger_price) {
                             leg.re_low_trigger_price = newTrigger;

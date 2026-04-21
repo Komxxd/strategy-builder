@@ -29,14 +29,16 @@ async function handleReentryLow({ leg, config, strategyId, addStrategyLog, curre
     console.log(`[RE-LOW] Triggered for ${leg.instrument?.symbol}. Low Price was ${leg.max_low_price}. Current LTP=${currentPrice}`);
     addStrategyLog(strategyId, `[RE-LOW] Triggered for ${leg.instrument?.symbol}. Low Price was ${leg.max_low_price}. Current LTP=${currentPrice}`, "INFO");
 
-    const mntmMode = leg.leg.relow_mntm_mode || "RELOW_PLUS_PTS";
-    const mntmVal = leg.leg.relow_mntm_value || 0;
-    
     let mtp = rtp;
-    if (mntmMode === "RELOW_PLUS_PCT") mtp = rtp + (rtp * mntmVal / 100);
-    else if (mntmMode === "RELOW_PLUS_PTS") mtp = rtp + mntmVal;
-    else if (mntmMode === "RELOW_MINUS_PCT") mtp = rtp - (rtp * mntmVal / 100);
-    else if (mntmMode === "RELOW_MINUS_PTS") mtp = rtp - mntmVal;
+    if (leg.leg.relow_mntm_enabled) {
+        const mntmMode = leg.leg.relow_mntm_mode || "RELOW_PLUS_PCT";
+        const mntmVal = leg.leg.relow_mntm_value || 0;
+        
+        if (mntmMode === "RELOW_PLUS_PCT") mtp = rtp + (rtp * mntmVal / 100);
+        else if (mntmMode === "RELOW_PLUS_PTS") mtp = rtp + mntmVal;
+        else if (mntmMode === "RELOW_MINUS_PCT") mtp = rtp - (rtp * mntmVal / 100);
+        else if (mntmMode === "RELOW_MINUS_PTS") mtp = rtp - mntmVal;
+    }
     mtp = roundToTick(mtp);
 
     let variety = config.variety || "NORMAL";

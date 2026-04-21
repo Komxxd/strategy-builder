@@ -29,14 +29,16 @@ async function handleReentryHigh({ leg, config, strategyId, addStrategyLog, curr
     console.log(`[RE-HIGH] Triggered for ${leg.instrument?.symbol}. Peak Price was ${rtp}. Current LTP=${currentPrice}`);
     addStrategyLog(strategyId, `[RE-HIGH] Triggered for ${leg.instrument?.symbol}. Peak Price was ${rtp}. Current LTP=${currentPrice}`, "INFO");
 
-    const mntmMode = leg.leg.rehigh_mntm_mode || "REHIGH_PLUS_PTS";
-    const mntmVal = leg.leg.rehigh_mntm_value || 0;
-    
     let mtp = rtp;
-    if (mntmMode === "REHIGH_PLUS_PCT") mtp = rtp + (rtp * mntmVal / 100);
-    else if (mntmMode === "REHIGH_PLUS_PTS") mtp = rtp + mntmVal;
-    else if (mntmMode === "REHIGH_MINUS_PCT") mtp = rtp - (rtp * mntmVal / 100);
-    else if (mntmMode === "REHIGH_MINUS_PTS") mtp = rtp - mntmVal;
+    if (leg.leg.rehigh_mntm_enabled) {
+        const mntmMode = leg.leg.rehigh_mntm_mode || "REHIGH_PLUS_PCT";
+        const mntmVal = leg.leg.rehigh_mntm_value || 0;
+        
+        if (mntmMode === "REHIGH_PLUS_PCT") mtp = rtp + (rtp * mntmVal / 100);
+        else if (mntmMode === "REHIGH_PLUS_PTS") mtp = rtp + mntmVal;
+        else if (mntmMode === "REHIGH_MINUS_PCT") mtp = rtp - (rtp * mntmVal / 100);
+        else if (mntmMode === "REHIGH_MINUS_PTS") mtp = rtp - mntmVal;
+    }
     mtp = roundToTick(mtp);
 
     let variety = config.variety || "NORMAL";
