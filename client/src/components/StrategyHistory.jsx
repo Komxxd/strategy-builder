@@ -33,7 +33,7 @@ export const StrategyHistory = () => {
     // Modal states
     const [selectedLogs, setSelectedLogs] = useState(null);
     const [selectedConfig, setSelectedConfig] = useState(null);
-    const [expandedId, setExpandedId] = useState(null);
+    const [expandedHistory, setExpandedHistory] = useState({});
 
     const fetchHistory = async () => {
         try {
@@ -197,8 +197,8 @@ export const StrategyHistory = () => {
                                             <Button 
                                                 variant="ghost" 
                                                 size="sm" 
-                                                className={`h-7 px-2 text-[9px] font-bold uppercase tracking-wider rounded-md transition-all ${expandedId === item.id ? 'bg-indigo-600 text-white hover:bg-indigo-700' : 'text-indigo-600 hover:bg-indigo-50'}`}
-                                                onClick={() => setExpandedId(expandedId === item.id ? null : item.id)}
+                                                className={`h-7 px-2 text-[9px] font-bold uppercase tracking-wider rounded-md transition-all ${expandedHistory[item.id] ? 'bg-indigo-600 text-white hover:bg-indigo-700' : 'text-indigo-600 hover:bg-indigo-50'}`}
+                                                onClick={() => setExpandedHistory(prev => ({ ...prev, [item.id]: !prev[item.id] }))}
                                             >
                                                 Details
                                             </Button>
@@ -213,7 +213,7 @@ export const StrategyHistory = () => {
                                 </div>
 
                                 {/* Snapshot Drawer */}
-                                {expandedId === item.id && (
+                                {expandedHistory[item.id] && (
                                     <div className="bg-slate-50/50 border-t border-slate-100 p-3 lg:px-6 animate-in slide-in-from-top-1 duration-200">
                                         <div className="flex items-center gap-2 mb-2">
                                             <div className="h-1 w-3 bg-indigo-500 rounded-full" />
