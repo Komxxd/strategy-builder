@@ -2027,6 +2027,12 @@ export const StrategyBuilder = ({ isConnected }) => {
                                                                 {strategyData.status} • {strategyData.config?.is_paper_trading ? 'PAPER' : 'LIVE'} • {strategyData.config?.index}
                                                             </span>
 
+                                                            {strategyData.config?.exit_time && (
+                                                                <span className="text-[9px] font-black px-1.5 py-0.5 rounded shadow-sm uppercase bg-slate-100/80 text-slate-700 border border-slate-200 flex items-center gap-1">
+                                                                    <Clock className="h-2.5 w-2.5" /> Exit: {strategyData.config.exit_time}
+                                                                </span>
+                                                            )}
+
                                                             {strategyData.status === 'WAITING' && strategyData.config?.entry_time && (
                                                                 <EntryTimer entryTime={strategyData.config.entry_time} />
                                                             )}
