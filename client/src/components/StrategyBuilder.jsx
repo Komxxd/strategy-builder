@@ -1561,7 +1561,7 @@ export const StrategyBuilder = ({ isConnected }) => {
     const [viewStrategyName, setViewStrategyName] = useState('');
     const [searchTerm, setSearchTerm] = useState('');
     const [isConfigExpanded, setIsConfigExpanded] = useState(false);
-    const [collapsedSections, setCollapsedSections] = useState({});
+    const [collapsedSections, setCollapsedSections] = useState({ 'saved-strategies': true });
 
     const [config, setConfig] = useState({
         name: '',
@@ -2003,8 +2003,16 @@ export const StrategyBuilder = ({ isConnected }) => {
                                         .map(([id, strategyData]) => (
                                             <Card key={id} className={`w-full border-border animate-in fade-in slide-in-from-bottom-4 duration-500 shadow-sm ${strategyData.config?.is_paper_trading ? 'bg-blue-50/50' : 'bg-orange-50/50'}`}>
                                                 <CardContent className="p-3 space-y-2">
-                                                    <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3">
-                                                        <div className="flex items-center gap-x-2.5 gap-y-1.5 flex-wrap">
+                                                     <div 
+                                                         className="flex flex-col xl:flex-row xl:items-center justify-between gap-3 cursor-pointer hover:bg-black/5 rounded-xl p-2 -m-2 transition-colors relative group"
+                                                         onClick={() => setCollapsedSections(prev => ({ ...prev, [id]: prev[id] === true ? false : true }))}
+                                                     >
+                                                         <div className="flex items-center gap-x-2.5 gap-y-1.5 flex-wrap flex-1">
+                                                             <div className="flex items-center gap-2">
+                                                                 <div className="h-6 w-6 flex items-center justify-center -ml-1">
+                                                                     {collapsedSections[id] === true ? <ChevronUp className="h-4 w-4 text-slate-400 group-hover:text-primary transition-colors" /> : <ChevronDown className="h-4 w-4 text-slate-400 group-hover:text-primary transition-colors" />}
+                                                                 </div>
+                                                             </div>
                                                             <span className="relative flex h-2 w-2 shadow-[0_0_10px_rgba(34,197,94,0.3)] rounded-full mr-1">
                                                                 <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${strategyData.status === 'FAILED' ? 'bg-red-400' : strategyData.status === 'PAUSED' ? 'bg-amber-400' : 'bg-green-400'} opacity-75`}></span>
                                                                 <span className={`relative inline-flex rounded-full h-2 w-2 ${strategyData.status === 'FAILED' ? 'bg-red-500' : strategyData.status === 'PAUSED' ? 'bg-amber-500' : 'bg-green-500'}`}></span>
@@ -2062,7 +2070,7 @@ export const StrategyBuilder = ({ isConnected }) => {
                                                             )}
                                                         </div>
 
-                                                        <div className="flex items-center gap-1.5 shrink-0 self-start xl:self-auto">
+                                                                                                                 <div className="flex items-center gap-1.5 shrink-0 self-start xl:self-auto" onClick={e => e.stopPropagation()}>
                                                             <Button
                                                                 size="icon"
                                                                 variant="ghost"
@@ -2119,7 +2127,7 @@ export const StrategyBuilder = ({ isConnected }) => {
                                                         </div>
                                                     </div>
 
-                                                    {strategyData?.status === "IN_POSITION" || strategyData?.status === "PAUSED" || strategyData?.status === "COMPLETED" ? (
+                                                                                                         {collapsedSections[id] === true && (strategyData?.status === "IN_POSITION" || strategyData?.status === "PAUSED" || strategyData?.status === "COMPLETED") ? (
                                                         <div className="space-y-2 pt-2 border-t border-border mt-1">
                                                             {/* Strategy Legs */}
 
@@ -2128,14 +2136,14 @@ export const StrategyBuilder = ({ isConnected }) => {
                                                                 <div className="space-y-2">
                                                                     <div
                                                                         className="flex items-center justify-between cursor-pointer group"
-                                                                        onClick={() => setCollapsedSections(prev => ({ ...prev, [`${id}-running`]: !prev[`${id}-running`] }))}
+                                                                        onClick={() => setCollapsedSections(prev => ({ ...prev, [`${id}-running`]: prev[`${id}-running`] === true ? false : true }))}
                                                                     >
                                                                         <span className="text-[10px] font-medium uppercase text-muted-foreground group-hover:text-foreground transition-colors">Running Legs</span>
                                                                         <Button variant="ghost" size="sm" className="h-4 w-4 p-0 shrink-0 text-muted-foreground group-hover:text-foreground">
-                                                                            {collapsedSections[`${id}-running`] ? <ChevronDown className="h-3 w-3" /> : <ChevronUp className="h-3 w-3" />}
+                                                                            {collapsedSections[`${id}-running`] === true ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
                                                                         </Button>
                                                                     </div>
-                                                                    {!collapsedSections[`${id}-running`] && (
+                                                                    {collapsedSections[`${id}-running`] === true && (
                                                                         <div className="space-y-2 animate-in slide-in-from-top-2 duration-200">
                                                                             {strategyData.legs.map((l, idx) => (!l.exited || ["WAITING_FOR_RECOST", "WAITING_FOR_MNTM", "WAITING_FOR_RE_ASAP", "WAITING_FOR_LAZY", "WAITING_FOR_RESL_MNTM", "WAITING_FOR_RE_HIGH", "WAITING_FOR_RE_LOW"].includes(l.state)) && (
                                                                                 <div key={idx} className="flex flex-col md:flex-row items-start md:items-center justify-between p-2.5 bg-white border border-border rounded-xl gap-3">
@@ -2250,14 +2258,14 @@ export const StrategyBuilder = ({ isConnected }) => {
                                                                 <div className="space-y-2">
                                                                     <div
                                                                         className="flex items-center justify-between cursor-pointer group"
-                                                                        onClick={() => setCollapsedSections(prev => ({ ...prev, [`${id}-closed`]: !prev[`${id}-closed`] }))}
+                                                                        onClick={() => setCollapsedSections(prev => ({ ...prev, [`${id}-closed`]: prev[`${id}-closed`] === true ? false : true }))}
                                                                     >
                                                                         <span className="text-[10px] font-medium uppercase text-muted-foreground group-hover:text-foreground transition-colors">Closed Legs</span>
                                                                         <Button variant="ghost" size="sm" className="h-4 w-4 p-0 shrink-0 text-muted-foreground group-hover:text-foreground">
-                                                                            {collapsedSections[`${id}-closed`] ? <ChevronDown className="h-3 w-3" /> : <ChevronUp className="h-3 w-3" />}
+                                                                            {collapsedSections[`${id}-closed`] === true ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
                                                                         </Button>
                                                                     </div>
-                                                                    {!collapsedSections[`${id}-closed`] && (
+                                                                    {collapsedSections[`${id}-closed`] === true && (
                                                                         <div className="space-y-2 animate-in slide-in-from-top-2 duration-200">
                                                                             {strategyData.legs.map((l, idx) => l.exited && (
                                                                                 <div key={idx} className="flex flex-col md:flex-row items-start md:items-center justify-between p-2.5 bg-muted/50 border border-border/50 rounded-xl opacity-90 gap-3">

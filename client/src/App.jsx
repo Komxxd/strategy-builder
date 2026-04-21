@@ -29,9 +29,7 @@ function App() {
   const [apiLoading, setApiLoading] = useState(false);
   const [socketLoading, setSocketLoading] = useState(false);
   const [activeTab, setActiveTab] = useState('strategies');
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(
-    typeof window !== 'undefined' ? window.innerWidth < 768 : false
-  );
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(true);
 
   const handleAuthenticated = () => {
     const newKey = sessionStorage.getItem('app_api_key');
