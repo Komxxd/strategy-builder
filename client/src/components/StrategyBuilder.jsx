@@ -2179,7 +2179,7 @@ export const StrategyBuilder = ({ isConnected }) => {
                                                                                                     </span>
                                                                                                 </>
                                                                                             )}
-                                                                                            {l.rtp != null && (l.state === "WAITING_FOR_RECOST" || l.state === "WAITING_FOR_MNTM") && (
+                                                                                            {l.rtp != null && (l.state === "WAITING_FOR_RECOST" || l.state === "WAITING_FOR_MNTM" || l.state === "WAITING_FOR_RESL_MNTM") && (
                                                                                                 <>
                                                                                                     <span className="text-muted-foreground text-[10px] font-mono">|</span>
                                                                                                     <span className="text-orange-500 font-medium text-[10px] font-mono">RTP: {l.rtp.toFixed(2)}</span>
@@ -2204,7 +2204,7 @@ export const StrategyBuilder = ({ isConnected }) => {
                                                                                                 <span className="px-2 py-0.5 ml-2 bg-blue-100 text-blue-700 font-medium rounded text-[10px] font-mono">Waiting Re-Entry (ASAP)</span>
                                                                                             )}
                                                                                             {l.state === "WAITING_FOR_RESL_MNTM" && (
-                                                                                                <span className="px-2 py-0.5 ml-2 bg-purple-100 text-purple-700 font-medium rounded text-[10px] font-mono whitespace-nowrap">Waiting Re-Entry (SL Hit Basis)</span>
+                                                                                                <span className="px-2 py-0.5 ml-2 bg-purple-100 text-purple-700 font-medium rounded text-[10px] font-mono whitespace-nowrap">Waiting Re-Entry (SL Price Basis)</span>
                                                                                             )}
                                                                                             {l.state === "WAITING_FOR_RE_HIGH" && (
                                                                                                 <>
