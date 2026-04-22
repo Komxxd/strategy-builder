@@ -2219,7 +2219,7 @@ export const StrategyBuilder = ({ isConnected }) => {
                                                                                                     </span>
                                                                                                 </>
                                                                                             )}
-                                                                                            {l.state === "ACTIVE" && l.peakPrice != null && (
+                                                                                            {l.state === "ACTIVE" && l.peakPrice != null && l.leg?.tsl_enabled && (
                                                                                                 <>
                                                                                                     <span className="text-muted-foreground text-[10px] font-mono">|</span>
                                                                                                     <span className="text-blue-600 font-medium text-[10px] font-mono uppercase">
@@ -2227,10 +2227,22 @@ export const StrategyBuilder = ({ isConnected }) => {
                                                                                                     </span>
                                                                                                 </>
                                                                                             )}
-                                                                                            {l.rtp != null && (
+                                                                                            {l.rtp != null && !["WAITING_FOR_RE_HIGH", "WAITING_FOR_RE_LOW"].includes(l.state) && (
                                                                                                 <>
                                                                                                     <span className="text-muted-foreground text-[10px] font-mono">|</span>
                                                                                                     <span className="text-orange-500 font-medium text-[10px] font-mono">RTP: {l.rtp.toFixed(2)}</span>
+                                                                                                </>
+                                                                                            )}
+                                                                                            {l.state === "ACTIVE" && l.max_peak_price != null && l.max_peak_price > 0 && (
+                                                                                                <>
+                                                                                                    <span className="text-muted-foreground text-[10px] font-mono">|</span>
+                                                                                                    <span className="text-indigo-600 font-bold text-[10px] font-mono uppercase">Trig Peak: {l.max_peak_price.toFixed(2)}</span>
+                                                                                                </>
+                                                                                            )}
+                                                                                            {l.state === "ACTIVE" && l.max_low_price != null && l.max_low_price > 0 && (
+                                                                                                <>
+                                                                                                    <span className="text-muted-foreground text-[10px] font-mono">|</span>
+                                                                                                    <span className="text-pink-600 font-bold text-[10px] font-mono uppercase">Trig Low: {l.max_low_price.toFixed(2)}</span>
                                                                                                 </>
                                                                                             )}
                                                                                             {l.mtp != null && (
@@ -2361,6 +2373,26 @@ export const StrategyBuilder = ({ isConnected }) => {
                                                                                                 <>
                                                                                                     <span className="text-black/30 text-[10px] font-mono">|</span>
                                                                                                     <span className="text-purple-600 font-bold text-[10px] font-mono">MTP: {l.mtp.toFixed(2)}</span>
+                                                                                                </>
+                                                                                            )}
+                                                                                            {l.max_peak_price != null && l.max_peak_price > 0 && (
+                                                                                                <>
+                                                                                                    <span className="text-black/30 text-[10px] font-mono">|</span>
+                                                                                                    <span className="text-indigo-600 font-bold text-[10px] font-mono uppercase">Trig Peak: {l.max_peak_price.toFixed(2)}</span>
+                                                                                                </>
+                                                                                            )}
+                                                                                            {l.max_low_price != null && l.max_low_price > 0 && (
+                                                                                                <>
+                                                                                                    <span className="text-black/30 text-[10px] font-mono">|</span>
+                                                                                                    <span className="text-pink-600 font-bold text-[10px] font-mono uppercase">Trig Low: {l.max_low_price.toFixed(2)}</span>
+                                                                                                </>
+                                                                                            )}
+                                                                                            {l.exitSnapshot?.peakPrice != null && l.leg?.tsl_enabled && (
+                                                                                                <>
+                                                                                                    <span className="text-black/30 text-[10px] font-mono">|</span>
+                                                                                                    <span className="text-blue-600 font-bold text-[10px] font-mono uppercase">
+                                                                                                        {l.leg?.side === "BUY" ? "Peak" : "Low"}: {l.exitSnapshot.peakPrice.toFixed(2)}
+                                                                                                    </span>
                                                                                                 </>
                                                                                             )}
                                                                                         </div>
