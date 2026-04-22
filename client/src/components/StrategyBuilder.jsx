@@ -2219,14 +2219,7 @@ export const StrategyBuilder = ({ isConnected }) => {
                                                                                                     </span>
                                                                                                 </>
                                                                                             )}
-                                                                                            {l.state === "ACTIVE" && l.peakPrice != null && l.leg?.tsl_enabled && (
-                                                                                                <>
-                                                                                                    <span className="text-muted-foreground text-[10px] font-mono">|</span>
-                                                                                                    <span className="text-blue-600 font-medium text-[10px] font-mono uppercase">
-                                                                                                        {l.leg?.side === "BUY" ? "Peak" : "Low"}: {l.peakPrice.toFixed(2)}
-                                                                                                    </span>
-                                                                                                </>
-                                                                                            )}
+                                                                                            {/* Removed peakPrice display as per user request */}
                                                                                             {l.rtp != null && !["WAITING_FOR_RE_HIGH", "WAITING_FOR_RE_LOW"].includes(l.state) && (
                                                                                                 <>
                                                                                                     <span className="text-muted-foreground text-[10px] font-mono">|</span>
@@ -2387,14 +2380,7 @@ export const StrategyBuilder = ({ isConnected }) => {
                                                                                                     <span className="text-pink-600 font-bold text-[10px] font-mono uppercase">Trig Low: {l.max_low_price.toFixed(2)}</span>
                                                                                                 </>
                                                                                             )}
-                                                                                            {l.exitSnapshot?.peakPrice != null && l.leg?.tsl_enabled && (
-                                                                                                <>
-                                                                                                    <span className="text-black/30 text-[10px] font-mono">|</span>
-                                                                                                    <span className="text-blue-600 font-bold text-[10px] font-mono uppercase">
-                                                                                                        {l.leg?.side === "BUY" ? "Peak" : "Low"}: {l.exitSnapshot.peakPrice.toFixed(2)}
-                                                                                                    </span>
-                                                                                                </>
-                                                                                            )}
+                                                                                            {/* Removed exitSnapshot peakPrice display */}
                                                                                         </div>
                                                                                         <div className="flex items-center gap-3 shrink-0">
                                                                                             <span className={`text-[12px] font-mono font-medium ${(l.pnlPercent || 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>

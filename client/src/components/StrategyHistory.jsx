@@ -291,12 +291,7 @@ export const StrategyHistory = () => {
                                                                 <span className="font-mono font-bold text-red-600">₹{Number(leg.final_low_reached || leg.max_low_price || 0).toFixed(1)}</span>
                                                             </div>
                                                         ) : null}
-                                                        {leg.exitSnapshot?.peakPrice != null && leg.leg?.tsl_enabled && (
-                                                            <div className="flex justify-between items-center text-[9px] border-t border-gray-100 pt-1 mt-1">
-                                                                <span className="text-black font-bold">{leg.leg?.side === "BUY" ? "Trade Peak" : "Trade Low"}</span>
-                                                                <span className="font-mono font-bold text-blue-700">₹{Number(leg.exitSnapshot.peakPrice).toFixed(1)}</span>
-                                                            </div>
-                                                        )}
+                                                        {/* Removed Trade Peak/Low display as per user request */}
                                                         {(leg.mntmTargetPrice || leg.mtp) && (
                                                             <div className="flex justify-between items-center text-[9px]">
                                                                 <span className="text-black font-bold">Momentum</span>
