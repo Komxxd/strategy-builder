@@ -41,15 +41,23 @@ const DEFAULT_LEG = {
     recost_enabled: false,
     recost_mode: 'RECOST_PLUS_PCT',
     recost_value: 0,
+    recost_mntm_enabled: false,
     resl_enabled: false,
     resl_mode: 'RESL_PLUS_PCT',
     resl_value: 0,
+    resl_mntm_enabled: false,
     rehigh_enabled: false,
     rehigh_mode: 'REHIGH_MINUS_PTS',
-    rehigh_value: 0,
-    rehigh_mntm_enabled: true,
+    rehigh_value: 1,
+    rehigh_mntm_enabled: false,
     rehigh_mntm_mode: 'REHIGH_PLUS_PTS',
-    rehigh_mntm_value: 1,
+    rehigh_mntm_value: 0,
+    relow_enabled: false,
+    relow_mode: 'RELOW_PLUS_PTS',
+    relow_value: 1,
+    relow_mntm_enabled: false,
+    relow_mntm_mode: 'RELOW_PLUS_PTS',
+    relow_mntm_value: 0,
     max_reentry: 1,
     reentry_sl_enabled: false,
     reentry_sl_type: 'PERCENTAGE',
@@ -512,16 +520,16 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
                                                 lazy_leg: v === 'LAZY_LEG' ? (leg.lazy_leg || { ...DEFAULT_LEG }) : leg.lazy_leg,
                                                 // Specifics for RE HIGH
                                                 rehigh_mode: isReHigh ? 'REHIGH_MINUS_PTS' : (leg.rehigh_mode || 'REHIGH_MINUS_PTS'),
-                                                rehigh_value: isReHigh ? 0 : (leg.rehigh_value || 0),
-                                                rehigh_mntm_enabled: isReHigh ? true : leg.rehigh_mntm_enabled,
+                                                rehigh_value: isReHigh ? 1 : (leg.rehigh_value || 1),
+                                                rehigh_mntm_enabled: isReHigh ? false : leg.rehigh_mntm_enabled,
                                                 rehigh_mntm_mode: isReHigh ? 'REHIGH_PLUS_PTS' : (leg.rehigh_mntm_mode || 'REHIGH_PLUS_PTS'),
-                                                rehigh_mntm_value: isReHigh ? 1 : (leg.rehigh_mntm_value || 1),
+                                                rehigh_mntm_value: isReHigh ? 0 : (leg.rehigh_mntm_value || 0),
                                                 // Specifics for RE LOW
                                                 relow_mode: isReLow ? 'RELOW_PLUS_PTS' : (leg.relow_mode || 'RELOW_PLUS_PTS'),
-                                                relow_value: isReLow ? 0 : (leg.relow_value || 0),
-                                                relow_mntm_enabled: isReLow ? true : leg.relow_mntm_enabled,
+                                                relow_value: isReLow ? 1 : (leg.relow_value || 1),
+                                                relow_mntm_enabled: isReLow ? false : leg.relow_mntm_enabled,
                                                 relow_mntm_mode: isReLow ? 'RELOW_PLUS_PTS' : (leg.relow_mntm_mode || 'RELOW_PLUS_PTS'),
-                                                relow_mntm_value: isReLow ? 1 : (leg.relow_mntm_value || 1)
+                                                relow_mntm_value: isReLow ? 0 : (leg.relow_mntm_value || 0)
                                             });
                                         }}
                                     >
@@ -973,7 +981,7 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
                                                     onChange={(e) => {
                                                         const val = parseFloat(e.target.value);
                                                         // Prevent values <= 0
-                                                        if (!isNaN(val) && val > 0) {
+                                                        if (!isNaN(val) && val >= 0) {
                                                             onChange({ ...leg, rehigh_mntm_value: val });
                                                         } else if (e.target.value === '') {
                                                             onChange({ ...leg, rehigh_mntm_value: '' });
@@ -981,8 +989,8 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
                                                     }}
                                                     onBlur={(e) => {
                                                         const val = parseFloat(e.target.value);
-                                                        if (isNaN(val) || val <= 0) {
-                                                            onChange({ ...leg, rehigh_mntm_value: 1 });
+                                                        if (isNaN(val)) {
+                                                            onChange({ ...leg, rehigh_mntm_value: 0 });
                                                         }
                                                     }}
                                                 />
@@ -1115,6 +1123,8 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
                                                     <SelectContent>
                                                         <SelectItem value="RELOW_PLUS_PCT">RTP + %</SelectItem>
                                                         <SelectItem value="RELOW_PLUS_PTS">RTP + Pts</SelectItem>
+                                                        <SelectItem value="RELOW_MINUS_PCT">RTP - %</SelectItem>
+                                                        <SelectItem value="RELOW_MINUS_PTS">RTP - Pts</SelectItem>
                                                     </SelectContent>
                                                 </Select>
                                             </div>
@@ -1128,7 +1138,7 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
                                                     value={leg.relow_mntm_value === undefined ? '' : leg.relow_mntm_value}
                                                     onChange={(e) => {
                                                         const val = parseFloat(e.target.value);
-                                                        if (!isNaN(val) && val > 0) {
+                                                        if (!isNaN(val) && val >= 0) {
                                                             onChange({ ...leg, relow_mntm_value: val });
                                                         } else if (e.target.value === '') {
                                                             onChange({ ...leg, relow_mntm_value: '' });
@@ -1136,8 +1146,8 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
                                                     }}
                                                     onBlur={(e) => {
                                                         const val = parseFloat(e.target.value);
-                                                        if (isNaN(val) || val <= 0) {
-                                                            onChange({ ...leg, relow_mntm_value: 1 });
+                                                        if (isNaN(val)) {
+                                                            onChange({ ...leg, relow_mntm_value: 0 });
                                                         }
                                                     }}
                                                 />
@@ -1591,7 +1601,7 @@ export const StrategyBuilder = ({ isConnected }) => {
     const [viewStrategyName, setViewStrategyName] = useState('');
     const [searchTerm, setSearchTerm] = useState('');
     const [isConfigExpanded, setIsConfigExpanded] = useState(false);
-    const [collapsedSections, setCollapsedSections] = useState({ 'saved-strategies': true });
+    const [collapsedSections, setCollapsedSections] = useState({ 'saved-strategies': false });
 
     const [config, setConfig] = useState({
         name: '',
