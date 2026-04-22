@@ -62,7 +62,7 @@ async function monitorStrategyLoop(strategyId, strategy) {
                         const val = leg.leg.rehigh_value || 0;
                         const peak = leg.max_peak_price;
                         let newTrigger = peak;
-                        const effectiveVal = Math.max(1, parseFloat(val || 0));
+                        const effectiveVal = parseFloat(val || 0);
 
                         if (mode === 'REHIGH_MINUS_PCT') newTrigger = peak - (peak * effectiveVal / 100);
                         else if (mode === 'REHIGH_MINUS_PTS') newTrigger = peak - effectiveVal;
@@ -91,7 +91,7 @@ async function monitorStrategyLoop(strategyId, strategy) {
                         const val = leg.leg.relow_value || 0;
                         const low = leg.max_low_price;
                         let newTrigger = low;
-                        const effectiveVal = Math.max(1, parseFloat(val || 0));
+                        const effectiveVal = parseFloat(val || 0);
 
                         if (mode === 'RELOW_PLUS_PCT') newTrigger = low + (low * effectiveVal / 100);
                         else if (mode === 'RELOW_PLUS_PTS') newTrigger = low + effectiveVal;

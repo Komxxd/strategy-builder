@@ -100,6 +100,8 @@ async function handleReentryHigh({ leg, config, strategyId, addStrategyLog, curr
         leg.orderId = reEntryOrder.orderid;
         leg.uniqueOrderId = reEntryOrder.uniqueorderid;
 
+        // Snapshot the peak reached during wait for history
+        leg.final_peak_reached = leg.max_peak_price;
         // Peak price resets for the new trade
         leg.max_peak_price = 0;
 

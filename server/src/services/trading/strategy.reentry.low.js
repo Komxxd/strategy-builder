@@ -100,6 +100,8 @@ async function handleReentryLow({ leg, config, strategyId, addStrategyLog, curre
         leg.orderId = reEntryOrder.orderid;
         leg.uniqueOrderId = reEntryOrder.uniqueorderid;
 
+        // Snapshot the low reached during wait for history
+        leg.final_low_reached = leg.max_low_price;
         // Reset low tracking for the new trade
         leg.max_low_price = 0;
 

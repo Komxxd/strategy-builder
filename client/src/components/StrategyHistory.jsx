@@ -263,10 +263,34 @@ export const StrategyHistory = () => {
 
                                                         {leg.rtp != null && (
                                                             <div className="flex justify-between items-center text-[9px]">
-                                                                <span className="text-black font-bold">RTP/Cost</span>
+                                                                <span className="text-black font-bold">Init RTP</span>
                                                                 <span className="font-mono font-bold text-orange-500">₹{Number(leg.rtp).toFixed(1)}</span>
                                                             </div>
                                                         )}
+                                                        {leg.re_high_trigger_price != null && (
+                                                            <div className="flex justify-between items-center text-[9px]">
+                                                                <span className="text-black font-bold">RE-High Trig</span>
+                                                                <span className="font-mono font-bold text-orange-600">₹{Number(leg.re_high_trigger_price).toFixed(1)}</span>
+                                                            </div>
+                                                        )}
+                                                        {leg.re_low_trigger_price != null && (
+                                                            <div className="flex justify-between items-center text-[9px]">
+                                                                <span className="text-black font-bold">RE-Low Trig</span>
+                                                                <span className="font-mono font-bold text-orange-600">₹{Number(leg.re_low_trigger_price).toFixed(1)}</span>
+                                                            </div>
+                                                        )}
+                                                        {(leg.max_peak_price != null && leg.max_peak_price > 0) || leg.final_peak_reached != null ? (
+                                                            <div className="flex justify-between items-center text-[9px]">
+                                                                <span className="text-black font-bold">Tracked High</span>
+                                                                <span className="font-mono font-bold text-blue-600">₹{Number(leg.final_peak_reached || leg.max_peak_price || 0).toFixed(1)}</span>
+                                                            </div>
+                                                        ) : null}
+                                                        {(leg.max_low_price != null && leg.max_low_price > 0) || leg.final_low_reached != null ? (
+                                                            <div className="flex justify-between items-center text-[9px]">
+                                                                <span className="text-black font-bold">Tracked Low</span>
+                                                                <span className="font-mono font-bold text-red-600">₹{Number(leg.final_low_reached || leg.max_low_price || 0).toFixed(1)}</span>
+                                                            </div>
+                                                        ) : null}
                                                         {(leg.mntmTargetPrice || leg.mtp) && (
                                                             <div className="flex justify-between items-center text-[9px]">
                                                                 <span className="text-black font-bold">Momentum</span>

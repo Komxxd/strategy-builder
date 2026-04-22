@@ -483,7 +483,8 @@ async function handleLegStopOut(leg, exitType, strategy) {
         
         let triggerPrice = peakPrice;
         const mode = leg.leg.rehigh_mode || 'REHIGH_MINUS_PTS';
-        const effectiveVal = Math.max(1, parseFloat(val || 0));
+        const val = leg.leg.rehigh_value || 0;
+        const effectiveVal = parseFloat(val || 0);
 
         if (mode === 'REHIGH_MINUS_PCT') triggerPrice = peakPrice - (peakPrice * effectiveVal / 100);
         else if (mode === 'REHIGH_MINUS_PTS') triggerPrice = peakPrice - effectiveVal;
@@ -536,11 +537,12 @@ async function handleLegStopOut(leg, exitType, strategy) {
         let triggerPrice = lowPrice;
         const mode = leg.leg.relow_mode || 'RELOW_PLUS_PTS';
         const val = leg.leg.relow_value || 0;
+        const effectiveVal = parseFloat(val || 0);
 
-        if (mode === 'RELOW_PLUS_PCT') triggerPrice = lowPrice + (lowPrice * val / 100);
-        else if (mode === 'RELOW_PLUS_PTS') triggerPrice = lowPrice + val;
-        else if (mode === 'RELOW_MINUS_PCT') triggerPrice = lowPrice - (lowPrice * val / 100);
-        else if (mode === 'RELOW_MINUS_PTS') triggerPrice = lowPrice - val;
+        if (mode === 'RELOW_PLUS_PCT') triggerPrice = lowPrice + (lowPrice * effectiveVal / 100);
+        else if (mode === 'RELOW_PLUS_PTS') triggerPrice = lowPrice + effectiveVal;
+        else if (mode === 'RELOW_MINUS_PCT') triggerPrice = lowPrice - (lowPrice * effectiveVal / 100);
+        else if (mode === 'RELOW_MINUS_PTS') triggerPrice = lowPrice - effectiveVal;
 
         console.log(`[RE-LOW] SL Hit for ${leg.instrument?.symbol}. Baseline Low=${lowPrice}. Trigger Price=${triggerPrice}`);
         const newLeg = {
