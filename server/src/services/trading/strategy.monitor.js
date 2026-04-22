@@ -71,6 +71,7 @@ async function monitorStrategyLoop(strategyId, strategy) {
 
                         if (newTrigger !== leg.re_high_trigger_price) {
                             leg.re_high_trigger_price = newTrigger;
+                            leg.rtp = newTrigger; // Sync for frontend display
                             addStrategyLog(strategyId, `[RE-HIGH] New Peak detected: ₹${peak}. Re-entry trigger moved to ₹${newTrigger}`, "INFO");
                         }
                     }
@@ -100,6 +101,7 @@ async function monitorStrategyLoop(strategyId, strategy) {
 
                         if (newTrigger !== leg.re_low_trigger_price) {
                             leg.re_low_trigger_price = newTrigger;
+                            leg.rtp = newTrigger; // Sync for frontend display
                             addStrategyLog(strategyId, `[RE-LOW] New Low detected: ₹${low}. Re-entry trigger moved to ₹${newTrigger}`, "INFO");
                         }
                     }

@@ -2219,7 +2219,15 @@ export const StrategyBuilder = ({ isConnected }) => {
                                                                                                     </span>
                                                                                                 </>
                                                                                             )}
-                                                                                            {l.rtp != null && (l.state === "WAITING_FOR_RECOST" || l.state === "WAITING_FOR_MNTM" || l.state === "WAITING_FOR_RESL_MNTM") && (
+                                                                                            {l.state === "ACTIVE" && l.peakPrice != null && (
+                                                                                                <>
+                                                                                                    <span className="text-muted-foreground text-[10px] font-mono">|</span>
+                                                                                                    <span className="text-blue-600 font-medium text-[10px] font-mono uppercase">
+                                                                                                        {l.leg?.side === "BUY" ? "Peak" : "Low"}: {l.peakPrice.toFixed(2)}
+                                                                                                    </span>
+                                                                                                </>
+                                                                                            )}
+                                                                                            {l.rtp != null && (
                                                                                                 <>
                                                                                                     <span className="text-muted-foreground text-[10px] font-mono">|</span>
                                                                                                     <span className="text-orange-500 font-medium text-[10px] font-mono">RTP: {l.rtp.toFixed(2)}</span>

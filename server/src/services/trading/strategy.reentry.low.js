@@ -40,6 +40,8 @@ async function handleReentryLow({ leg, config, strategyId, addStrategyLog, curre
         else if (mntmMode === "RELOW_MINUS_PTS") mtp = rtp - mntmVal;
     }
     mtp = roundToTick(mtp);
+    leg.rtp = rtp; // Store for dashboard visibility
+    leg.mtp = mtp; // Store for dashboard visibility
 
     let variety = config.variety || "NORMAL";
     let ordertype = config.ordertype || "LIMIT";

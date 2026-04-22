@@ -21,7 +21,8 @@ async function handleLegStopOut(leg, exitType, strategy) {
         slTriggerPrice: leg.slTriggerPrice,
         initialSlTriggerPrice: leg.initialSlTriggerPrice,
         exitLtp: leg.currentLtp,
-        exitTime: getISTTime()
+        exitTime: getISTTime(),
+        peakPrice: leg.peakPrice
     };
     leg.exitTime = getISTTime();
 
@@ -89,6 +90,15 @@ async function handleLegStopOut(leg, exitType, strategy) {
 
         if (leg.leg.recost_mntm_enabled) {
             console.log(`[RE-COST MNTM] SL Hit for ${leg.instrument?.symbol}. Setting state to WAITING_FOR_MNTM. Target RTP=${newRtp}`);
+            const mntmMode = leg.leg.recost_mntm_mode || "RECOST_PLUS_PCT";
+            const mntmVal = leg.leg.recost_mntm_value || 0;
+            let mntmMtp = newRtp;
+            if (mntmMode === "RECOST_PLUS_PCT") mntmMtp = newRtp + (newRtp * mntmVal / 100);
+            else if (mntmMode === "RECOST_PLUS_PTS") mntmMtp = newRtp + mntmVal;
+            else if (mntmMode === "RECOST_MINUS_PCT") mntmMtp = newRtp - (newRtp * mntmVal / 100);
+            else if (mntmMode === "RECOST_MINUS_PTS") mntmMtp = newRtp - mntmVal;
+            const finalMtp = roundToTick(mntmMtp);
+
             const newLeg = {
                 leg: { ...leg.leg },
                 instrument: { ...leg.instrument },
@@ -120,7 +130,7 @@ async function handleLegStopOut(leg, exitType, strategy) {
                 slTriggerPrice: null,
                 slLimitPrice: null,
                 rtp: newRtp,
-                mtp: null,
+                mtp: finalMtp,
                 exchangeSlProcessed: false
             };
             strategy.legs.push(newLeg);
@@ -291,6 +301,15 @@ async function handleLegStopOut(leg, exitType, strategy) {
 
         if (leg.leg.resl_mntm_enabled) {
             console.log(`[RE-SL] SL Hit for ${leg.instrument?.symbol}. Setting state to WAITING_FOR_RESL_MNTM. Target Price=${newRtp}`);
+            const mntmMode = leg.leg.resl_mntm_mode || "RESL_PLUS_PCT";
+            const mntmVal = leg.leg.resl_mntm_value || 0;
+            let mntmMtp = newRtp;
+            if (mntmMode === "RESL_PLUS_PCT") mntmMtp = newRtp + (newRtp * mntmVal / 100);
+            else if (mntmMode === "RESL_PLUS_PTS") mntmMtp = newRtp + mntmVal;
+            else if (mntmMode === "RESL_MINUS_PCT") mntmMtp = newRtp - (newRtp * mntmVal / 100);
+            else if (mntmMode === "RESL_MINUS_PTS") mntmMtp = newRtp - mntmVal;
+            const finalMtp = roundToTick(mntmMtp);
+
             const newLeg = {
                 leg: { ...leg.leg },
                 instrument: { ...leg.instrument },
@@ -322,7 +341,7 @@ async function handleLegStopOut(leg, exitType, strategy) {
                 slTriggerPrice: null,
                 slLimitPrice: null,
                 rtp: newRtp,
-                mtp: null,
+                mtp: finalMtp,
                 exchangeSlProcessed: false
             };
             strategy.legs.push(newLeg);
