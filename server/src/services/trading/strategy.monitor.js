@@ -18,11 +18,11 @@ const { handleReentryAsap } = require("./strategy.reentry.asap");
 const { handleLazyLeg } = require("./strategy.reentry.lazy");
 const { handleReentryCost } = require("./strategy.reentry.cost");
 const { handleReentryReSL } = require("./strategy.reentry.resl");
-const { handleReentryHigh } = require("./strategy.reentry.high");
-const { handleReentryLow } = require("./strategy.reentry.low");
+const { handleReentryHigh, modifyReentryOrder } = require("./strategy.reentry.high");
+const { handleReentryLow, modifyReentryLowOrder } = require("./strategy.reentry.low");
 const { checkMomentumHit } = require("./strategy.momentum");
 const { getISTTime } = require("./strategy.time");
-const { computeStopLossExitPrices, getLimitOffsetAmt } = require("./strategy.offset");
+const { roundToTick, computeStopLossExitPrices, getLimitOffsetAmt } = require("./strategy.offset");
 const { placeStopLossWithRetry, placeExitOrder } = require("./strategy.execution");
 const { checkOverallPnlLimits, evaluateLegLimits } = require("./strategy.pnl");
 const marketSocketService = require("../marketSocket.service");
@@ -63,7 +63,7 @@ async function monitorStrategyLoop(strategyId, strategy) {
             const exch = leg.instrument?.exch_seg;
             const token = leg.instrument?.token;
             if (!exch || !token) continue;
-            
+
             const tickPrice = ltpMap[`${exch}_${token}`];
 
             if (tickPrice !== undefined) {
@@ -71,63 +71,101 @@ async function monitorStrategyLoop(strategyId, strategy) {
 
                 /**
                  * PHASE 3: Re-Entry Tracking (RE-HIGH / RE-LOW)
-                 * If we are currently waiting for a price bounce to re-enter.
                  */
                 if (leg.state === "WAITING_FOR_RE_HIGH") {
                     let isNewPeak = false;
-                    // For RE-HIGH, we track the HIGHEST price seen since we were stopped out.
                     if (!leg.max_peak_price || tickPrice > leg.max_peak_price) {
                         leg.max_peak_price = tickPrice;
                         isNewPeak = true;
                     }
 
-                    // Dynamic Trigger Update for RE-HIGH
-                    if (isNewPeak && leg.state === "WAITING_FOR_RE_HIGH") {
-                        const mode = leg.leg.rehigh_mode || 'REHIGH_MINUS_PTS';
-                        const val = leg.leg.rehigh_value || 0;
-                        const peak = leg.max_peak_price;
-                        let newTrigger = peak;
-                        const effectiveVal = parseFloat(val || 0);
+                    const mode = leg.leg.rehigh_mode || 'REHIGH_MINUS_PTS';
+                    const val = leg.leg.rehigh_value || 0;
+                    const peak = leg.max_peak_price;
+                    let rtp = peak;
 
-                        if (mode === 'REHIGH_MINUS_PCT') newTrigger = peak - (peak * effectiveVal / 100);
-                        else if (mode === 'REHIGH_MINUS_PTS') newTrigger = peak - effectiveVal;
-                        else if (mode === 'REHIGH_PLUS_PCT') newTrigger = peak + (peak * effectiveVal / 100);
-                        else if (mode === 'REHIGH_PLUS_PTS') newTrigger = peak + effectiveVal;
+                    if (mode === 'REHIGH_MINUS_PCT') rtp = peak - (peak * val / 100);
+                    else if (mode === 'REHIGH_MINUS_PTS') rtp = peak - val;
+                    
+                    rtp = roundToTick(rtp);
+                    leg.re_high_trigger_price = rtp;
+                    leg.rtp = rtp;
 
-                        if (newTrigger !== leg.re_high_trigger_price) {
-                            leg.re_high_trigger_price = newTrigger;
-                            leg.rtp = newTrigger; // Sync for frontend display
-                            addStrategyLog(strategyId, `[RE-HIGH] New Peak detected: ₹${peak}. Re-entry trigger moved to ₹${newTrigger}`, "INFO");
+                    // CASE A: With Momentum (Wait for pullback, then place MTP)
+                    if (leg.leg.rehigh_mntm_enabled) {
+                        // Calculate PROJECTED MTP for dashboard visibility
+                        const mntmMode = leg.leg.rehigh_mntm_mode || "REHIGH_PLUS_PCT";
+                        const mntmVal = leg.leg.rehigh_mntm_value || 0;
+                        let projectedMtp = rtp;
+                        if (mntmMode === "REHIGH_PLUS_PCT" || mntmMode === "PLUS_PCT") projectedMtp = rtp + (rtp * mntmVal / 100);
+                        else if (mntmMode === "REHIGH_PLUS_PTS" || mntmMode === "PLUS_PTS") projectedMtp = rtp + mntmVal;
+                        else if (mntmMode === "REHIGH_MINUS_PCT" || mntmMode === "MINUS_PCT") projectedMtp = rtp - (rtp * mntmVal / 100);
+                        else if (mntmMode === "REHIGH_MINUS_PTS" || mntmMode === "MINUS_PTS") projectedMtp = rtp - mntmVal;
+                        leg.mtp = roundToTick(projectedMtp);
+
+                        if (isNewPeak) {
+                            addStrategyLog(strategyId, `[RE-HIGH] PEAK: ₹${peak} | RTP: ₹${rtp} | MTP: ₹${leg.mtp}`, "INFO");
+                        }
+
+                        if (tickPrice <= rtp) {
+                            await handleReentryHigh({ leg, config, strategyId, addStrategyLog, currentTick: tickPrice, isMtpPlacement: true });
+                        }
+                    } 
+                    // CASE B: Without Momentum (Place resting limit immediately, then modify)
+                    else {
+                        if (!leg.orderId) {
+                            await handleReentryHigh({ leg, config, strategyId, addStrategyLog, currentTick: tickPrice });
+                        } else if (isNewPeak) {
+                            await modifyReentryOrder({ leg, config, strategyId, addStrategyLog, newRtp: rtp });
                         }
                     }
                 }
-                
-                // Track Low Price (Lowest LTP since SL) for RE-LOW
+
                 if (leg.state === "WAITING_FOR_RE_LOW") {
                     let isNewLow = false;
-                    // Track absolute Low (Min LTP) since SL hit
                     if (!leg.max_low_price || tickPrice < leg.max_low_price) {
                         leg.max_low_price = tickPrice;
                         isNewLow = true;
                     }
 
-                    // Dynamic Trigger Update for RE-LOW
-                    if (isNewLow) {
-                        const mode = leg.leg.relow_mode || 'RELOW_PLUS_PTS';
-                        const val = leg.leg.relow_value || 0;
-                        const low = leg.max_low_price;
-                        let newTrigger = low;
-                        const effectiveVal = parseFloat(val || 0);
+                    const mode = leg.leg.relow_mode || 'RELOW_PLUS_PTS';
+                    const val = leg.leg.relow_value || 0;
+                    const low = leg.max_low_price;
+                    let rtp = low;
 
-                        if (mode === 'RELOW_PLUS_PCT') newTrigger = low + (low * effectiveVal / 100);
-                        else if (mode === 'RELOW_PLUS_PTS') newTrigger = low + effectiveVal;
-                        else if (mode === 'RELOW_MINUS_PCT') newTrigger = low - (low * effectiveVal / 100);
-                        else if (mode === 'RELOW_MINUS_PTS') newTrigger = low - effectiveVal;
+                    if (mode === 'RELOW_PLUS_PCT') rtp = low + (low * val / 100);
+                    else if (mode === 'RELOW_PLUS_PTS') rtp = low + val;
 
-                        if (newTrigger !== leg.re_low_trigger_price) {
-                            leg.re_low_trigger_price = newTrigger;
-                            leg.rtp = newTrigger; // Sync for frontend display
-                            addStrategyLog(strategyId, `[RE-LOW] New Low detected: ₹${low}. Re-entry trigger moved to ₹${newTrigger}`, "INFO");
+                    rtp = roundToTick(rtp);
+                    leg.re_low_trigger_price = rtp;
+                    leg.rtp = rtp;
+
+                    // CASE A: With Momentum
+                    if (leg.leg.relow_mntm_enabled) {
+                        // Calculate PROJECTED MTP for dashboard visibility
+                        const mntmMode = leg.leg.relow_mntm_mode || "RELOW_PLUS_PCT";
+                        const mntmVal = leg.leg.relow_mntm_value || 0;
+                        let projectedMtp = rtp;
+                        if (mntmMode === "RELOW_PLUS_PCT" || mntmMode === "PLUS_PCT") projectedMtp = rtp + (rtp * mntmVal / 100);
+                        else if (mntmMode === "RELOW_PLUS_PTS" || mntmMode === "PLUS_PTS") projectedMtp = rtp + mntmVal;
+                        else if (mntmMode === "RELOW_MINUS_PCT" || mntmMode === "MINUS_PCT") projectedMtp = rtp - (rtp * mntmVal / 100);
+                        else if (mntmMode === "RELOW_MINUS_PTS" || mntmMode === "MINUS_PTS") projectedMtp = rtp - mntmVal;
+                        leg.mtp = roundToTick(projectedMtp);
+
+                        if (isNewLow) {
+                            addStrategyLog(strategyId, `[RE-LOW] LOW: ₹${low} | RTP: ₹${rtp} | MTP: ₹${leg.mtp}`, "INFO");
+                        }
+
+                        if (tickPrice >= rtp) {
+                            await handleReentryLow({ leg, config, strategyId, addStrategyLog, currentTick: tickPrice, isMtpPlacement: true });
+                        }
+                    }
+                    // CASE B: Without Momentum
+                    else {
+                        if (!leg.orderId) {
+                            await handleReentryLow({ leg, config, strategyId, addStrategyLog, currentTick: tickPrice });
+                        } else if (isNewLow) {
+                            await modifyReentryLowOrder({ leg, config, strategyId, addStrategyLog, newRtp: rtp });
                         }
                     }
                 }
@@ -200,41 +238,6 @@ async function monitorStrategyLoop(strategyId, strategy) {
                     }
                 }
 
-                // 2c. Re-High Cross Logic (RTP reached)
-                if (leg.state === "WAITING_FOR_RE_HIGH" && leg.last_tick_price !== null) {
-                    const currentTick = leg.currentLtp;
-                    const prevTick = leg.last_tick_price;
-                    const rtp = leg.re_high_trigger_price;
-
-                    let triggerReEntry = false;
-                    if (leg.leg.rehigh_mode.includes("PLUS")) {
-                        if (prevTick < rtp && currentTick >= rtp) triggerReEntry = true;
-                    } else {
-                        if (prevTick > rtp && currentTick <= rtp) triggerReEntry = true;
-                    }
-
-                    if (triggerReEntry) {
-                        await handleReentryHigh({ leg, config, strategyId, addStrategyLog, currentTick });
-                    }
-                }
-
-                // 2d. Re-Low Cross Logic (RTP reached)
-                if (leg.state === "WAITING_FOR_RE_LOW" && leg.last_tick_price !== null) {
-                    const currentTick = leg.currentLtp;
-                    const prevTick = leg.last_tick_price;
-                    const rtp = leg.re_low_trigger_price;
-
-                    let triggerReEntry = false;
-                    if (leg.leg.relow_mode.includes("PLUS")) {
-                        if (prevTick < rtp && currentTick >= rtp) triggerReEntry = true;
-                    } else {
-                        if (prevTick > rtp && currentTick <= rtp) triggerReEntry = true;
-                    }
-
-                    if (triggerReEntry) {
-                        await handleReentryLow({ leg, config, strategyId, addStrategyLog, currentTick });
-                    }
-                }
 
                 leg.last_tick_price = leg.currentLtp;
 
@@ -286,7 +289,7 @@ async function monitorStrategyLoop(strategyId, strategy) {
                         try {
                             const api = await getAuthorizedInstance(config.connectionId);
                             await api.cancelOrder({ variety: "STOPLOSS", orderid: leg.slOrderId });
-                        } catch (e) {}
+                        } catch (e) { }
                     }
                 }));
             }
@@ -338,7 +341,7 @@ async function monitorStrategyLoop(strategyId, strategy) {
                             triggerprice: newTrigger.toString(),
                         });
                         addStrategyLog(strategyId, `TSL Step: Moved SL for ${leg.instrument.symbol} to ₹${newTrigger}`, "INFO");
-                    } catch (e) {}
+                    } catch (e) { }
                 } else {
                     addStrategyLog(strategyId, `[PAPER TSL] Virtual SL moved to ₹${newTrigger}`, "INFO");
                 }
@@ -355,7 +358,11 @@ async function monitorStrategyLoop(strategyId, strategy) {
                     // 2. Call the lifecycle handler to record the data and check for Re-Entry.
                     await handleLegStopOut(leg, evalResult.exitReason, strategy);
                 } catch (exitErr) {
-                    addStrategyLog(strategyId, `Exit failed: ${exitErr.message}`, "ERROR");
+                    if (exitErr.message?.startsWith("EXIT_CHASE_EXHAUSTED")) {
+                        pauseStrategy(strategyId, `Exit Chase failed for ${leg.instrument?.symbol}: ${exitErr.message}`);
+                        return "TERMINATE";
+                    }
+                    throw exitErr;
                 }
             }
         }
@@ -369,7 +376,7 @@ async function monitorStrategyLoop(strategyId, strategy) {
             for (const leg of strategy.legs) {
                 // We only check legs that are active and have an order ID.
                 if (leg.exited || leg.state === "WAITING_FOR_RECOST" || !leg.slUniqueOrderId || leg.exchangeSlProcessed) continue;
-                
+
                 // Optimization: Only ping the broker API if the current price is very near the SL (within 2%).
                 const isNearTrigger = leg.leg.side === "BUY" ? (leg.currentLtp <= leg.slTriggerPrice * 1.02) : (leg.currentLtp >= leg.slTriggerPrice * 0.98);
                 if (isNearTrigger) {
@@ -381,7 +388,7 @@ async function monitorStrategyLoop(strategyId, strategy) {
                             leg.exchangeSlProcessed = true;
                             await handleLegStopOut(leg, "EXCHANGE_STOP_LOSS", strategy);
                         }
-                    } catch (err) {}
+                    } catch (err) { }
                 }
             }
         }
@@ -403,9 +410,9 @@ async function monitorStrategyLoop(strategyId, strategy) {
                         const api = await getAuthorizedInstance(config.connectionId);
                         if (leg.slOrderId) await api.cancelOrder({ variety: "STOPLOSS", orderid: leg.slOrderId });
                         if (!leg.entryPrice && leg.orderId) {
-                             try { await api.cancelOrder({ variety: "NORMAL", orderid: leg.orderId }); } catch (e) { await api.cancelOrder({ variety: "STOPLOSS", orderid: leg.orderId }); }
+                            try { await api.cancelOrder({ variety: "NORMAL", orderid: leg.orderId }); } catch (e) { await api.cancelOrder({ variety: "STOPLOSS", orderid: leg.orderId }); }
                         }
-                    } catch (e) {}
+                    } catch (e) { }
                 }));
             }
 

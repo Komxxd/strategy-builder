@@ -2238,7 +2238,7 @@ export const StrategyBuilder = ({ isConnected }) => {
                                                                                                     <span className="text-pink-600 font-bold text-[10px] font-mono uppercase">Trig Low: {l.max_low_price.toFixed(2)}</span>
                                                                                                 </>
                                                                                             )}
-                                                                                            {l.mtp != null && (
+                                                                                            {l.mtp != null && !["WAITING_FOR_RE_HIGH", "WAITING_FOR_RE_LOW"].includes(l.state) && (
                                                                                                 <>
                                                                                                     <span className="text-muted-foreground text-[10px] font-mono">|</span>
                                                                                                     <span className="text-purple-500 font-medium text-[10px] font-mono">MTP: {l.mtp.toFixed(2)}</span>
@@ -2261,20 +2261,32 @@ export const StrategyBuilder = ({ isConnected }) => {
                                                                                             )}
                                                                                             {l.state === "WAITING_FOR_RE_HIGH" && (
                                                                                                 <>
-                                                                                                    <span className="px-2 py-0.5 ml-2 bg-emerald-100 text-emerald-700 font-medium rounded text-[10px] font-mono whitespace-nowrap">Waiting Re-Entry (Peak Basis)</span>
+                                                                                                    <span className="px-2 py-0.5 ml-2 bg-emerald-100 text-emerald-700 font-medium rounded text-[10px] font-mono whitespace-nowrap uppercase">Waiting (Peak Basis)</span>
                                                                                                     <span className="text-muted-foreground text-[10px] font-mono ml-1">|</span>
                                                                                                     <span className="text-indigo-600 font-bold text-[10px] font-mono ml-1 uppercase">Peak: ₹{(l.max_peak_price || 0).toFixed(2)}</span>
                                                                                                     <span className="text-muted-foreground text-[10px] font-mono ml-1">|</span>
                                                                                                     <span className="text-orange-600 font-bold text-[10px] font-mono ml-1 uppercase">RTP: ₹{(l.re_high_trigger_price || 0).toFixed(2)}</span>
+                                                                                                    {l.mtp && (
+                                                                                                        <>
+                                                                                                            <span className="text-muted-foreground text-[10px] font-mono ml-1">|</span>
+                                                                                                            <span className="text-blue-600 font-bold text-[10px] font-mono ml-1 uppercase">MTP: ₹{(l.mtp || 0).toFixed(2)}</span>
+                                                                                                        </>
+                                                                                                    )}
                                                                                                 </>
                                                                                             )}
                                                                                             {l.state === "WAITING_FOR_RE_LOW" && (
                                                                                                 <>
-                                                                                                    <span className="px-2 py-0.5 ml-2 bg-pink-100 text-pink-700 font-medium rounded text-[10px] font-mono whitespace-nowrap">Waiting Re-Entry (Low Basis)</span>
+                                                                                                    <span className="px-2 py-0.5 ml-2 bg-pink-100 text-pink-700 font-medium rounded text-[10px] font-mono whitespace-nowrap uppercase">Waiting (Low Basis)</span>
                                                                                                     <span className="text-muted-foreground text-[10px] font-mono ml-1">|</span>
                                                                                                     <span className="text-indigo-600 font-bold text-[10px] font-mono ml-1 uppercase">Low: ₹{(l.max_low_price || 0).toFixed(2)}</span>
                                                                                                     <span className="text-muted-foreground text-[10px] font-mono ml-1">|</span>
                                                                                                     <span className="text-orange-600 font-bold text-[10px] font-mono ml-1 uppercase">RTP: ₹{(l.re_low_trigger_price || 0).toFixed(2)}</span>
+                                                                                                    {l.mtp && (
+                                                                                                        <>
+                                                                                                            <span className="text-muted-foreground text-[10px] font-mono ml-1">|</span>
+                                                                                                            <span className="text-blue-600 font-bold text-[10px] font-mono ml-1 uppercase">MTP: ₹{(l.mtp || 0).toFixed(2)}</span>
+                                                                                                        </>
+                                                                                                    )}
                                                                                                 </>
                                                                                             )}
                                                                                             {l.state === "WAITING_FOR_LAZY" && (

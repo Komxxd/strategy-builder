@@ -1,86 +1,70 @@
 const { placeOrder, waitForOrderFillPrice, placeStopLossWithRetry } = require("./strategy.execution");
 const { roundToTick, computeStopLossExitPrices, getLimitOffsetAmt } = require("./strategy.offset");
 const { getISTTime } = require("./strategy.time");
+const { getAuthorizedInstance } = require("../../config/smartapi");
 
 /**
  * Handles re-entry for "RE HIGH" mode.
- * Identical to RE COST but triggers when price crosses the peak price seen during the trade.
  */
-async function handleReentryHigh({ leg, config, strategyId, addStrategyLog, currentTick }) {
-    if (leg.state !== "WAITING_FOR_RE_HIGH") return;
-
-    // Increment re-entry count
-    leg.reentry_count = (leg.reentry_count || 0) + 1;
-    
-    // Proactively set state to ACTIVE to prevent duplicate triggers
-    leg.state = "ACTIVE";
-    leg.exited = false;
-    leg.exitType = null;
-    leg.isExiting = false;
-    leg.entryPrice = null;
-    leg.orderId = null;
-    leg.uniqueOrderId = null;
-    leg.slOrderId = null;
-    leg.slUniqueOrderId = null;
+async function handleReentryHigh({ leg, config, strategyId, addStrategyLog, currentTick, isMtpPlacement = false }) {
+    // 1. Setup the basic details
     const side = leg.leg.side;
     const rtp = leg.re_high_trigger_price; 
     const currentPrice = currentTick || leg.currentLtp;
+    const offsetAmt = getLimitOffsetAmt(rtp, config);
 
-    console.log(`[RE-HIGH] Triggered for ${leg.instrument?.symbol}. Peak Price was ${rtp}. Current LTP=${currentPrice}`);
-    addStrategyLog(strategyId, `[RE-HIGH] Triggered for ${leg.instrument?.symbol}. Peak Price was ${rtp}. Current LTP=${currentPrice}`, "INFO");
-
+    // 2. Decide the MTP (Momentum Target)
     let mtp = rtp;
     if (leg.leg.rehigh_mntm_enabled) {
         const mntmMode = leg.leg.rehigh_mntm_mode || "REHIGH_PLUS_PCT";
         const mntmVal = leg.leg.rehigh_mntm_value || 0;
         
-        if (mntmMode === "REHIGH_PLUS_PCT") mtp = rtp + (rtp * mntmVal / 100);
-        else if (mntmMode === "REHIGH_PLUS_PTS") mtp = rtp + mntmVal;
-        else if (mntmMode === "REHIGH_MINUS_PCT") mtp = rtp - (rtp * mntmVal / 100);
-        else if (mntmMode === "REHIGH_MINUS_PTS") mtp = rtp - mntmVal;
+        if (mntmMode === "REHIGH_PLUS_PCT" || mntmMode === "PLUS_PCT") mtp = rtp + (rtp * mntmVal / 100);
+        else if (mntmMode === "REHIGH_PLUS_PTS" || mntmMode === "PLUS_PTS") mtp = rtp + mntmVal;
+        else if (mntmMode === "REHIGH_MINUS_PCT" || mntmMode === "MINUS_PCT") mtp = rtp - (rtp * mntmVal / 100);
+        else if (mntmMode === "REHIGH_MINUS_PTS" || mntmMode === "MINUS_PTS") mtp = rtp - mntmVal;
     }
     mtp = roundToTick(mtp);
 
+    // 3. Determine Order Type (STOPLOSS vs LIMIT)
     let variety = config.variety || "NORMAL";
     let ordertype = config.ordertype || "LIMIT";
-    const offsetAmt = getLimitOffsetAmt(mtp, config);
-
     let finalPriceStr = mtp.toString();
     let triggerPriceStr = mtp.toString();
 
-    // Determine order type based on LTP vs MTP
-    if (side === "SELL") {
-        if (mtp < currentPrice) {
-            variety = "STOPLOSS";
-            ordertype = "STOPLOSS_LIMIT";
-            finalPriceStr = roundToTick(mtp - offsetAmt).toString();
-            triggerPriceStr = mtp.toString();
-        } else {
-            variety = "NORMAL";
-            ordertype = "LIMIT";
-            finalPriceStr = roundToTick(mtp - offsetAmt).toString();
+    if (leg.leg.rehigh_mntm_enabled) {
+        if (side === "SELL") {
+            if (mtp < currentPrice) {
+                variety = "STOPLOSS";
+                ordertype = "STOPLOSS_LIMIT";
+                finalPriceStr = roundToTick(mtp - offsetAmt).toString();
+            } else {
+                variety = "NORMAL";
+                ordertype = "LIMIT";
+                finalPriceStr = roundToTick(mtp - offsetAmt).toString();
+            }
+        } else if (side === "BUY") {
+            if (mtp > currentPrice) {
+                variety = "STOPLOSS";
+                ordertype = "STOPLOSS_LIMIT";
+                finalPriceStr = roundToTick(mtp + offsetAmt).toString();
+            } else {
+                variety = "NORMAL";
+                ordertype = "LIMIT";
+                finalPriceStr = roundToTick(mtp + offsetAmt).toString();
+            }
         }
-    } else if (side === "BUY") {
-        if (mtp > currentPrice) {
-            variety = "STOPLOSS";
-            ordertype = "STOPLOSS_LIMIT";
-            finalPriceStr = roundToTick(mtp + offsetAmt).toString();
-            triggerPriceStr = mtp.toString();
+    } else {
+        // Non-Momentum Flow: Place a RESTING LIMIT order
+        variety = "NORMAL";
+        ordertype = "LIMIT";
+        triggerPriceStr = "0";
+        if (side === "BUY") {
+            finalPriceStr = roundToTick(rtp + offsetAmt).toString();
         } else {
-            variety = "NORMAL";
-            ordertype = "LIMIT";
-            finalPriceStr = roundToTick(mtp + offsetAmt).toString();
+            finalPriceStr = roundToTick(rtp - offsetAmt).toString();
         }
     }
-
-    leg.exited = false;
-    leg.exitType = null;
-    leg.isExiting = false;
-    leg.entryPrice = null;
-    leg.orderId = null;
-    leg.uniqueOrderId = null;
-    leg.slOrderId = null;
-    leg.slUniqueOrderId = null;
 
     try {
         const reEntryOrder = await placeOrder(
@@ -99,75 +83,131 @@ async function handleReentryHigh({ leg, config, strategyId, addStrategyLog, curr
 
         leg.orderId = reEntryOrder.orderid;
         leg.uniqueOrderId = reEntryOrder.uniqueorderid;
+        leg.mtp = mtp; // Set for frontend display
+        leg.rtp = rtp; // Sync RTP for frontend display
+        
+        // If this is MTP placement, we move to FILL state
+        if (isMtpPlacement) {
+            leg.state = "ACTIVE"; 
+            addStrategyLog(strategyId, `[RE-HIGH] MTP Order placed for ${leg.instrument?.symbol} at ₹${mtp}.`, "INFO");
+        } else {
+            addStrategyLog(strategyId, `[RE-HIGH] Resting Limit placed for ${leg.instrument?.symbol} at ₹${finalPriceStr}.`, "INFO");
+        }
 
-        // Snapshot the peak reached during wait for history
-        leg.final_peak_reached = leg.max_peak_price;
-        // Peak price resets for the new trade
-        leg.max_peak_price = 0;
-
-        // Wait for fill
-        setTimeout(async () => {
-            try {
-                const fill = await waitForOrderFillPrice(
-                    leg.uniqueOrderId,
-                    config.connectionId,
-                    config.is_paper_trading === true,
-                    leg.instrument,
-                    28800000, 
-                    1000,     
-                    {         
-                        side: side,
-                        ordertype: ordertype,
-                        price: parseFloat(finalPriceStr || 0),
-                        triggerprice: parseFloat(triggerPriceStr || 0),
-                        isInstantFill: false
-                    }
-                );
-                leg.entryPrice = fill || currentPrice;
-                leg.entryTime = getISTTime();
-                leg.original_traded_price = leg.entryPrice;
-            } catch (e) {
-                leg.entryPrice = currentPrice;
-                leg.entryTime = getISTTime();
-            }
-
-            // Redeploy SL
-            const isSlEnabled = leg.leg.reentry_sl_enabled ? true : leg.leg.sl_enabled !== false;
-            if (config.variety === "STOPLOSS" && leg.entryPrice && isSlEnabled) {
-                const activeSlType = leg.leg.reentry_sl_enabled ? leg.leg.reentry_sl_type : (leg.leg.sl_type || "PERCENTAGE");
-                const activeSlValue = leg.leg.reentry_sl_enabled ? leg.leg.reentry_sl_value : leg.leg.stop_loss;
-
-                const slOrder = await placeStopLossWithRetry({
-                    baseConfig: config,
-                    legSide: leg.leg.side,
-                    entryPrice: leg.entryPrice,
-                    instrument: leg.instrument,
-                    lots: leg.leg.lots,
-                    slType: activeSlType,
-                    slValue: activeSlValue,
-                    slLimitMargin: config.entry_limit_offset,
-                    slLimitMarginType: config.entry_limit_offset_type || 'POINTS',
-                    connectionId: config.connectionId,
-                    strategyId: strategyId
-                });
-
-                if (slOrder?.orderid) {
-                    const prices = computeStopLossExitPrices(leg.entryPrice, leg.leg.side, activeSlType, activeSlValue, config.entry_limit_offset, config.entry_limit_offset_type || 'POINTS');
-                    leg.slOrderId = slOrder.orderid;
-                    leg.slUniqueOrderId = slOrder.uniqueorderid;
-                    leg.slTriggerPrice = prices?.trigger;
-                    leg.slLimitPrice = prices?.limit;
-                    leg.exchangeSlProcessed = false;
-                }
-            }
-        }, 1000);
+        // Wait for fill in the background
+        monitorReentryFill(leg, config, strategyId, addStrategyLog, {
+            side: side,
+            ordertype: ordertype,
+            price: parseFloat(finalPriceStr),
+            triggerprice: parseFloat(triggerPriceStr)
+        });
 
     } catch (err) {
-        console.error("[RE-HIGH] Re-entry failed:", err);
-        addStrategyLog(strategyId, `[RE-HIGH] Re-entry failed for ${leg.instrument?.symbol}: ${err.message}`, "ERROR");
-        leg.state = "COMPLETED";
-        leg.exited = true;
+        console.error("[RE-HIGH] Order placement failed:", err.message);
+        addStrategyLog(strategyId, `[RE-HIGH] Failed to place re-entry: ${err.message}`, "ERROR");
     }
 }
 
-module.exports = { handleReentryHigh };
+/**
+ * Modifies an existing re-entry order if the peak price changes.
+ */
+async function modifyReentryOrder({ leg, config, strategyId, addStrategyLog, newRtp }) {
+    if (config.is_paper_trading) {
+        leg.re_high_trigger_price = newRtp;
+        addStrategyLog(strategyId, `[PAPER] Moved RE-HIGH Resting Limit to ₹${newRtp}`, "INFO");
+        return;
+    }
+
+    try {
+        const api = await getAuthorizedInstance(config.connectionId);
+        const offsetAmt = getLimitOffsetAmt(newRtp, config);
+        const side = leg.leg.side;
+        const newPrice = side === "BUY" ? roundToTick(newRtp + offsetAmt) : roundToTick(newRtp - offsetAmt);
+
+        await api.modifyOrder({
+            variety: "NORMAL",
+            orderid: leg.orderId,
+            ordertype: "LIMIT",
+            producttype: config.producttype || "INTRADAY",
+            duration: config.duration || "DAY",
+            price: newPrice.toString(),
+            quantity: leg.leg.lots.toString(),
+            tradingsymbol: leg.instrument.symbol,
+            symboltoken: leg.instrument.token,
+            exchange: leg.instrument.exch_seg
+        });
+
+        leg.re_high_trigger_price = newRtp;
+        addStrategyLog(strategyId, `[RE-HIGH] Modified Resting Order for ${leg.instrument.symbol} to ₹${newPrice}`, "INFO");
+    } catch (err) {
+        console.error("[RE-HIGH] Modification failed:", err.message);
+    }
+}
+
+/**
+ * Background helper to watch for fills and redeploy SL.
+ */
+async function monitorReentryFill(leg, config, strategyId, addStrategyLog, orderDetails = null) {
+    const { waitForOrderFillPrice } = require("./strategy.execution");
+    
+    try {
+        const fill = await waitForOrderFillPrice(
+            leg.uniqueOrderId,
+            config.connectionId,
+            config.is_paper_trading === true,
+            leg.instrument,
+            28800000, 
+            1000,
+            orderDetails
+        );
+
+        if (fill) {
+            // Snapshot the peak reached during the wait period for display/history
+            leg.final_peak_reached = leg.max_peak_price;
+            
+            leg.state = "ACTIVE";
+            leg.entryPrice = fill;
+            leg.entryTime = getISTTime();
+            leg.original_traded_price = fill;
+            leg.reentry_count = (leg.reentry_count || 0) + 1;
+            addStrategyLog(strategyId, `[RE-HIGH] Re-entry filled for ${leg.instrument.symbol} at ₹${fill}. Peak reached: ₹${leg.final_peak_reached}`, "INFO");
+
+            // Redeploy SL
+            deployReentrySL(leg, config, strategyId, addStrategyLog);
+        }
+    } catch (e) {
+        console.error("[RE-HIGH] Fill monitoring error:", e.message);
+    }
+}
+
+async function deployReentrySL(leg, config, strategyId, addStrategyLog) {
+    const isSlEnabled = leg.leg.reentry_sl_enabled ? true : leg.leg.sl_enabled !== false;
+    if (config.variety === "STOPLOSS" && leg.entryPrice && isSlEnabled) {
+        const activeSlType = leg.leg.reentry_sl_enabled ? leg.leg.reentry_sl_type : (leg.leg.sl_type || "PERCENTAGE");
+        const activeSlValue = leg.leg.reentry_sl_enabled ? leg.leg.reentry_sl_value : leg.leg.stop_loss;
+
+        const slOrder = await placeStopLossWithRetry({
+            baseConfig: config,
+            legSide: leg.leg.side,
+            entryPrice: leg.entryPrice,
+            instrument: leg.instrument,
+            lots: leg.leg.lots,
+            slType: activeSlType,
+            slValue: activeSlValue,
+            slLimitMargin: config.entry_limit_offset,
+            slLimitMarginType: config.entry_limit_offset_type || 'POINTS',
+            connectionId: config.connectionId,
+            strategyId: strategyId
+        });
+
+        if (slOrder?.orderid) {
+            const prices = computeStopLossExitPrices(leg.entryPrice, leg.leg.side, activeSlType, activeSlValue, config.entry_limit_offset, config.entry_limit_offset_type || 'POINTS');
+            leg.slOrderId = slOrder.orderid;
+            leg.slUniqueOrderId = slOrder.uniqueorderid;
+            leg.slTriggerPrice = prices?.trigger;
+            leg.slLimitPrice = prices?.limit;
+        }
+    }
+}
+
+module.exports = { handleReentryHigh, modifyReentryOrder };

@@ -546,7 +546,7 @@ async function handleLegStopOut(leg, exitType, strategy) {
         if (mode === 'REHIGH_MINUS_PCT') triggerPrice = peakPrice - (peakPrice * val / 100);
         else if (mode === 'REHIGH_MINUS_PTS') triggerPrice = peakPrice - val;
 
-        console.log(`[RE-HIGH] SL Hit for ${leg.instrument?.symbol}. Peak Price=${peakPrice}. Trigger Price=${triggerPrice}`);
+        addStrategyLog(strategyId, `[RE-HIGH] SL Hit for ${leg.instrument?.symbol}. PEAK: ₹${peakPrice} | RTP: ₹${triggerPrice} | MTP: ${leg.leg.rehigh_mntm_enabled ? 'Calculating...' : 'N/A'}`, "INFO");
         const newLeg = {
             leg: { ...leg.leg },
             instrument: { ...leg.instrument },
@@ -566,6 +566,7 @@ async function handleLegStopOut(leg, exitType, strategy) {
             base_otp: leg.base_otp || leg.original_traded_price,
             re_high_trigger_price: triggerPrice,
             max_peak_price: peakPrice,
+            final_peak_reached: leg.final_peak_reached || 0, // Carry over if exists
             bookedPnlPoints: 0,
             bookedPnlRupees: 0,
             currentActivePnlPoints: 0,
@@ -604,7 +605,7 @@ async function handleLegStopOut(leg, exitType, strategy) {
         else if (mode === 'RELOW_MINUS_PCT') triggerPrice = lowPrice - (lowPrice * val / 100);
         else if (mode === 'RELOW_MINUS_PTS') triggerPrice = lowPrice - val;
 
-        console.log(`[RE-LOW] SL Hit for ${leg.instrument?.symbol}. Baseline Low=${lowPrice}. Trigger Price=${triggerPrice}`);
+        addStrategyLog(strategyId, `[RE-LOW] SL Hit for ${leg.instrument?.symbol}. LOW: ₹${lowPrice} | RTP: ₹${triggerPrice} | MTP: ${leg.leg.relow_mntm_enabled ? 'Calculating...' : 'N/A'}`, "INFO");
         const newLeg = {
             leg: { ...leg.leg },
             instrument: { ...leg.instrument },
@@ -624,6 +625,7 @@ async function handleLegStopOut(leg, exitType, strategy) {
             base_otp: leg.base_otp || leg.original_traded_price,
             re_low_trigger_price: triggerPrice,
             max_low_price: lowPrice,
+            final_low_reached: leg.final_low_reached || 0, // Carry over if exists
             bookedPnlPoints: 0,
             bookedPnlRupees: 0,
             currentActivePnlPoints: 0,

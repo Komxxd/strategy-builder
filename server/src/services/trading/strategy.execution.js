@@ -49,7 +49,7 @@ async function placeOrder(config, instrument, connectionId) {
 
     // --- CASE A: PAPER TRADING ---
     if (isPaperTrading) {
-        console.log(`[PAPER_TRADE] Simulating order for ${instrument.symbol}`);
+        console.log(`[${new Date().toISOString()}] PAPER ORDER:`, orderParams);
         return {
             orderid: `PAPER_${Date.now()}_${Math.floor(Math.random() * 10000)}`,
             uniqueorderid: `UPAPER_${Date.now()}_${Math.floor(Math.random() * 10000)}`
@@ -58,15 +58,16 @@ async function placeOrder(config, instrument, connectionId) {
 
     // --- CASE B: LIVE TRADING ---
     try {
-        console.log(`[LIVE_TRADE] Placing real order for ${instrument.symbol}`);
+        console.log(`[${new Date().toISOString()}] Placing order:`, orderParams);
         const api = await getAuthorizedInstance(connId);
         const response = await api.placeOrder(orderParams);
         if (response.status && response.data) {
-            return response.data; // contains real orderid and uniqueorderid
+            console.log(`[${new Date().toISOString()}] Order placed successfully:`, response.data.orderid);
+            return response.data; // contains orderid and uniqueorderid
         }
         throw new Error(response.message || "Order placement failed");
     } catch (error) {
-        console.error(`[LIVE_TRADE] CRITICAL ERROR:`, error);
+        console.error(`[${new Date().toISOString()}] Order placement failed:`, error);
         throw error;
     }
 }
@@ -102,7 +103,7 @@ async function waitForOrderFillPrice(uniqueOrderId, connectionId, isPaperTrading
                     // Re-Cost / Resting Limit logic:
                     if (side === "BUY" && currentLtp <= target) return target;
                     if (side === "SELL" && currentLtp >= target) return target;
-                } 
+                }
                 else if (ordertype === "STOPLOSS_LIMIT" || ordertype === "STOPLOSS") {
                     // Re-Cost Momentum logic:
                     if (side === "BUY" && currentLtp >= target) return target;
@@ -186,12 +187,19 @@ async function placeStopLossWithRetry({ baseConfig, legSide, entryPrice, instrum
                 baseConfig, legSide, entryPrice, instrument, lots, slType, slValue, slLimitMargin, slLimitMarginType, connectionId
             });
             if (slOrder?.orderid) {
-                // Success!
+                if (attempts < 3) {
+                    marketSocketService.sendAlert(`SL order for ${instrument.symbol} successfully placed on attempt ${4 - attempts}.`, "success");
+                    if (strategyId) addStrategyLog(strategyId, `SL order for ${instrument.symbol} placed on attempt ${4 - attempts}.`, "INFO");
+                } else {
+                    if (strategyId) addStrategyLog(strategyId, `SL order for ${instrument.symbol} placed at trigger ₹${slOrder.triggerprice || '---'}.`, "INFO");
+                }
                 return slOrder;
             }
         } catch (err) {
             lastError = err.message;
-            console.error(`[SL Retry] Attempt ${4 - attempts} failed:`, lastError);
+            console.error(`[SL Retry] Attempt ${4 - attempts} for ${instrument.symbol} failed:`, lastError);
+            marketSocketService.sendAlert(`SL placement failed for ${instrument.symbol} (Attempt ${4 - attempts}): ${lastError}`, "error");
+            if (strategyId) addStrategyLog(strategyId, `SL placement FAILED for ${instrument.symbol} (Attempt ${4 - attempts}): ${lastError}`, "ERROR");
         }
 
         attempts--;
@@ -200,8 +208,8 @@ async function placeStopLossWithRetry({ baseConfig, legSide, entryPrice, instrum
         }
     }
 
-    // If we reach here, all 3 attempts failed.
-    marketSocketService.sendAlert(`CRITICAL: Stop Loss order for ${instrument.symbol} FAILED. Position is UNPROTECTED!`, "error");
+    marketSocketService.sendAlert(`CRITICAL: Stop Loss order for ${instrument.symbol} FAILED after all attempts. Position is UNPROTECTED!`, "error");
+    if (strategyId) addStrategyLog(strategyId, `CRITICAL: Stop Loss order for ${instrument.symbol} FAILED after all attempts. Position is UNPROTECTED!`, "CRITICAL");
     return null;
 }
 
@@ -331,7 +339,7 @@ async function placeExitOrder({ config, leg, instrument, exitType }) {
 
 
 module.exports = {
-   roundToTick, placeOrder, getLimitOffsetAmt, computeStopLossExitPrices,
-   resolveUniversalOrderParams, waitForOrderFillPrice, checkOrderFillOnce,
-   chaseOrderFill, placeStopLossExitOrder, placeStopLossWithRetry, placeExitOrder
+    roundToTick, placeOrder, getLimitOffsetAmt, computeStopLossExitPrices,
+    resolveUniversalOrderParams, waitForOrderFillPrice, checkOrderFillOnce,
+    chaseOrderFill, placeStopLossExitOrder, placeStopLossWithRetry, placeExitOrder
 };
