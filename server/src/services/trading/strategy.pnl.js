@@ -129,13 +129,17 @@ function evaluateLegLimits({ leg, config }) {
         const activeTrigger = result.tslStepped ? result.tslUpdates.newTrigger : leg.slTriggerPrice;
         if (activeTrigger) {
             if (leg.leg.side === "BUY" && leg.currentLtp <= activeTrigger) {
-                result.isHit = true;
-                result.exitReason = "TRAILING_STOP_LOSS";
-                return result; 
+                if (config.variety !== "STOPLOSS" || config.is_paper_trading === true || !leg.slOrderId) {
+                    result.isHit = true;
+                    result.exitReason = "TRAILING_STOP_LOSS";
+                    return result; 
+                }
             } else if (leg.leg.side === "SELL" && leg.currentLtp >= activeTrigger) {
-                result.isHit = true;
-                result.exitReason = "TRAILING_STOP_LOSS";
-                return result;
+                if (config.variety !== "STOPLOSS" || config.is_paper_trading === true || !leg.slOrderId) {
+                    result.isHit = true;
+                    result.exitReason = "TRAILING_STOP_LOSS";
+                    return result;
+                }
             }
         }
     }
