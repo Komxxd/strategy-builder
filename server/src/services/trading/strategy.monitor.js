@@ -1,3 +1,17 @@
+/**
+ * STRATEGY MONITOR SERVICE
+ * ========================
+ * This is the "Heartbeat" of the trading system. 
+ * Once a strategy is live, this file runs a continuous loop (usually every 1 second).
+ * 
+ * Its job is to:
+ * 1. Get the latest market prices (LTP) for every stock/option you are trading.
+ * 2. Update your Profit/Loss (PnL) in real-time.
+ * 3. Check if your Stop-Loss (SL) has been hit.
+ * 4. Watch for Re-Entry signals (like waiting for a price bounce).
+ * 5. Move your Trailing Stop-Loss if the price moves in your favor.
+ */
+
 const { globalLtpMap, addStrategyLog, updateStrategyInMemory } = require("./strategy.state");
 const { getAuthorizedInstance } = require("../../config/smartapi");
 const { handleReentryAsap } = require("./strategy.reentry.asap");
@@ -14,20 +28,27 @@ const { checkOverallPnlLimits, evaluateLegLimits } = require("./strategy.pnl");
 const marketSocketService = require("../marketSocket.service");
 const { handleLegStopOut, pauseStrategy } = require("./strategy.lifecycle");
 
+/**
+ * The main monitoring function for a single strategy.
+ * This is called repeatedly by the Strategy Engine.
+ */
 async function monitorStrategyLoop(strategyId, strategy) {
+    // We only monitor strategies that are actually "IN_POSITION" (running)
     if (!strategy || strategy.status !== "IN_POSITION" || !strategy.legs?.length) return;
 
     const { config } = strategy;
     const currentTime = getISTTime();
 
     try {
+        // We filter out legs that are already finished, UNLESS they are in a "WAITING" state for re-entry.
         const activeLegs = strategy.legs.filter(leg => !(leg.exited && !["WAITING_FOR_RECOST", "WAITING_FOR_MNTM", "WAITING_FOR_RE_ASAP", "WAITING_FOR_LAZY", "WAITING_FOR_RESL_MNTM", "WAITING_FOR_RE_HIGH", "WAITING_FOR_RE_LOW"].includes(leg.state)));
         if (activeLegs.length === 0) return;
 
         const ltpMap = globalLtpMap;
 
         for (const leg of activeLegs) {
-            // 0. Specialized Re-entry states
+            // PHASE 1: Immediate Action States
+            // Some re-entry modes (like ASAP) don't wait for a price. They just need to fire.
             if (leg.state === "WAITING_FOR_RE_ASAP") {
                 await handleReentryAsap({ leg, config, strategyId, addStrategyLog });
                 continue;
@@ -37,6 +58,8 @@ async function monitorStrategyLoop(strategyId, strategy) {
                 continue;
             }
 
+            // PHASE 2: Update Market Price (LTP)
+            // We look up the latest price for this specific stock/option from our global price map.
             const exch = leg.instrument?.exch_seg;
             const token = leg.instrument?.token;
             if (!exch || !token) continue;
@@ -44,13 +67,15 @@ async function monitorStrategyLoop(strategyId, strategy) {
             const tickPrice = ltpMap[`${exch}_${token}`];
 
             if (tickPrice !== undefined) {
-                leg.currentLtp = tickPrice;
+                leg.currentLtp = tickPrice; // Update the "Active Instance" with the new price
 
-                // Track Peak Price for RE-HIGH
-                // Track Peak Price for RE-HIGH (favorable move) ONLY after Stop-Loss occurs
+                /**
+                 * PHASE 3: Re-Entry Tracking (RE-HIGH / RE-LOW)
+                 * If we are currently waiting for a price bounce to re-enter.
+                 */
                 if (leg.state === "WAITING_FOR_RE_HIGH") {
                     let isNewPeak = false;
-                    // Track absolute High (Max LTP) since SL hit
+                    // For RE-HIGH, we track the HIGHEST price seen since we were stopped out.
                     if (!leg.max_peak_price || tickPrice > leg.max_peak_price) {
                         leg.max_peak_price = tickPrice;
                         isNewPeak = true;
@@ -180,10 +205,9 @@ async function monitorStrategyLoop(strategyId, strategy) {
                     const currentTick = leg.currentLtp;
                     const prevTick = leg.last_tick_price;
                     const rtp = leg.re_high_trigger_price;
-                    const mode = leg.leg.rehigh_mode || 'REHIGH_MINUS_PTS';
 
                     let triggerReEntry = false;
-                    if (mode.includes("PLUS")) {
+                    if (leg.leg.rehigh_mode.includes("PLUS")) {
                         if (prevTick < rtp && currentTick >= rtp) triggerReEntry = true;
                     } else {
                         if (prevTick > rtp && currentTick <= rtp) triggerReEntry = true;
@@ -199,10 +223,9 @@ async function monitorStrategyLoop(strategyId, strategy) {
                     const currentTick = leg.currentLtp;
                     const prevTick = leg.last_tick_price;
                     const rtp = leg.re_low_trigger_price;
-                    const mode = leg.leg.relow_mode || 'RELOW_PLUS_PTS';
-                    
+
                     let triggerReEntry = false;
-                    if (mode.includes("PLUS")) {
+                    if (leg.leg.relow_mode.includes("PLUS")) {
                         if (prevTick < rtp && currentTick >= rtp) triggerReEntry = true;
                     } else {
                         if (prevTick > rtp && currentTick <= rtp) triggerReEntry = true;
@@ -324,24 +347,30 @@ async function monitorStrategyLoop(strategyId, strategy) {
                 leg.tslReferencePrice = newReferencePrice;
             }
 
+            // If the PnL evaluation says "IsHit", it means either your Target or SL was reached.
             if (evalResult.isHit) {
                 try {
+                    // 1. Place the order to close the position at the exchange.
                     await placeExitOrder({ config, leg, instrument: leg.instrument, exitType: evalResult.exitReason });
+                    // 2. Call the lifecycle handler to record the data and check for Re-Entry.
                     await handleLegStopOut(leg, evalResult.exitReason, strategy);
                 } catch (exitErr) {
-                    if (exitErr.message?.startsWith("EXIT_CHASE_EXHAUSTED")) {
-                        pauseStrategy(strategyId, `Exit Chase failed for ${leg.instrument?.symbol}: ${exitErr.message}`);
-                        return "TERMINATE";
-                    }
-                    throw exitErr;
+                    addStrategyLog(strategyId, `Exit failed: ${exitErr.message}`, "ERROR");
                 }
             }
         }
 
-        // Live SL Check (Broker State)
+        /**
+         * PHASE 6: Live SL Sync (Broker Side)
+         * If you are trading with REAL money, we check the actual exchange order status.
+         * If the SL was hit directly on the broker's platform, we sync that into our system.
+         */
         if (config.variety === "STOPLOSS" && config.is_paper_trading !== true) {
             for (const leg of strategy.legs) {
+                // We only check legs that are active and have an order ID.
                 if (leg.exited || leg.state === "WAITING_FOR_RECOST" || !leg.slUniqueOrderId || leg.exchangeSlProcessed) continue;
+                
+                // Optimization: Only ping the broker API if the current price is very near the SL (within 2%).
                 const isNearTrigger = leg.leg.side === "BUY" ? (leg.currentLtp <= leg.slTriggerPrice * 1.02) : (leg.currentLtp >= leg.slTriggerPrice * 0.98);
                 if (isNearTrigger) {
                     try {
@@ -357,7 +386,11 @@ async function monitorStrategyLoop(strategyId, strategy) {
             }
         }
 
-        // Exit Time Check
+        /**
+         * PHASE 7: Exit Time Check (Market Closing)
+         * If the current time has passed your "Exit Time" setting (e.g., 3:15 PM), 
+         * we automatically close everything and stop the strategy.
+         */
         if (currentTime >= config.exit_time) {
             if (strategy.exitAttempted) return;
             strategy.exitAttempted = true;

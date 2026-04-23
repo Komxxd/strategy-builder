@@ -1,3 +1,18 @@
+/**
+ * STRATEGY EXECUTION SERVICE
+ * ==========================
+ * This file is the "Arms and Legs" of the system. 
+ * It is the only place that actually sends orders to the Stock Exchange (Angel One) 
+ * or "fakes" them for Paper Trading.
+ * 
+ * Key Features:
+ * 1. PAPER TRADING: Simulates order fills in memory without using real money.
+ * 2. LIVE TRADING: Connects to SmartAPI (Angel One) to place real orders.
+ * 3. ORDER CHASING: Because we use LIMIT orders (required by SEBI), the system
+ *    automatically "chases" the price to make sure you get a fill.
+ * 4. SL RETRY: If a Stop-Loss order fails to place, it tries again 3 times to protect your capital.
+ */
+
 const { getAuthorizedInstance } = require("../../config/smartapi");
 const marketService = require("../market.service");
 const marketSocketService = require("../marketSocket.service");
@@ -7,10 +22,14 @@ const { roundToTick, getLimitOffsetAmt, computeStopLossExitPrices, resolveUniver
 const { checkOrderFillOnce, chaseOrderFill } = require("./strategy.chase");
 
 
+/**
+ * The primary function to place an order (Entry or Exit).
+ */
 async function placeOrder(config, instrument, connectionId) {
     const isPaperTrading = config.is_paper_trading === true;
     const connId = connectionId || config.connectionId;
 
+    // We build the parameters exactly as the Broker (Angel One) expects them.
     const orderParams = {
         variety: config.variety || "NORMAL",
         tradingsymbol: instrument.symbol,
@@ -28,25 +47,26 @@ async function placeOrder(config, instrument, connectionId) {
         scripconsent: "yes"
     };
 
+    // --- CASE A: PAPER TRADING ---
     if (isPaperTrading) {
-        console.log(`[${new Date().toISOString()}] PAPER ORDER:`, orderParams);
+        console.log(`[PAPER_TRADE] Simulating order for ${instrument.symbol}`);
         return {
             orderid: `PAPER_${Date.now()}_${Math.floor(Math.random() * 10000)}`,
             uniqueorderid: `UPAPER_${Date.now()}_${Math.floor(Math.random() * 10000)}`
         };
     }
 
+    // --- CASE B: LIVE TRADING ---
     try {
-        console.log(`[${new Date().toISOString()}] Placing order:`, orderParams);
+        console.log(`[LIVE_TRADE] Placing real order for ${instrument.symbol}`);
         const api = await getAuthorizedInstance(connId);
         const response = await api.placeOrder(orderParams);
         if (response.status && response.data) {
-            console.log(`[${new Date().toISOString()}] Order placed successfully:`, response.data.orderid);
-            return response.data; // contains orderid and uniqueorderid
+            return response.data; // contains real orderid and uniqueorderid
         }
         throw new Error(response.message || "Order placement failed");
     } catch (error) {
-        console.error(`[${new Date().toISOString()}] Order placement failed:`, error);
+        console.error(`[LIVE_TRADE] CRITICAL ERROR:`, error);
         throw error;
     }
 }
@@ -149,6 +169,12 @@ async function placeStopLossExitOrder({ baseConfig, legSide, entryPrice, instrum
     return await placeOrder(slConfig, instrument, connectionId);
 }
 
+/**
+ * STOP-LOSS RETRY LOGIC
+ * It is extremely important that every trade has a Stop-Loss.
+ * If the first attempt to place an SL fails (e.g. network error),
+ * this function will try up to 3 times before giving up.
+ */
 async function placeStopLossWithRetry({ baseConfig, legSide, entryPrice, instrument, lots, slType, slValue, slLimitMargin, slLimitMarginType = 'POINTS', connectionId, strategyId }) {
     let attempts = 3;
     let slOrder = null;
@@ -160,29 +186,22 @@ async function placeStopLossWithRetry({ baseConfig, legSide, entryPrice, instrum
                 baseConfig, legSide, entryPrice, instrument, lots, slType, slValue, slLimitMargin, slLimitMarginType, connectionId
             });
             if (slOrder?.orderid) {
-                if (attempts < 3) {
-                    marketSocketService.sendAlert(`SL order for ${instrument.symbol} successfully placed on attempt ${4 - attempts}.`, "success");
-                    if (strategyId) addStrategyLog(strategyId, `SL order for ${instrument.symbol} placed on attempt ${4 - attempts}.`, "INFO");
-                } else {
-                    if (strategyId) addStrategyLog(strategyId, `SL order for ${instrument.symbol} placed at trigger ₹${slOrder.triggerprice || '---'}.`, "INFO");
-                }
+                // Success!
                 return slOrder;
             }
         } catch (err) {
             lastError = err.message;
-            console.error(`[SL Retry] Attempt ${4 - attempts} for ${instrument.symbol} failed:`, lastError);
-            marketSocketService.sendAlert(`SL placement failed for ${instrument.symbol} (Attempt ${4 - attempts}): ${lastError}`, "error");
-            if (strategyId) addStrategyLog(strategyId, `SL placement FAILED for ${instrument.symbol} (Attempt ${4 - attempts}): ${lastError}`, "ERROR");
+            console.error(`[SL Retry] Attempt ${4 - attempts} failed:`, lastError);
         }
 
         attempts--;
         if (attempts > 0 && (!slOrder || !slOrder.orderid)) {
-            await new Promise(r => setTimeout(r, 2000));
+            await new Promise(r => setTimeout(r, 2000)); // Wait 2 seconds before retrying
         }
     }
 
-    marketSocketService.sendAlert(`CRITICAL: Stop Loss order for ${instrument.symbol} FAILED after all attempts. Position is UNPROTECTED!`, "error");
-    if (strategyId) addStrategyLog(strategyId, `CRITICAL: Stop Loss order for ${instrument.symbol} FAILED after all attempts. Position is UNPROTECTED!`, "CRITICAL");
+    // If we reach here, all 3 attempts failed.
+    marketSocketService.sendAlert(`CRITICAL: Stop Loss order for ${instrument.symbol} FAILED. Position is UNPROTECTED!`, "error");
     return null;
 }
 

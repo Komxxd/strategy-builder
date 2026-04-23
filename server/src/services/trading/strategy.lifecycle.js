@@ -1,13 +1,33 @@
+/**
+ * STRATEGY LIFECYCLE SERVICE
+ * ==========================
+ * This service is the "brain" that manages the state transitions of a trade leg.
+ * It is primarily responsible for what happens AFTER a trade is closed (Stop-Loss or Target).
+ * 
+ * Flow:
+ * 1. A leg hits its Stop-Loss (detected by strategy.monitor.js).
+ * 2. This service is called via `handleLegStopOut`.
+ * 3. It records the final PnL (Profit/Loss).
+ * 4. It decides which Re-Entry logic to trigger (RE-COST, RE-SL, RE-HIGH, etc.).
+ */
+
 const { getISTTime } = require("./strategy.time");
 const { addStrategyLog, activeStrategies, updateStrategyInMemory } = require("./strategy.state");
 const { roundToTick, getLimitOffsetAmt, computeStopLossExitPrices } = require("./strategy.offset");
 const { placeOrder, waitForOrderFillPrice, placeStopLossWithRetry } = require("./strategy.execution");
 
+/**
+ * Handles the complete "Exit" process of a single leg.
+ * @param {Object} leg - The current trade leg being closed.
+ * @param {String} exitType - Why the trade closed (e.g., 'STOPLOSS', 'SQUARE_OFF').
+ * @param {Object} strategy - The parent strategy object.
+ */
 async function handleLegStopOut(leg, exitType, strategy) {
     const strategyId = strategy.id;
     const config = strategy.config;
     
-    // 1. Lock PnL and Mark CURRENT leg as completely exited
+    // STEP 1: Finalize the current leg's finances
+    // We move any active profit/loss into the "Booked" bucket so it's permanently saved.
     leg.state = "COMPLETED";
     leg.exited = true;
     leg.exitType = exitType;
@@ -16,7 +36,8 @@ async function handleLegStopOut(leg, exitType, strategy) {
     leg.currentActivePnlPoints = 0;
     leg.currentActivePnlRupees = 0;
 
-    // Capture the exact trigger and execution price at the very millisecond of stop-out for the UI history
+    // STEP 2: Create a snapshot for history
+    // This allows the user to see exactly what happened in the past (Entry, Exit, and SL prices).
     leg.exitSnapshot = {
         slTriggerPrice: leg.slTriggerPrice,
         initialSlTriggerPrice: leg.initialSlTriggerPrice,
@@ -26,7 +47,8 @@ async function handleLegStopOut(leg, exitType, strategy) {
     };
     leg.exitTime = getISTTime();
 
-    // Wipe exchange fields to ensure clean exit visualization
+    // STEP 3: Clean up order IDs
+    // We clear the SL order IDs because that order is now dead/executed.
     leg.slOrderId = null;
     leg.slUniqueOrderId = null;
     leg.slLimitPrice = null;
@@ -35,16 +57,19 @@ async function handleLegStopOut(leg, exitType, strategy) {
 
     addStrategyLog(strategyId, `Leg stopped out: ${leg.instrument?.symbol || 'Unknown'}. Reason: ${exitType}. PnL: ₹${(leg.pnlRupees || 0).toFixed(2)}`, exitType.includes("ERROR") ? "ERROR" : "INFO");
 
-    // RE ASAP (Re-Entry As Soon As Possible)
+    /** 
+     * LOGIC: RE-ASAP (Re-Entry As Soon As Possible)
+     * If the user wants to jump back into the trade immediately after being kicked out.
+     */
     if (leg.leg.re_asap_enabled && (leg.reentry_count < (leg.leg.re_asap_max_entries || 1))) {
         addStrategyLog(strategyId, `RE ASAP triggered for ${leg.instrument?.symbol || "leg"}. Re-calculating entry for reentry #${leg.reentry_count + 1}`, "INFO");
 
         const newLeg = {
             leg: { ...leg.leg },
-            instrument: null, // To be re-selected on next tick
+            instrument: null, // We reset this so the system picks the best strike again
             orderId: `VU-ASAP-${Date.now()}`,
             uniqueOrderId: `VU-ASAP-${Date.now()}`,
-            state: "WAITING_FOR_RE_ASAP",
+            state: "WAITING_FOR_RE_ASAP", // Special state that tells the engine to enter immediately
             legIndex: leg.legIndex,
             exited: false,
             exitType: null,
@@ -72,7 +97,10 @@ async function handleLegStopOut(leg, exitType, strategy) {
         return;
     }
 
-    // RE-COST (Re-Entry at Cost)
+    /** 
+     * LOGIC: RE-COST (Re-Entry at Entry Price)
+     * This waits for the market to come back to your original entry price before re-buying/selling.
+     */
     if (leg.leg.recost_enabled && (leg.reentry_count < (leg.leg.max_reentry || 1))) {
         const otp = leg.base_otp || leg.original_traded_price;
         const mode = leg.leg.recost_mode || "RECOST_PLUS_PCT";
@@ -283,13 +311,18 @@ async function handleLegStopOut(leg, exitType, strategy) {
         return;
     }
 
-    // RE-SL (Re-Entry at SL Price Basis)
+    /** 
+     * LOGIC: RE-SL (Re-Entry at Stop-Loss Price)
+     * This waits for the market to come back to the price where you were just stopped out.
+     * It's essentially "trying again" at the same price point.
+     */
     if (leg.leg.resl_enabled && (leg.reentry_count < (leg.leg.max_reentry || 1))) {
-        const slPrice = leg.currentLtp || leg.exitSnapshot?.exitLtp;
+        const slPrice = leg.currentLtp || leg.exitSnapshot?.exitLtp; // Price where the SL hit
         const mode = leg.leg.resl_mode || "RESL_PLUS_PCT";
         const val = leg.leg.resl_value || 0;
         let rtp = slPrice;
 
+        // RTP = Re-entry Trigger Price. 
         if (mode === "RESL_PLUS_PCT") rtp = slPrice + (slPrice * val / 100);
         else if (mode === "RESL_PLUS_PTS") rtp = slPrice + val;
         else if (mode === "RESL_MINUS_PCT") rtp = slPrice - (slPrice * val / 100);
@@ -304,6 +337,8 @@ async function handleLegStopOut(leg, exitType, strategy) {
             const mntmMode = leg.leg.resl_mntm_mode || "RESL_PLUS_PCT";
             const mntmVal = leg.leg.resl_mntm_value || 0;
             let mntmMtp = newRtp;
+            
+            // MTP = Momentum Target Price.
             if (mntmMode === "RESL_PLUS_PCT") mntmMtp = newRtp + (newRtp * mntmVal / 100);
             else if (mntmMode === "RESL_PLUS_PTS") mntmMtp = newRtp + mntmVal;
             else if (mntmMode === "RESL_MINUS_PCT") mntmMtp = newRtp - (newRtp * mntmVal / 100);
@@ -316,7 +351,7 @@ async function handleLegStopOut(leg, exitType, strategy) {
                 orderId: null,
                 uniqueOrderId: null,
                 exitOrderId: null,
-                state: "WAITING_FOR_RESL_MNTM",
+                state: "WAITING_FOR_RESL_MNTM", // State: Waiting for SL price to be hit again
                 legIndex: leg.legIndex,
                 exited: false,
                 exitType: null,
@@ -495,7 +530,11 @@ async function handleLegStopOut(leg, exitType, strategy) {
     }
 
 
-    // RE-HIGH (Re-Entry at High Price Basis)
+    /** 
+     * LOGIC: RE-HIGH (Re-Entry at New High)
+     * This waits for the market to make a new "Highest Price" after the SL hit,
+     * and re-enters when the price drops back from that high by a certain amount.
+     */
     if (leg.leg.rehigh_enabled && (leg.reentry_count < (leg.leg.max_reentry || 1))) {
         const peakPrice = leg.currentLtp || leg.original_traded_price;
         const currentLtp = leg.currentLtp || peakPrice;
@@ -503,10 +542,9 @@ async function handleLegStopOut(leg, exitType, strategy) {
         let triggerPrice = peakPrice;
         const mode = leg.leg.rehigh_mode || 'REHIGH_MINUS_PTS';
         const val = leg.leg.rehigh_value || 0;
-        const effectiveVal = parseFloat(val || 0);
-
-        if (mode === 'REHIGH_MINUS_PCT') triggerPrice = peakPrice - (peakPrice * effectiveVal / 100);
-        else if (mode === 'REHIGH_MINUS_PTS') triggerPrice = peakPrice - effectiveVal;
+        // We calculate the initial trigger price based on the high reached at the moment of SL hit.
+        if (mode === 'REHIGH_MINUS_PCT') triggerPrice = peakPrice - (peakPrice * val / 100);
+        else if (mode === 'REHIGH_MINUS_PTS') triggerPrice = peakPrice - val;
 
         console.log(`[RE-HIGH] SL Hit for ${leg.instrument?.symbol}. Peak Price=${peakPrice}. Trigger Price=${triggerPrice}`);
         const newLeg = {
@@ -515,7 +553,7 @@ async function handleLegStopOut(leg, exitType, strategy) {
             orderId: null,
             uniqueOrderId: null,
             exitOrderId: null,
-            state: "WAITING_FOR_RE_HIGH",
+            state: "WAITING_FOR_RE_HIGH", // State: Tracking for higher peaks and entry bounce
             legIndex: leg.legIndex,
             exited: false,
             exitType: null,
@@ -548,20 +586,23 @@ async function handleLegStopOut(leg, exitType, strategy) {
         return; 
     }
 
-    // RE-LOW (Re-Entry at Low Price Basis)
+    /** 
+     * LOGIC: RE-LOW (Re-Entry at New Low)
+     * The opposite of RE-HIGH. This waits for the market to make a new "Lowest Price" after the SL hit,
+     * and re-enters when the price bounces back up from that low.
+     */
     if (leg.leg.relow_enabled && (leg.reentry_count < (leg.leg.max_reentry || 1))) {
         const currentLtp = leg.currentLtp || leg.original_traded_price;
-        const lowPrice = currentLtp; // Baseline is SL hit price
+        const lowPrice = currentLtp; 
         
         let triggerPrice = lowPrice;
         const mode = leg.leg.relow_mode || 'RELOW_PLUS_PTS';
         const val = leg.leg.relow_value || 0;
-        const effectiveVal = parseFloat(val || 0);
 
-        if (mode === 'RELOW_PLUS_PCT') triggerPrice = lowPrice + (lowPrice * effectiveVal / 100);
-        else if (mode === 'RELOW_PLUS_PTS') triggerPrice = lowPrice + effectiveVal;
-        else if (mode === 'RELOW_MINUS_PCT') triggerPrice = lowPrice - (lowPrice * effectiveVal / 100);
-        else if (mode === 'RELOW_MINUS_PTS') triggerPrice = lowPrice - effectiveVal;
+        if (mode === 'RELOW_PLUS_PCT') triggerPrice = lowPrice + (lowPrice * val / 100);
+        else if (mode === 'RELOW_PLUS_PTS') triggerPrice = lowPrice + val;
+        else if (mode === 'RELOW_MINUS_PCT') triggerPrice = lowPrice - (lowPrice * val / 100);
+        else if (mode === 'RELOW_MINUS_PTS') triggerPrice = lowPrice - val;
 
         console.log(`[RE-LOW] SL Hit for ${leg.instrument?.symbol}. Baseline Low=${lowPrice}. Trigger Price=${triggerPrice}`);
         const newLeg = {
@@ -570,7 +611,7 @@ async function handleLegStopOut(leg, exitType, strategy) {
             orderId: null,
             uniqueOrderId: null,
             exitOrderId: null,
-            state: "WAITING_FOR_RE_LOW",
+            state: "WAITING_FOR_RE_LOW", // State: Tracking for lower lows and entry bounce
             legIndex: leg.legIndex,
             exited: false,
             exitType: null,
