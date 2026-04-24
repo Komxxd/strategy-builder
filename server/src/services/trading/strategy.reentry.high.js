@@ -127,6 +127,7 @@ async function modifyReentryOrder({ leg, config, strategyId, addStrategyLog, new
         const side = leg.leg.side;
         const newPrice = side === "BUY" ? roundToTick(newRtp + offsetAmt) : roundToTick(newRtp - offsetAmt);
 
+        const quantityInShares = (leg.leg.lots * parseInt(leg.instrument.lotsize)).toString();
         await api.modifyOrder({
             variety: "NORMAL",
             orderid: leg.orderId,
@@ -134,7 +135,7 @@ async function modifyReentryOrder({ leg, config, strategyId, addStrategyLog, new
             producttype: config.producttype || "INTRADAY",
             duration: config.duration || "DAY",
             price: newPrice.toString(),
-            quantity: leg.leg.lots.toString(),
+            quantity: quantityInShares,
             tradingsymbol: leg.instrument.symbol,
             symboltoken: leg.instrument.token,
             exchange: leg.instrument.exch_seg

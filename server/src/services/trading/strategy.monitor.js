@@ -86,7 +86,7 @@ async function monitorStrategyLoop(strategyId, strategy) {
 
                     if (mode === 'REHIGH_MINUS_PCT') rtp = peak - (peak * val / 100);
                     else if (mode === 'REHIGH_MINUS_PTS') rtp = peak - val;
-                    
+
                     rtp = roundToTick(rtp);
                     leg.re_high_trigger_price = rtp;
                     leg.rtp = rtp;
@@ -110,7 +110,7 @@ async function monitorStrategyLoop(strategyId, strategy) {
                         if (tickPrice <= rtp) {
                             await handleReentryHigh({ leg, config, strategyId, addStrategyLog, currentTick: tickPrice, isMtpPlacement: true });
                         }
-                    } 
+                    }
                     // CASE B: Without Momentum (Place resting limit immediately, then modify)
                     else {
                         if (!leg.orderId) {
@@ -334,14 +334,17 @@ async function monitorStrategyLoop(strategyId, strategy) {
                 if (config.variety === "STOPLOSS" && !config.is_paper_trading && leg.slOrderId) {
                     try {
                         const api = await getAuthorizedInstance(config.connectionId);
+                        const quantityInShares = (leg.leg.lots * parseInt(leg.instrument.lotsize)).toString();
                         await api.modifyOrder({
                             variety: "STOPLOSS", orderid: leg.slOrderId, ordertype: "STOPLOSS_LIMIT", producttype: config.producttype || "CARRYFORWARD",
-                            duration: config.duration || "DAY", price: newLimit.toString(), quantity: leg.leg.lots.toString(),
+                            duration: config.duration || "DAY", price: newLimit.toString(), quantity: quantityInShares,
                             tradingsymbol: leg.instrument.symbol, symboltoken: leg.instrument.token, exchange: leg.instrument.exch_seg,
                             triggerprice: newTrigger.toString(),
                         });
                         addStrategyLog(strategyId, `TSL Step: Moved SL for ${leg.instrument.symbol} to ₹${newTrigger}`, "INFO");
-                    } catch (e) { }
+                    } catch (e) {
+                        console.error(`[TSL] Failed to modify order ${leg.slOrderId} for ${leg.instrument.symbol}:`, e.message);
+                    }
                 } else {
                     addStrategyLog(strategyId, `[PAPER TSL] Virtual SL moved to ₹${newTrigger}`, "INFO");
                 }
