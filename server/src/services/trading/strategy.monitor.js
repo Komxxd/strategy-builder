@@ -95,10 +95,10 @@ async function monitorStrategyLoop(strategyId, strategy) {
                     if (leg.leg.rehigh_mntm_enabled) {
                         // Calculate PROJECTED MTP for dashboard visibility
                         const mntmMode = leg.leg.rehigh_mntm_mode || "REHIGH_PLUS_PCT";
-                        const mntmVal = leg.leg.rehigh_mntm_value || 0;
+                        const mntmVal = parseFloat(leg.leg.rehigh_mntm_value || 0);
                         let projectedMtp = rtp;
-                        if (mntmMode === "REHIGH_PLUS_PCT" || mntmMode === "PLUS_PCT") projectedMtp = rtp + (rtp * mntmVal / 100);
-                        else if (mntmMode === "REHIGH_PLUS_PTS" || mntmMode === "PLUS_PTS") projectedMtp = rtp + mntmVal;
+                        if (mntmMode === "REHIGH_PLUS_PCT" || mntmMode === "PLUS_PCT" || mntmMode === "PERCENTAGE") projectedMtp = rtp + (rtp * mntmVal / 100);
+                        else if (mntmMode === "REHIGH_PLUS_PTS" || mntmMode === "PLUS_PTS" || mntmMode === "POINTS") projectedMtp = rtp + mntmVal;
                         else if (mntmMode === "REHIGH_MINUS_PCT" || mntmMode === "MINUS_PCT") projectedMtp = rtp - (rtp * mntmVal / 100);
                         else if (mntmMode === "REHIGH_MINUS_PTS" || mntmMode === "MINUS_PTS") projectedMtp = rtp - mntmVal;
                         leg.mtp = roundToTick(projectedMtp);
@@ -144,10 +144,10 @@ async function monitorStrategyLoop(strategyId, strategy) {
                     if (leg.leg.relow_mntm_enabled) {
                         // Calculate PROJECTED MTP for dashboard visibility
                         const mntmMode = leg.leg.relow_mntm_mode || "RELOW_PLUS_PCT";
-                        const mntmVal = leg.leg.relow_mntm_value || 0;
+                        const mntmVal = parseFloat(leg.leg.relow_mntm_value || 0);
                         let projectedMtp = rtp;
-                        if (mntmMode === "RELOW_PLUS_PCT" || mntmMode === "PLUS_PCT") projectedMtp = rtp + (rtp * mntmVal / 100);
-                        else if (mntmMode === "RELOW_PLUS_PTS" || mntmMode === "PLUS_PTS") projectedMtp = rtp + mntmVal;
+                        if (mntmMode === "RELOW_PLUS_PCT" || mntmMode === "PLUS_PCT" || mntmMode === "PERCENTAGE") projectedMtp = rtp + (rtp * mntmVal / 100);
+                        else if (mntmMode === "RELOW_PLUS_PTS" || mntmMode === "PLUS_PTS" || mntmMode === "POINTS") projectedMtp = rtp + mntmVal;
                         else if (mntmMode === "RELOW_MINUS_PCT" || mntmMode === "MINUS_PCT") projectedMtp = rtp - (rtp * mntmVal / 100);
                         else if (mntmMode === "RELOW_MINUS_PTS" || mntmMode === "MINUS_PTS") projectedMtp = rtp - mntmVal;
                         leg.mtp = roundToTick(projectedMtp);

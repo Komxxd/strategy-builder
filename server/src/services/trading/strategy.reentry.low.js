@@ -17,14 +17,17 @@ async function handleReentryLow({ leg, config, strategyId, addStrategyLog, curre
     let mtp = rtp;
     if (leg.leg.relow_mntm_enabled) {
         const mntmMode = leg.leg.relow_mntm_mode || "RELOW_PLUS_PCT";
-        const mntmVal = leg.leg.relow_mntm_value || 0;
+        const mntmVal = parseFloat(leg.leg.relow_mntm_value || 0);
         
-        if (mntmMode === "RELOW_PLUS_PCT" || mntmMode === "PLUS_PCT") mtp = rtp + (rtp * mntmVal / 100);
-        else if (mntmMode === "RELOW_PLUS_PTS" || mntmMode === "PLUS_PTS") mtp = rtp + mntmVal;
+        if (mntmMode === "RELOW_PLUS_PCT" || mntmMode === "PLUS_PCT" || mntmMode === "PERCENTAGE") mtp = rtp + (rtp * mntmVal / 100);
+        else if (mntmMode === "RELOW_PLUS_PTS" || mntmMode === "PLUS_PTS" || mntmMode === "POINTS") mtp = rtp + mntmVal;
         else if (mntmMode === "RELOW_MINUS_PCT" || mntmMode === "MINUS_PCT") mtp = rtp - (rtp * mntmVal / 100);
         else if (mntmMode === "RELOW_MINUS_PTS" || mntmMode === "MINUS_PTS") mtp = rtp - mntmVal;
     }
     mtp = roundToTick(mtp);
+
+    // Recalculate offset based on the final MTP
+    const finalOffsetAmt = getLimitOffsetAmt(mtp, config);
 
     // 3. Determine Order Type (STOPLOSS vs LIMIT)
     let variety = config.variety || "NORMAL";
@@ -37,21 +40,21 @@ async function handleReentryLow({ leg, config, strategyId, addStrategyLog, curre
             if (mtp < currentPrice) {
                 variety = "STOPLOSS";
                 ordertype = "STOPLOSS_LIMIT";
-                finalPriceStr = roundToTick(mtp - offsetAmt).toString();
+                finalPriceStr = roundToTick(mtp - finalOffsetAmt).toString();
             } else {
                 variety = "NORMAL";
                 ordertype = "LIMIT";
-                finalPriceStr = roundToTick(mtp - offsetAmt).toString();
+                finalPriceStr = roundToTick(mtp - finalOffsetAmt).toString();
             }
         } else if (side === "BUY") {
             if (mtp > currentPrice) {
                 variety = "STOPLOSS";
                 ordertype = "STOPLOSS_LIMIT";
-                finalPriceStr = roundToTick(mtp + offsetAmt).toString();
+                finalPriceStr = roundToTick(mtp + finalOffsetAmt).toString();
             } else {
                 variety = "NORMAL";
                 ordertype = "LIMIT";
-                finalPriceStr = roundToTick(mtp + offsetAmt).toString();
+                finalPriceStr = roundToTick(mtp + finalOffsetAmt).toString();
             }
         }
     } else {
