@@ -848,7 +848,5 @@ module.exports = {
     stopStrategy,
     squareOffStrategy,
     squareOffLeg,
-    resumeStrategy,
-    handleLegStopOutVirtual,
-    handleInitialEntryStatusSync
+    resumeStrategy
 };
