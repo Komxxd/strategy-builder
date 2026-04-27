@@ -90,16 +90,15 @@ async function handleReentryReSL({ leg, config, strategyId, addStrategyLog, curr
                         triggerprice: parseFloat(triggerPriceStr || 0)
                     }
                 );
-                leg.entryPrice = fill || currentTick;
-                leg.entryTime = getISTTime();
-                leg.original_traded_price = leg.entryPrice;
-                leg.peakPrice = leg.entryPrice;
-                addStrategyLog(strategyId, `[RE-SL] Re-entry filled for ${leg.instrument.symbol} at ₹${leg.entryPrice}.`, "INFO");
+                if (fill) {
+                    leg.entryPrice = fill;
+                    leg.entryTime = getISTTime();
+                    leg.original_traded_price = leg.entryPrice;
+                    leg.peakPrice = leg.entryPrice;
+                    addStrategyLog(strategyId, `[RE-SL] Re-entry filled for ${leg.instrument.symbol} at ₹${leg.entryPrice}.`, "INFO");
+                }
             } catch (e) {
-                leg.entryPrice = currentTick;
-                leg.entryTime = getISTTime();
-                leg.peakPrice = leg.entryPrice;
-                addStrategyLog(strategyId, `[RE-SL] Re-entry fill detection failed for ${leg.instrument.symbol}. Assumed fill at ₹${leg.entryPrice}.`, "WARNING");
+                console.error("[RE-SL] Fill monitoring failed:", e.message);
             }
 
             // Redeploy exchange SL if needed

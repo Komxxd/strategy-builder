@@ -267,12 +267,13 @@ async function handleLegStopOut(leg, exitType, strategy) {
                             isInstantFill: false
                         }
                     );
-                    newLeg.entryPrice = fill || currentLtp;
-                    newLeg.entryTime = getISTTime();
-                    newLeg.original_traded_price = newLeg.entryPrice;
+                    if (fill) {
+                        newLeg.entryPrice = fill;
+                        newLeg.entryTime = getISTTime();
+                        newLeg.original_traded_price = newLeg.entryPrice;
+                    }
                 } catch (e) {
-                    newLeg.entryPrice = currentLtp;
-                    newLeg.entryTime = getISTTime();
+                    console.error("[RE-COST] Fill monitoring failed:", e.message);
                 }
 
                 const isSlEnabled = newLeg.leg.reentry_sl_enabled ? true : newLeg.leg.sl_enabled !== false;
@@ -485,12 +486,13 @@ async function handleLegStopOut(leg, exitType, strategy) {
                             isInstantFill: false
                         }
                     );
-                    newLeg.entryPrice = fill || currentLtp;
-                    newLeg.entryTime = getISTTime();
-                    newLeg.original_traded_price = newLeg.entryPrice;
+                    if (fill) {
+                        newLeg.entryPrice = fill;
+                        newLeg.entryTime = getISTTime();
+                        newLeg.original_traded_price = newLeg.entryPrice;
+                    }
                 } catch (e) {
-                    newLeg.entryPrice = currentLtp;
-                    newLeg.entryTime = getISTTime();
+                    console.error("[RE-SL] Fill monitoring failed:", e.message);
                 }
 
                 const isSlEnabled = newLeg.leg.reentry_sl_enabled ? true : newLeg.leg.sl_enabled !== false;

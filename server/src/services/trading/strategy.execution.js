@@ -246,15 +246,33 @@ async function placeExitOrder({ config, leg, instrument, exitType }) {
             console.log(`[Exit] Leg ${instrument.symbol} has orderId ${leg.orderId} but no entry price. Attempting cancellation...`);
             try {
                 const api = await getAuthorizedInstance(config.connectionId);
-                await api.cancelOrder({ variety: "NORMAL", orderid: leg.orderId });
-                console.log(`[Exit] Successfully cancelled pending entry order ${leg.orderId}`);
+                // Try to cancel as NORMAL first
+                try {
+                    await api.cancelOrder({ variety: "NORMAL", orderid: leg.orderId });
+                    console.log(`[Exit] Successfully cancelled pending NORMAL entry order ${leg.orderId}`);
+                } catch (e) {
+                    // If NORMAL fails, try STOPLOSS (used by RTP/MTP/Re-Entry orders)
+                    console.log(`[Exit] NORMAL cancellation failed for ${leg.orderId}, trying STOPLOSS variety...`);
+                    await api.cancelOrder({ variety: "STOPLOSS", orderid: leg.orderId });
+                    console.log(`[Exit] Successfully cancelled pending STOPLOSS entry order ${leg.orderId}`);
+                }
+                
                 leg.exited = true;
                 leg.isExiting = false;
                 leg.exitType = exitType || "CANCELLED_NO_ENTRY";
                 leg.exitTime = getISTTime();
                 return null;
             } catch (e) {
-                console.warn(`[Exit] Cancellation failed for ${leg.orderId}: ${e.message}. It may have filled. Proceeding with LIMIT exit.`);
+                const errMsg = e.message || "";
+                if (errMsg.includes("Order already filled") || errMsg.includes("filled")) {
+                    console.warn(`[Exit] Cancellation failed for ${leg.orderId} because it already filled. Proceeding with LIMIT exit.`);
+                } else {
+                    console.error(`[Exit] CRITICAL: Failed to cancel pending entry order ${leg.orderId}: ${errMsg}. Marking as exited to prevent ghost positions.`);
+                    leg.exited = true;
+                    leg.isExiting = false;
+                    leg.exitType = "CANCEL_FAILED_SKIPPED";
+                    return null; // Do NOT place an exit order if we couldn't even cancel the entry!
+                }
             }
         } else {
             console.log(`[Exit] Leg ${instrument.symbol} has no entry price (State: ${leg.state}). Skipping broker order.`);

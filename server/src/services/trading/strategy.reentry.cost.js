@@ -90,14 +90,14 @@ async function handleReentryCost({ leg, config, strategyId, addStrategyLog, curr
                         triggerprice: parseFloat(triggerPriceStr || 0)
                     }
                 );
-                leg.entryPrice = fill || currentTick;
-                leg.entryTime = getISTTime();
-                leg.original_traded_price = leg.entryPrice;
-                leg.peakPrice = leg.entryPrice;
+                if (fill) {
+                    leg.entryPrice = fill;
+                    leg.entryTime = getISTTime();
+                    leg.original_traded_price = leg.entryPrice;
+                    leg.peakPrice = leg.entryPrice;
+                }
             } catch (e) {
-                leg.entryPrice = currentTick;
-                leg.entryTime = getISTTime();
-                leg.peakPrice = leg.entryPrice;
+                console.error("[RE-COST] Fill monitoring failed:", e.message);
             }
 
             // Redeploy exchange SL if needed

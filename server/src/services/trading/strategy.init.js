@@ -222,19 +222,11 @@ async function handleInitialEntry(strategyId, strategy) {
                     leg.tslReferencePrice = fillPrice;
                     addStrategyLog(strategyId, `${leg.instrument.symbol} order filled at ₹${fillPrice}.`, "INFO");
                 } else if (!config.is_paper_trading && config.ordertype === 'LIMIT' && !leg.simpleMntmEnabled) {
-                    pauseStrategy(strategyId, `Entry Chase failed for ${leg.instrument?.symbol || 'leg'}: ${leg.instrument.symbol} order not filled after 45s chase.`);
+                    const { stopStrategy } = require("./strategy.lifecycle");
+                    stopStrategy(strategyId, `Entry Chase failed for ${leg.instrument?.symbol || 'leg'}: ${leg.instrument.symbol} order not filled after 45s chase.`);
                     return;
                 } else {
-                    const fallbackLtpRes = await getLtpSecure({ exchange: leg.instrument.exch_seg, symboltoken: leg.instrument.token, connectionId: config.connectionId });
-                    if (fallbackLtpRes.status && fallbackLtpRes.data?.fetched?.[0]) {
-                        leg.entryPrice = fallbackLtpRes.data.fetched[0].ltp;
-                        leg.entryTime = getISTTime();
-                        leg.original_traded_price = leg.entryPrice;
-                        leg.base_otp = leg.entryPrice;
-                        leg.peakPrice = leg.entryPrice;
-                        leg.tslReferencePrice = leg.entryPrice;
-                        addStrategyLog(strategyId, `Warning: Fill price not detected for ${leg.instrument.symbol}. Using LTP ₹${leg.entryPrice}.`, "ERROR");
-                    }
+                    addStrategyLog(strategyId, `Warning: Fill price not detected for ${leg.instrument.symbol}. Position will NOT be protected with a Stop-Loss.`, "ERROR");
                 }
             }
 

@@ -79,32 +79,34 @@ async function handleReentryAsap({ leg, config, strategyId, addStrategyLog }) {
                            { ...params, side: leg.leg.side, isInstantFill: true }
                        );
                        
-                       const fillPrice = fill || instLtp;
-                       leg.entryPrice = fillPrice;
-                       leg.entryTime = getISTTime();
-                       leg.original_traded_price = fillPrice;
-                       leg.peakPrice = fillPrice;
-                       leg.tslReferencePrice = fillPrice;
-                       leg.state = "ACTIVE";
-                       addStrategyLog(strategyId, `[RE-ASAP LIVE] ${leg.instrument.symbol} re-entry #${leg.reentry_count} confirmed at ₹${fillPrice}`, "INFO");
+                       if (fill) {
+                           const fillPrice = fill;
+                           leg.entryPrice = fillPrice;
+                           leg.entryTime = getISTTime();
+                           leg.original_traded_price = fillPrice;
+                           leg.peakPrice = fillPrice;
+                           leg.tslReferencePrice = fillPrice;
+                           leg.state = "ACTIVE";
+                           addStrategyLog(strategyId, `[RE-ASAP LIVE] ${leg.instrument.symbol} re-entry #${leg.reentry_count} confirmed at ₹${fillPrice}`, "INFO");
 
-                       if (config.variety === "STOPLOSS") {
-                           const slType = leg.leg.reentry_sl_enabled ? leg.leg.reentry_sl_type : (leg.leg.sl_type || "PERCENTAGE");
-                           const slValue = leg.leg.reentry_sl_enabled ? leg.leg.reentry_sl_value : leg.leg.stop_loss;
-                           
-                           const prices = computeStopLossExitPrices(leg.entryPrice, leg.leg.side, slType, slValue, getLimitOffsetAmt(leg.entryPrice, config), config.entry_limit_offset_type || 'POINTS');
-                           const slOrder = await placeStopLossWithRetry({
-                               baseConfig: config, legSide: leg.leg.side, entryPrice: leg.entryPrice, instrument: leg.instrument, lots: leg.leg.lots,
-                               slType: slType, slValue: slValue, slLimitMargin: getLimitOffsetAmt(leg.entryPrice, config),
-                               slLimitMarginType: config.entry_limit_offset_type || 'POINTS', connectionId: config.connectionId, strategyId: strategyId
-                           });
-                           if (slOrder?.orderid) {
-                               leg.slOrderId = slOrder.orderid;
-                               leg.slUniqueOrderId = slOrder.uniqueorderid;
+                           if (config.variety === "STOPLOSS") {
+                               const slType = leg.leg.reentry_sl_enabled ? leg.leg.reentry_sl_type : (leg.leg.sl_type || "PERCENTAGE");
+                               const slValue = leg.leg.reentry_sl_enabled ? leg.leg.reentry_sl_value : leg.leg.stop_loss;
+                               
+                               const prices = computeStopLossExitPrices(leg.entryPrice, leg.leg.side, slType, slValue, getLimitOffsetAmt(leg.entryPrice, config), config.entry_limit_offset_type || 'POINTS');
+                               const slOrder = await placeStopLossWithRetry({
+                                   baseConfig: config, legSide: leg.leg.side, entryPrice: leg.entryPrice, instrument: leg.instrument, lots: leg.leg.lots,
+                                   slType: slType, slValue: slValue, slLimitMargin: getLimitOffsetAmt(leg.entryPrice, config),
+                                   slLimitMarginType: config.entry_limit_offset_type || 'POINTS', connectionId: config.connectionId, strategyId: strategyId
+                               });
+                               if (slOrder?.orderid) {
+                                   leg.slOrderId = slOrder.orderid;
+                                   leg.slUniqueOrderId = slOrder.uniqueorderid;
+                               }
+                               leg.slTriggerPrice = prices?.trigger;
+                               leg.initialSlTriggerPrice = prices?.trigger;
+                               leg.slLimitPrice = prices?.limit;
                            }
-                           leg.slTriggerPrice = prices?.trigger;
-                           leg.initialSlTriggerPrice = prices?.trigger;
-                           leg.slLimitPrice = prices?.limit;
                        }
                    } catch (e) {
                         addStrategyLog(strategyId, `[RE-ASAP LIVE] Fill tracking failed for ${leg.instrument?.symbol}: ${e.message}`, "ERROR");

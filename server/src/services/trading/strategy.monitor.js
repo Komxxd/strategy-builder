@@ -101,11 +101,42 @@ async function monitorStrategyLoop(strategyId, strategy) {
                             setTimeout(async () => {
                                 try {
                                     const fill = await waitForOrderFillPrice(leg.uniqueOrderId, config.connectionId, config.is_paper_trading === true, leg.instrument, 28800000, 1000);
-                                    leg.entryPrice = fill || tickPrice;
-                                    leg.entryTime = getISTTime();
+                                    if (fill) {
+                                        leg.entryPrice = fill;
+                                        leg.entryTime = getISTTime();
+                                        leg.original_traded_price = fill;
+
+                                        // Deploy SL if enabled
+                                        const isSlEnabled = leg.leg.reentry_sl_enabled ? true : leg.leg.sl_enabled !== false;
+                                        if (config.variety === "STOPLOSS" && leg.entryPrice && isSlEnabled) {
+                                            const activeSlType = leg.leg.reentry_sl_enabled ? leg.leg.reentry_sl_type : (leg.leg.sl_type || "PERCENTAGE");
+                                            const activeSlValue = leg.leg.reentry_sl_enabled ? leg.leg.reentry_sl_value : leg.leg.stop_loss;
+
+                                            const slOrder = await placeStopLossWithRetry({
+                                                baseConfig: config,
+                                                legSide: leg.leg.side,
+                                                entryPrice: leg.entryPrice,
+                                                instrument: leg.instrument,
+                                                lots: leg.leg.lots,
+                                                slType: activeSlType,
+                                                slValue: activeSlValue,
+                                                slLimitMargin: config.entry_limit_offset,
+                                                slLimitMarginType: config.entry_limit_offset_type || 'POINTS',
+                                                connectionId: config.connectionId,
+                                                strategyId: strategyId
+                                            });
+                                            if (slOrder?.orderid) {
+                                                const prices = computeStopLossExitPrices(leg.entryPrice, leg.leg.side, activeSlType, activeSlValue, config.entry_limit_offset, config.entry_limit_offset_type || 'POINTS');
+                                                leg.slOrderId = slOrder.orderid;
+                                                leg.slUniqueOrderId = slOrder.uniqueorderid;
+                                                leg.slTriggerPrice = prices?.trigger;
+                                                leg.slLimitPrice = prices?.limit;
+                                                leg.exchangeSlProcessed = false;
+                                            }
+                                        }
+                                    }
                                 } catch (e) {
-                                    leg.entryPrice = tickPrice;
-                                    leg.entryTime = getISTTime();
+                                    console.error("[FALLBACK] Strike 2 fill monitoring failed:", e.message);
                                 }
                             }, 1000);
 

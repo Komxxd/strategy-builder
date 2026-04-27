@@ -77,29 +77,31 @@ async function handleLazyLeg({ leg, config, strategyId, addStrategyLog }) {
                             { ...params, side: leg.leg.side, isInstantFill: true }
                         );
                         
-                        const fillPrice = fill || instLtp;
-                        leg.entryPrice = fillPrice;
-                        leg.entryTime = getISTTime();
-                        leg.original_traded_price = fillPrice;
-                        leg.peakPrice = fillPrice;
-                        leg.tslReferencePrice = fillPrice;
-                        leg.state = "ACTIVE";
-                        addStrategyLog(strategyId, `[LAZY LEG LIVE] ${leg.instrument.symbol} fill confirmed at ₹${fillPrice}`, "INFO");
+                        if (fill) {
+                            const fillPrice = fill;
+                            leg.entryPrice = fillPrice;
+                            leg.entryTime = getISTTime();
+                            leg.original_traded_price = fillPrice;
+                            leg.peakPrice = fillPrice;
+                            leg.tslReferencePrice = fillPrice;
+                            leg.state = "ACTIVE";
+                            addStrategyLog(strategyId, `[LAZY LEG LIVE] ${leg.instrument.symbol} fill confirmed at ₹${fillPrice}`, "INFO");
 
-                        if (config.variety === "STOPLOSS") {
-                            const prices = computeStopLossExitPrices(leg.entryPrice, leg.leg.side, leg.leg.sl_type || "PERCENTAGE", leg.leg.stop_loss || 0, getLimitOffsetAmt(leg.entryPrice, config), config.entry_limit_offset_type || 'POINTS');
-                            const slOrder = await placeStopLossWithRetry({
-                                baseConfig: config, legSide: leg.leg.side, entryPrice: leg.entryPrice, instrument: leg.instrument, lots: leg.leg.lots,
-                                slType: leg.leg.sl_type || "PERCENTAGE", slValue: leg.leg.stop_loss, slLimitMargin: getLimitOffsetAmt(leg.entryPrice, config),
-                                slLimitMarginType: config.entry_limit_offset_type || 'POINTS', connectionId: config.connectionId, strategyId: strategyId
-                            });
-                            if (slOrder?.orderid) {
-                                leg.slOrderId = slOrder.orderid;
-                                leg.slUniqueOrderId = slOrder.uniqueorderid;
+                            if (config.variety === "STOPLOSS") {
+                                const prices = computeStopLossExitPrices(leg.entryPrice, leg.leg.side, leg.leg.sl_type || "PERCENTAGE", leg.leg.stop_loss || 0, getLimitOffsetAmt(leg.entryPrice, config), config.entry_limit_offset_type || 'POINTS');
+                                const slOrder = await placeStopLossWithRetry({
+                                    baseConfig: config, legSide: leg.leg.side, entryPrice: leg.entryPrice, instrument: leg.instrument, lots: leg.leg.lots,
+                                    slType: leg.leg.sl_type || "PERCENTAGE", slValue: leg.leg.stop_loss, slLimitMargin: getLimitOffsetAmt(leg.entryPrice, config),
+                                    slLimitMarginType: config.entry_limit_offset_type || 'POINTS', connectionId: config.connectionId, strategyId: strategyId
+                                });
+                                if (slOrder?.orderid) {
+                                    leg.slOrderId = slOrder.orderid;
+                                    leg.slUniqueOrderId = slOrder.uniqueorderid;
+                                }
+                                leg.slTriggerPrice = prices?.trigger;
+                                leg.initialSlTriggerPrice = prices?.trigger;
+                                leg.slLimitPrice = prices?.limit;
                             }
-                            leg.slTriggerPrice = prices?.trigger;
-                            leg.initialSlTriggerPrice = prices?.trigger;
-                            leg.slLimitPrice = prices?.limit;
                         }
                     } catch (e) {
                          addStrategyLog(strategyId, `[LAZY LEG LIVE] Fill tracking failed for ${leg.instrument?.symbol}: ${e.message}`, "ERROR");
