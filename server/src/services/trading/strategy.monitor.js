@@ -41,14 +41,13 @@ async function monitorStrategyLoop(strategyId, strategy) {
 
     try {
         // We filter out legs that are already finished, UNLESS they are in a "WAITING" state for re-entry.
-        const activeLegs = strategy.legs.filter(leg => !(leg.exited && !["WAITING_FOR_RECOST", "WAITING_FOR_MNTM", "WAITING_FOR_RE_ASAP", "WAITING_FOR_LAZY", "WAITING_FOR_RESL_MNTM", "WAITING_FOR_RE_HIGH", "WAITING_FOR_RE_LOW"].includes(leg.state)));
+        const activeLegs = strategy.legs.filter(leg => !(leg.exited && !["WAITING_FOR_RECOST", "WAITING_FOR_MNTM", "WAITING_FOR_RE_ASAP", "WAITING_FOR_LAZY", "WAITING_FOR_RESL_MNTM", "WAITING_FOR_RE_HIGH", "WAITING_FOR_RE_LOW", "WAITING_FOR_INTERNAL_FALLBACK"].includes(leg.state)));
         if (activeLegs.length === 0) return;
 
         const ltpMap = globalLtpMap;
 
         for (const leg of activeLegs) {
             // PHASE 1: Immediate Action States
-            // Some re-entry modes (like ASAP) don't wait for a price. They just need to fire.
             if (leg.state === "WAITING_FOR_RE_ASAP") {
                 await handleReentryAsap({ leg, config, strategyId, addStrategyLog });
                 continue;
@@ -59,7 +58,6 @@ async function monitorStrategyLoop(strategyId, strategy) {
             }
 
             // PHASE 2: Update Market Price (LTP)
-            // We look up the latest price for this specific stock/option from our global price map.
             const exch = leg.instrument?.exch_seg;
             const token = leg.instrument?.token;
             if (!exch || !token) continue;
@@ -67,7 +65,63 @@ async function monitorStrategyLoop(strategyId, strategy) {
             const tickPrice = ltpMap[`${exch}_${token}`];
 
             if (tickPrice !== undefined) {
-                leg.currentLtp = tickPrice; // Update the "Active Instance" with the new price
+                leg.currentLtp = tickPrice;
+
+                /**
+                 * PHASE 2.5: Internal Fallback Monitoring (Strike 2)
+                 * For MTP/RTP orders that were rejected by exchange LPP on trigger.
+                 */
+                if (leg.state === "WAITING_FOR_INTERNAL_FALLBACK") {
+                    const target = leg.fallbackTargetPrice;
+                    const side = leg.fallbackSide;
+                    const crossed = (side === "BUY" && tickPrice >= target) || (side === "SELL" && tickPrice <= target);
+
+                    if (crossed) {
+                        addStrategyLog(strategyId, `[FALLBACK] Target ₹${target} reached for ${leg.instrument.symbol}. Attempting Strike 2 (LIMIT Order)...`, "INFO");
+                        try {
+                            const offset = getLimitOffsetAmt(target, config);
+                            const limitPrice = side === "BUY" ? roundToTick(target + offset) : roundToTick(target - offset);
+                            
+                            const order = await placeOrder({
+                                ...config,
+                                side: side,
+                                variety: "NORMAL",
+                                ordertype: "LIMIT",
+                                price: limitPrice.toString(),
+                                lots: leg.leg.lots
+                            }, leg.instrument, config.connectionId);
+
+                            leg.orderId = order.orderid;
+                            leg.uniqueOrderId = order.uniqueorderid;
+                            leg.state = "ACTIVE"; 
+                            leg.mtp = target;
+                            
+                            // Re-init fill monitoring
+                            const { waitForOrderFillPrice } = require("./strategy.execution");
+                            setTimeout(async () => {
+                                try {
+                                    const fill = await waitForOrderFillPrice(leg.uniqueOrderId, config.connectionId, config.is_paper_trading === true, leg.instrument, 28800000, 1000);
+                                    leg.entryPrice = fill || tickPrice;
+                                    leg.entryTime = getISTTime();
+                                } catch (e) {
+                                    leg.entryPrice = tickPrice;
+                                    leg.entryTime = getISTTime();
+                                }
+                            }, 1000);
+
+                        } catch (err) {
+                            if (err.message.includes("LPP_LIMIT_REJECTION")) {
+                                addStrategyLog(strategyId, `[CRITICAL] Strike 2 LPP Rejection for ${leg.instrument.symbol}. Strategy closed.`, "ERROR");
+                                // stopStrategy is already called by placeOrder for LIMIT LPP
+                            } else {
+                                addStrategyLog(strategyId, `[FALLBACK] Strike 2 failed for ${leg.instrument.symbol}: ${err.message}`, "ERROR");
+                                leg.state = "COMPLETED"; // Terminate leg if unknown error
+                                leg.exited = true;
+                            }
+                        }
+                    }
+                    continue; 
+                }
 
                 /**
                  * PHASE 3: Re-Entry Tracking (RE-HIGH / RE-LOW)

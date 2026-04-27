@@ -1,5 +1,5 @@
 function roundToTick(price, tick = 0.05) {
-    if (!price || isNaN(price)) return 0;
+    if (price === null || price === undefined || isNaN(price)) return 0;
     return Number(Math.max(tick, Math.round(price / tick) * tick).toFixed(2));
 }
 

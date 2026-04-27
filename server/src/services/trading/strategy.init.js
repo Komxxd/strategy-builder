@@ -1,4 +1,4 @@
-const { getLtpSecure, addStrategyLog, updateStrategyInMemory } = require("./strategy.state");
+const { getLtpSecure, getLtpWithRetry, addStrategyLog, updateStrategyInMemory } = require("./strategy.state");
 const { getLegStrikeSelection, findClosestPremiumInstrument, findOptionInstrument } = require("./strategy.instruments");
 const { calculateMomentumTarget, checkMomentumHit } = require("./strategy.momentum");
 const { getISTTime } = require("./strategy.time");
@@ -84,16 +84,17 @@ async function handleInitialEntry(strategyId, strategy) {
             let orderData = null;
             const isSimpleMntm = item.leg.simple_mntm_enabled === true;
             let legState = "ACTIVE";
-            let instLtp = 0;
             let roundedMntmTarget = null;
 
-            const instLtpRes = await getLtpSecure({
+            const instLtp = await getLtpWithRetry({
                 exchange: item.instrument.exch_seg,
                 symboltoken: item.instrument.token,
                 connectionId: config.connectionId
             });
-            if (instLtpRes.status && instLtpRes.data?.fetched?.[0]) {
-                instLtp = instLtpRes.data.fetched[0].ltp;
+
+            if (!instLtp || instLtp <= 0) {
+                pauseStrategy(strategyId, `Entry LTP Read Failed for ${item.instrument.symbol} after retries.`);
+                throw new Error(`CRITICAL: Cannot place entry order for ${item.instrument.symbol}. LTP missing.`);
             }
 
             if (isSimpleMntm) {
@@ -116,10 +117,24 @@ async function handleInitialEntry(strategyId, strategy) {
                         side: item.leg.side,
                         offset: offsetAmt
                     });
-                    addStrategyLog(strategyId, `[LIVE] Simple Mntm: Snapshot ₹${instLtp}. Target ₹${roundedMntmTarget}. Placing ${variety} ${ordertype} at ${price}...`, "INFO");
-                    orderData = await placeOrder({ ...config, variety, ordertype, side: item.leg.side, lots: item.leg.lots, price, triggerprice }, item.instrument, config.connectionId);
-                    legState = "WAITING_FOR_FILL"; 
-                }
+                    try {
+                        orderData = await placeOrder({ ...config, variety, ordertype, side: item.leg.side, lots: item.leg.lots, price, triggerprice }, item.instrument, config.connectionId);
+                        legState = "WAITING_FOR_FILL"; 
+                    } catch (err) {
+                        if (err.message === "LPP_TRIGGER_REJECTION") {
+                            addStrategyLog(strategyId, `[LIVE] Mntm order rejected by LPP for ${item.instrument.symbol}. Falling back to INTERNAL MONITORING for Target: ₹${roundedMntmTarget}.`, "WARNING");
+                            legState = "WAITING_FOR_INTERNAL_FALLBACK";
+                            orderData = {
+                                orderid: `INTERNAL-LPP-${Date.now()}`,
+                                uniqueorderid: `UINTERNAL-LPP-${Date.now()}`,
+                            };
+                            leg.fallbackTargetPrice = roundedMntmTarget;
+                            leg.fallbackSide = item.leg.side;
+                            leg.fallbackBaseOtp = instLtp;
+                        } else {
+                            throw err;
+                        }
+                    }                }
             } else {
                 if (config.ordertype === 'LIMIT') {
                     const offsetAmt = getLimitOffsetAmt(instLtp, config);

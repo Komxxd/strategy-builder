@@ -16,7 +16,7 @@
 const { getAuthorizedInstance } = require("../../config/smartapi");
 const marketService = require("../market.service");
 const marketSocketService = require("../marketSocket.service");
-const { getLtpSecure, addStrategyLog } = require("./strategy.state");
+const { getLtpSecure, getLtpWithRetry, addStrategyLog } = require("./strategy.state");
 const { getISTTime } = require("./strategy.time");
 const { roundToTick, getLimitOffsetAmt, computeStopLossExitPrices, resolveUniversalOrderParams } = require("./strategy.offset");
 const { checkOrderFillOnce, chaseOrderFill } = require("./strategy.chase");
@@ -66,9 +66,23 @@ async function placeOrder(config, instrument, connectionId) {
             return response.data; // contains orderid and uniqueorderid
         }
         throw new Error(response.message || "Order placement failed");
-    } catch (error) {
-        console.error(`[${new Date().toISOString()}] Order placement failed:`, error);
-        throw error;
+    } catch (err) {
+        const errorMsg = err.message || "";
+        const isLppError = errorMsg.includes("AB1008") || errorMsg.toLowerCase().includes("limit price") || errorMsg.toLowerCase().includes("lpp");
+
+        if (isLppError) {
+            if (orderParams.ordertype === "LIMIT") {
+                const { stopStrategy } = require("./strategy.lifecycle");
+                stopStrategy(config.id || "system", `LPP Rejection for ${instrument.symbol} at ₹${orderParams.price}. Strategy closed due to exchange LPP range.`);
+                throw new Error(`LPP_LIMIT_REJECTION: Order rejected by exchange LPP rules.`);
+            } else {
+                // For STOPLOSS_LIMIT (MTP/RTP), we throw a specific error so the system can fall back to internal monitoring
+                throw new Error("LPP_TRIGGER_REJECTION");
+            }
+        }
+
+        console.error(`[placeOrder] API Error for ${instrument.symbol}:`, errorMsg);
+        throw err;
     }
 }
 
@@ -269,26 +283,28 @@ async function placeExitOrder({ config, leg, instrument, exitType }) {
 
     try {
         const exitSide = leg.leg.side === "BUY" ? "SELL" : "BUY";
-        let finalPrice = "0";
-        let exitBaseLtp = null;
 
         // Always LIMIT — MARKET orders no longer allowed by SEBI
-        const ltpRes = await getLtpSecure({
+        let finalPrice = "0";
+
+        // Fetch LTP with 3 retries
+        const exitBaseLtp = await getLtpWithRetry({
             exchange: instrument.exch_seg,
             symboltoken: instrument.token,
-            connectionId: config.connectionId
+            connectionId: config.connectionId,
+            currentLtp: leg.currentLtp
         });
-        if (ltpRes.status && ltpRes.data?.fetched?.[0]) {
-            exitBaseLtp = ltpRes.data.fetched[0].ltp;
-            const offsetAmt = getLimitOffsetAmt(exitBaseLtp, config);
-            if (exitSide === "SELL") finalPrice = roundToTick(exitBaseLtp - offsetAmt).toString();
-            else finalPrice = roundToTick(exitBaseLtp + offsetAmt).toString();
-        } else if (leg.currentLtp) {
-            exitBaseLtp = leg.currentLtp;
-            const offsetAmt = getLimitOffsetAmt(exitBaseLtp, config);
-            if (exitSide === "SELL") finalPrice = roundToTick(exitBaseLtp - offsetAmt).toString();
-            else finalPrice = roundToTick(exitBaseLtp + offsetAmt).toString();
+
+        if (!exitBaseLtp || exitBaseLtp <= 0) {
+            const strategyId = config.id || "system";
+            const { pauseStrategy } = require("./strategy.lifecycle"); // Local require to avoid circular dependency
+            pauseStrategy(strategyId, `LTP Read Failed for ${instrument.symbol} after retries. Manual intervention required.`);
+            throw new Error(`CRITICAL: Cannot place exit order for ${instrument.symbol}. LTP is missing or zero after retries.`);
         }
+
+        const offsetAmt = getLimitOffsetAmt(exitBaseLtp, config);
+        if (exitSide === "SELL") finalPrice = roundToTick(exitBaseLtp - offsetAmt).toString();
+        else finalPrice = roundToTick(exitBaseLtp + offsetAmt).toString();
 
         const closeConfig = {
             ...config,

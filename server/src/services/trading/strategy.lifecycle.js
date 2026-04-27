@@ -709,6 +709,31 @@ function pauseStrategy(strategyId, reason) {
     marketSocketService.sendAlert(`Strategy PAUSED — ${reason}`, "error");
 }
 
+function stopStrategy(strategyId, reason) {
+    const strategy = activeStrategies.get(strategyId);
+    if (!strategy) return;
+
+    strategy.status = "COMPLETED";
+    strategy.error = reason;
+    if (strategy.interval) {
+        clearInterval(strategy.interval);
+        strategy.interval = null;
+    }
+
+    addStrategyLog(strategyId, `Strategy CLOSED: ${reason}.`, "CRITICAL");
+    updateStrategyInMemory(strategyId, { 
+        status: "COMPLETED", 
+        error: reason,
+        pnlPercent: strategy.pnlPercent || 0,
+        totalPnlRupees: strategy.totalPnlRupees || 0,
+        legs: strategy.legs,
+        _closedAt: new Date().toISOString()
+    });
+
+    const marketSocketService = require("../marketSocket.service");
+    marketSocketService.sendAlert(`Strategy CLOSED — ${reason}`, "error");
+}
+
 async function squareOffStrategy(strategyId) {
     const { activeStrategies, addStrategyLog, updateStrategyInMemory } = require("./strategy.state");
     const { getAuthorizedInstance } = require("../../config/smartapi");
@@ -820,7 +845,10 @@ async function resumeStrategy(strategyId) {
 module.exports = {
     handleLegStopOut,
     pauseStrategy,
+    stopStrategy,
     squareOffStrategy,
     squareOffLeg,
-    resumeStrategy
+    resumeStrategy,
+    handleLegStopOutVirtual,
+    handleInitialEntryStatusSync
 };

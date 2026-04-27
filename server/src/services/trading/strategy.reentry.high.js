@@ -106,6 +106,13 @@ async function handleReentryHigh({ leg, config, strategyId, addStrategyLog, curr
         });
 
     } catch (err) {
+        if (err.message === "LPP_TRIGGER_REJECTION") {
+            addStrategyLog(strategyId, `[RE-HIGH] MTP order rejected by LPP for ${leg.instrument?.symbol}. Switching to INTERNAL MONITORING for Target: ₹${mtp}.`, "WARNING");
+            leg.state = "WAITING_FOR_INTERNAL_FALLBACK";
+            leg.fallbackTargetPrice = mtp;
+            leg.fallbackSide = side;
+            return;
+        }
         console.error("[RE-HIGH] Order placement failed:", err.message);
         addStrategyLog(strategyId, `[RE-HIGH] Failed to place re-entry: ${err.message}`, "ERROR");
     }

@@ -82,6 +82,31 @@ async function getLtpSecure({ exchange, symboltoken, connectionId }) {
     }
 }
 
+/**
+ * Robust LTP fetcher that retries up to 3 times on failure.
+ * Returns the LTP number directly, or null if all retries fail.
+ */
+async function getLtpWithRetry({ exchange, symboltoken, connectionId, currentLtp = 0 }) {
+    let retryCount = 0;
+    while (retryCount <= 3) {
+        try {
+            const res = await getLtpSecure({ exchange, symboltoken, connectionId });
+            if (res.status && res.data?.fetched?.[0]?.ltp > 0) {
+                return res.data.fetched[0].ltp;
+            }
+            if (currentLtp > 0) return currentLtp; // Fallback to provided memory LTP if valid
+        } catch (err) {}
+
+        if (retryCount < 3) {
+            retryCount++;
+            await new Promise(r => setTimeout(r, 1000));
+        } else {
+            break;
+        }
+    }
+    return null;
+}
+
 async function runGlobalWebsocketSync() {
     // --- Build Unified Task Map ---
     const unifiedTasks = {}; // { exchange: Set(tokens) }
@@ -243,6 +268,7 @@ module.exports = {
    globalLtpMap,
    updateLtp,
    getLtpSecure,
+   getLtpWithRetry,
    runGlobalDbWriter,
    updateStrategyInMemory,
    runGlobalWebsocketSync,

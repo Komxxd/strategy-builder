@@ -8,7 +8,6 @@ async function handleReentryCost({ leg, config, strategyId, addStrategyLog, curr
     addStrategyLog(strategyId, `Momentum Hit for ${leg.instrument.symbol}: Price ₹${currentTick} crossed RTP ₹${rtp}. Re-entering...`, "INFO");
     
     leg.reentry_count++;
-    leg.state = "ACTIVE";
 
     // Calculate MTP (Mntm Trigger Price) from RTP
     const mntmMode = leg.leg.recost_mntm_mode || "RECOST_PLUS_PCT";
@@ -53,6 +52,7 @@ async function handleReentryCost({ leg, config, strategyId, addStrategyLog, curr
     }
 
     try {
+        leg.state = "ACTIVE";
         console.log(`[RE-COST MNTM] Firing Order for ${leg.instrument.symbol}. MTP=${roundedMtp}, LTP=${currentTick}, Var/Type=${variety}/${ordertype}`);
         const reEntryOrder = await placeOrder(
             {
@@ -134,6 +134,13 @@ async function handleReentryCost({ leg, config, strategyId, addStrategyLog, curr
             }
         }, 1000);
     } catch (err) {
+        if (err.message === "LPP_TRIGGER_REJECTION") {
+            addStrategyLog(strategyId, `[RE-COST] MTP order rejected by LPP for ${leg.instrument.symbol}. Switching to INTERNAL MONITORING for Target: ₹${roundedMtp}.`, "WARNING");
+            leg.state = "WAITING_FOR_INTERNAL_FALLBACK";
+            leg.fallbackTargetPrice = roundedMtp;
+            leg.fallbackSide = side;
+            return;
+        }
         console.error("[RE-COST MNTM] Momentum Re-entry failed. Halting leg completely.", err);
         leg.state = "COMPLETED";
         leg.exited = true;
