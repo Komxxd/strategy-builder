@@ -13,59 +13,53 @@ async function handleReentryLow({ leg, config, strategyId, addStrategyLog, curre
     const currentPrice = currentTick || leg.currentLtp;
     const offsetAmt = getLimitOffsetAmt(rtp, config);
 
-    // 2. Decide the MTP (Momentum Target)
-    let mtp = rtp;
+    // 2. Decide the Target Price (MTP or RTP)
+    let targetPrice = rtp;
     if (leg.leg.relow_mntm_enabled) {
         const mntmMode = leg.leg.relow_mntm_mode || "RELOW_PLUS_PCT";
         const mntmVal = parseFloat(leg.leg.relow_mntm_value || 0);
-        
+        let mtp = rtp;
         if (mntmMode === "RELOW_PLUS_PCT" || mntmMode === "PLUS_PCT" || mntmMode === "PERCENTAGE") mtp = rtp + (rtp * mntmVal / 100);
         else if (mntmMode === "RELOW_PLUS_PTS" || mntmMode === "PLUS_PTS" || mntmMode === "POINTS") mtp = rtp + mntmVal;
         else if (mntmMode === "RELOW_MINUS_PCT" || mntmMode === "MINUS_PCT") mtp = rtp - (rtp * mntmVal / 100);
         else if (mntmMode === "RELOW_MINUS_PTS" || mntmMode === "MINUS_PTS") mtp = rtp - mntmVal;
+        
+        targetPrice = roundToTick(mtp);
+        leg.mtp = targetPrice; // Set MTP for frontend display
+    } else {
+        leg.mtp = null; // Clear MTP if disabled
     }
-    mtp = roundToTick(mtp);
 
-    // Recalculate offset based on the final MTP
-    const finalOffsetAmt = getLimitOffsetAmt(mtp, config);
+    // Recalculate offset based on the final targetPrice
+    const finalOffsetAmt = getLimitOffsetAmt(targetPrice, config);
 
     // 3. Determine Order Type (STOPLOSS vs LIMIT)
     let variety = config.variety || "NORMAL";
     let ordertype = config.ordertype || "LIMIT";
-    let finalPriceStr = mtp.toString();
-    let triggerPriceStr = mtp.toString();
+    let finalPriceStr = targetPrice.toString();
+    let triggerPriceStr = targetPrice.toString();
 
-    if (leg.leg.relow_mntm_enabled) {
-        if (side === "SELL") {
-            if (mtp < currentPrice) {
-                variety = "STOPLOSS";
-                ordertype = "STOPLOSS_LIMIT";
-                finalPriceStr = roundToTick(mtp - finalOffsetAmt).toString();
-            } else {
-                variety = "NORMAL";
-                ordertype = "LIMIT";
-                finalPriceStr = roundToTick(mtp - finalOffsetAmt).toString();
-            }
-        } else if (side === "BUY") {
-            if (mtp > currentPrice) {
-                variety = "STOPLOSS";
-                ordertype = "STOPLOSS_LIMIT";
-                finalPriceStr = roundToTick(mtp + finalOffsetAmt).toString();
-            } else {
-                variety = "NORMAL";
-                ordertype = "LIMIT";
-                finalPriceStr = roundToTick(mtp + finalOffsetAmt).toString();
-            }
-        }
-    } else {
-        // Non-Momentum Flow: Place a RESTING LIMIT order
-        variety = "NORMAL";
-        ordertype = "LIMIT";
-        triggerPriceStr = "0";
-        if (side === "BUY") {
-            finalPriceStr = roundToTick(rtp + offsetAmt).toString();
+    if (side === "SELL") {
+        if (targetPrice < currentPrice) {
+            variety = "STOPLOSS";
+            ordertype = "STOPLOSS_LIMIT";
+            finalPriceStr = roundToTick(targetPrice - finalOffsetAmt).toString();
         } else {
-            finalPriceStr = roundToTick(rtp - offsetAmt).toString();
+            variety = "NORMAL";
+            ordertype = "LIMIT";
+            triggerPriceStr = "0"; // Normal limit doesn't need trigger
+            finalPriceStr = roundToTick(targetPrice - finalOffsetAmt).toString();
+        }
+    } else if (side === "BUY") {
+        if (targetPrice > currentPrice) {
+            variety = "STOPLOSS";
+            ordertype = "STOPLOSS_LIMIT";
+            finalPriceStr = roundToTick(targetPrice + finalOffsetAmt).toString();
+        } else {
+            variety = "NORMAL";
+            ordertype = "LIMIT";
+            triggerPriceStr = "0";
+            finalPriceStr = roundToTick(targetPrice + finalOffsetAmt).toString();
         }
     }
 
@@ -86,13 +80,12 @@ async function handleReentryLow({ leg, config, strategyId, addStrategyLog, curre
 
         leg.orderId = reEntryOrder.orderid;
         leg.uniqueOrderId = reEntryOrder.uniqueorderid;
-        leg.mtp = mtp; // Set for frontend display
         leg.rtp = rtp; // Sync RTP for frontend display
         
         // If this is MTP placement, we move to FILL state
         if (isMtpPlacement) {
             leg.state = "ACTIVE"; 
-            addStrategyLog(strategyId, `[RE-LOW] MTP Order placed for ${leg.instrument?.symbol} at ₹${mtp}.`, "INFO");
+            addStrategyLog(strategyId, `[RE-LOW] MTP Order placed for ${leg.instrument?.symbol} at ₹${targetPrice}.`, "INFO");
         } else {
             addStrategyLog(strategyId, `[RE-LOW] Resting Limit placed for ${leg.instrument?.symbol} at ₹${finalPriceStr}.`, "INFO");
         }
@@ -107,9 +100,9 @@ async function handleReentryLow({ leg, config, strategyId, addStrategyLog, curre
 
     } catch (err) {
         if (err.message === "LPP_TRIGGER_REJECTION") {
-            addStrategyLog(strategyId, `[RE-LOW] MTP order rejected by LPP for ${leg.instrument?.symbol}. Switching to INTERNAL MONITORING for Target: ₹${mtp}.`, "WARNING");
+            addStrategyLog(strategyId, `[RE-LOW] MTP order rejected by LPP for ${leg.instrument?.symbol}. Switching to INTERNAL MONITORING for Target: ₹${targetPrice}.`, "WARNING");
             leg.state = "WAITING_FOR_INTERNAL_FALLBACK";
-            leg.fallbackTargetPrice = mtp;
+            leg.fallbackTargetPrice = targetPrice;
             leg.fallbackSide = side;
             return;
         }
