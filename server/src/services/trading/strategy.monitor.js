@@ -196,12 +196,15 @@ async function monitorStrategyLoop(strategyId, strategy) {
                             await handleReentryHigh({ leg, config, strategyId, addStrategyLog, currentTick: tickPrice, isMtpPlacement: true });
                         }
                     }
-                    // CASE B: Without Momentum (Place resting limit immediately, then modify)
+                    // CASE B: Without Momentum (Wait for pullback to RTP, then place limit order)
                     else {
-                        if (!leg.orderId) {
-                            await handleReentryHigh({ leg, config, strategyId, addStrategyLog, currentTick: tickPrice });
-                        } else if (isNewPeak) {
-                            await modifyReentryOrder({ leg, config, strategyId, addStrategyLog, newRtp: rtp });
+                        leg.mtp = null; // Clear MTP for dashboard
+                        if (isNewPeak) {
+                            addStrategyLog(strategyId, `[RE-HIGH] PEAK: ₹${peak} | RTP: ₹${rtp}`, "INFO");
+                        }
+
+                        if (tickPrice <= rtp) {
+                            await handleReentryHigh({ leg, config, strategyId, addStrategyLog, currentTick: tickPrice, isMtpPlacement: false });
                         }
                     }
                 }
@@ -247,10 +250,13 @@ async function monitorStrategyLoop(strategyId, strategy) {
                     }
                     // CASE B: Without Momentum
                     else {
-                        if (!leg.orderId) {
-                            await handleReentryLow({ leg, config, strategyId, addStrategyLog, currentTick: tickPrice });
-                        } else if (isNewLow) {
-                            await modifyReentryLowOrder({ leg, config, strategyId, addStrategyLog, newRtp: rtp });
+                        leg.mtp = null; // Clear MTP for dashboard
+                        if (isNewLow) {
+                            addStrategyLog(strategyId, `[RE-LOW] LOW: ₹${low} | RTP: ₹${rtp}`, "INFO");
+                        }
+
+                        if (tickPrice >= rtp) {
+                            await handleReentryLow({ leg, config, strategyId, addStrategyLog, currentTick: tickPrice, isMtpPlacement: false });
                         }
                     }
                 }

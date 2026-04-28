@@ -39,27 +39,39 @@ async function handleReentryHigh({ leg, config, strategyId, addStrategyLog, curr
     let finalPriceStr = targetPrice.toString();
     let triggerPriceStr = targetPrice.toString();
 
-    if (side === "SELL") {
-        if (targetPrice < currentPrice) {
-            variety = "STOPLOSS";
-            ordertype = "STOPLOSS_LIMIT";
-            finalPriceStr = roundToTick(targetPrice - finalOffsetAmt).toString();
-        } else {
-            variety = "NORMAL";
-            ordertype = "LIMIT";
-            triggerPriceStr = "0"; // Normal limit doesn't need trigger
-            finalPriceStr = roundToTick(targetPrice - finalOffsetAmt).toString();
+    if (leg.leg.rehigh_mntm_enabled) {
+        if (side === "SELL") {
+            if (targetPrice < currentPrice) {
+                variety = "STOPLOSS";
+                ordertype = "STOPLOSS_LIMIT";
+                finalPriceStr = roundToTick(targetPrice - finalOffsetAmt).toString();
+            } else {
+                variety = "NORMAL";
+                ordertype = "LIMIT";
+                triggerPriceStr = "0"; // Normal limit doesn't need trigger
+                finalPriceStr = roundToTick(targetPrice - finalOffsetAmt).toString();
+            }
+        } else if (side === "BUY") {
+            if (targetPrice > currentPrice) {
+                variety = "STOPLOSS";
+                ordertype = "STOPLOSS_LIMIT";
+                finalPriceStr = roundToTick(targetPrice + finalOffsetAmt).toString();
+            } else {
+                variety = "NORMAL";
+                ordertype = "LIMIT";
+                triggerPriceStr = "0";
+                finalPriceStr = roundToTick(targetPrice + finalOffsetAmt).toString();
+            }
         }
-    } else if (side === "BUY") {
-        if (targetPrice > currentPrice) {
-            variety = "STOPLOSS";
-            ordertype = "STOPLOSS_LIMIT";
+    } else {
+        // Non-Momentum Flow: We waited for pullback, so just place a resting LIMIT order
+        variety = "NORMAL";
+        ordertype = "LIMIT";
+        triggerPriceStr = "0";
+        if (side === "BUY") {
             finalPriceStr = roundToTick(targetPrice + finalOffsetAmt).toString();
         } else {
-            variety = "NORMAL";
-            ordertype = "LIMIT";
-            triggerPriceStr = "0";
-            finalPriceStr = roundToTick(targetPrice + finalOffsetAmt).toString();
+            finalPriceStr = roundToTick(targetPrice - finalOffsetAmt).toString();
         }
     }
 
