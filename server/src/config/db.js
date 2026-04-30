@@ -18,7 +18,7 @@ const sql = postgres(connectionString, {
     connect_timeout: 10,
     
     // FORCE IPv4 ONLY: This fixes the ENETUNREACH error on DigitalOcean
-    socket: (host, port) => net.connect({ host, port, family: 4 })
+    socket: (options) => net.connect({ ...options, family: 4 })
 });
 
 module.exports = sql;
