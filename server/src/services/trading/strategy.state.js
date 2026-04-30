@@ -1,4 +1,4 @@
-const prisma = require("../../config/prisma");
+const sql = require("../../config/db");
 const marketService = require("../market.service");
 const marketSocketService = require("../marketSocket.service");
 const { getISTFullDate } = require("./strategy.time");
@@ -20,20 +20,25 @@ async function runGlobalDbWriter() {
     const updates = Array.from(pendingDbUpdates.entries());
     pendingDbUpdates.clear();
 
+    const { withDbRetry } = require("./strategy.crud");
+
     try {
         await Promise.all(updates.map(async ([executionId, updateData]) => {
             try {
-                await prisma.strategy_executions.update({
-                    where: { id: executionId },
-                    data: updateData
-                });
+                await withDbRetry(() => sql`
+                    UPDATE strategy_executions 
+                    SET ${sql(updateData)}
+                    WHERE id = ${executionId}
+                `, 3, 500); 
             } catch (err) {
-                console.error(`[DbWriter] Error updating execution ${executionId}:`, err.message);
-                // Re-add to queue if it's a transient error? For now, just log.
+                console.error(`[DbWriter] Permanent failure for execution ${executionId}:`, err.message);
+                console.log(`[DbWriter] Re-queueing update for ${executionId} for next cycle.`);
+                const current = pendingDbUpdates.get(executionId) || {};
+                pendingDbUpdates.set(executionId, { ...updateData, ...current });
             }
         }));
     } catch (err) {
-        console.error("[DbWriter] Fatal error in bulk update:", err.message);
+        console.error("[DbWriter] Fatal error in bulk update loop:", err.message);
     } finally {
         isWritingToDb = false;
     }
@@ -52,7 +57,6 @@ let inFlightLtpRequests = new Map();
 async function getLtpSecure({ exchange, symboltoken, connectionId }) {
     const key = `${exchange}_${symboltoken}`;
 
-    // 1. Check WebSocket Cache (Zero Latency)
     if (globalLtpMap[key]) {
         return {
             status: true,
@@ -62,13 +66,11 @@ async function getLtpSecure({ exchange, symboltoken, connectionId }) {
         };
     }
 
-    // 2. De-duplicate equivalent REST requests already in flight
     const inFlightKey = `${connectionId}_${key}`;
     if (inFlightLtpRequests.has(inFlightKey)) {
         return inFlightLtpRequests.get(inFlightKey);
     }
 
-    // 3. Fallback to REST API
     const requestPromise = marketService.getLTP({ exchange, symboltoken, connectionId });
     inFlightLtpRequests.set(inFlightKey, requestPromise);
 
@@ -76,16 +78,10 @@ async function getLtpSecure({ exchange, symboltoken, connectionId }) {
         const result = await requestPromise;
         return result;
     } finally {
-        // Clear from in-flight map after a small window to allow fresh fetches
-        // while effectively blocking the millisecond burst.
         setTimeout(() => inFlightLtpRequests.delete(inFlightKey), 500);
     }
 }
 
-/**
- * Robust LTP fetcher that retries up to 3 times on failure.
- * Returns the LTP number directly, or null if all retries fail.
- */
 async function getLtpWithRetry({ exchange, symboltoken, connectionId, currentLtp = 0 }) {
     let retryCount = 0;
     while (retryCount <= 3) {
@@ -94,7 +90,7 @@ async function getLtpWithRetry({ exchange, symboltoken, connectionId, currentLtp
             if (res.status && res.data?.fetched?.[0]?.ltp > 0) {
                 return res.data.fetched[0].ltp;
             }
-            if (currentLtp > 0) return currentLtp; // Fallback to provided memory LTP if valid
+            if (currentLtp > 0) return currentLtp; 
         } catch (err) {}
 
         if (retryCount < 3) {
@@ -108,12 +104,9 @@ async function getLtpWithRetry({ exchange, symboltoken, connectionId, currentLtp
 }
 
 async function runGlobalWebsocketSync() {
-    // --- Build Unified Task Map ---
-    const unifiedTasks = {}; // { exchange: Set(tokens) }
+    const unifiedTasks = {}; 
 
     for (const [id, strategy] of activeStrategies) {
-        // Optimization: Even if WAITING, subscribe to the Index price so it's
-        // ready in cache (globalLtpMap) for a zero-latency entry at 9:16 AM.
         if (strategy.status === "WAITING" && strategy.config?.index) {
             const idxConfig = INDEX_CONFIGS[strategy.config.index];
             if (idxConfig) {
@@ -137,23 +130,19 @@ async function runGlobalWebsocketSync() {
     marketSocketService.syncSubscriptions(unifiedTasks);
 }
 
-// Start websocket sync heartbeat once globally
 setInterval(runGlobalWebsocketSync, 1000);
 
 function updateStrategyInMemory(executionId, data) {
     const strategy = activeStrategies.get(executionId);
     
-    // Merge into pending updates instead of direct DB call
     const existing = pendingDbUpdates.get(executionId) || { execution_details: {} };
     const updateData = { ...existing };
     
-    // Core fields
     if (data.status) updateData.status = data.status;
     if (data.final_pnl_percent !== undefined) updateData.final_pnl_percent = data.final_pnl_percent;
     if (data.totalPnlRupees !== undefined) updateData.total_pnl_rupees = data.totalPnlRupees;
     if (data.exit_type) updateData.exit_type = data.exit_type;
 
-    // Build/Merge JSON details
     const currentDetails = updateData.execution_details || {};
     
     updateData.execution_details = {
@@ -162,12 +151,10 @@ function updateStrategyInMemory(executionId, data) {
         _latest: new Date().toISOString()
     };
 
-    // Ensure we ALWAYS preserve the runtime config if available in memory
     if (strategy && strategy.config) {
         updateData.execution_details.config = strategy.config;
     }
 
-    // Capture arbitrary keys from 'data' into the JSON blob
     for (const key of Object.keys(data)) {
         if (['status', 'final_pnl_percent', 'totalPnlRupees', 'exit_type', 'execution_details'].includes(key)) continue;
 
@@ -179,8 +166,7 @@ function updateStrategyInMemory(executionId, data) {
     }
 
     if (["COMPLETED", "FAILED", "STOPPED", "SQUARED_OFF", "TERMINATED"].includes(data.status)) {
-        updateData.completed_at = new Date().toISOString();
-        // Trigger immediate DB flush for terminal states so they appear in history instantly
+        updateData.completed_at = new Date();
         setTimeout(runGlobalDbWriter, 0);
     }
 
@@ -240,12 +226,15 @@ async function getStatus(strategyId) {
     }
 
     const { withDbRetry } = require("./strategy.crud");
-    const dbExec = await withDbRetry(() =>
-        prisma.strategy_executions.findUnique({
-            where: { id: strategyId },
-            include: { strategy: { select: { name: true } } }
-        })
-    ).catch(() => null);
+    const [dbExec] = await withDbRetry(() =>
+        sql`
+            SELECT e.*, s.name as strategy_name
+            FROM strategy_executions e
+            LEFT JOIN strategies s ON e.strategy_id = s.id
+            WHERE e.id = ${strategyId}
+            LIMIT 1
+        `
+    ).catch(() => [null]);
 
     if (!dbExec) return null;
 
@@ -253,12 +242,12 @@ async function getStatus(strategyId) {
         id: dbExec.id,
         status: dbExec.status,
         config: dbExec.execution_details?.config || {},
-        name: dbExec.strategy?.name || "Deployed Strategy",
+        name: dbExec.strategy_name || "Deployed Strategy",
         error: dbExec.execution_details?.error,
         legs: dbExec.execution_details?.legs || [],
         logs: dbExec.execution_details?.logs || [],
         pnlPercent: dbExec.final_pnl_percent || 0,
-        totalTotalPnlRupees: dbExec.total_pnl_rupees || 0,
+        totalPnlRupees: dbExec.total_pnl_rupees || 0,
         exitType: dbExec.exit_type
     };
 }

@@ -17,7 +17,8 @@
     "nodemon": "^3.1.11"
   },
   "dependencies": {
-    "@prisma/client": "^5.22.0",
+    "@supabase/mcp-server-supabase": "^0.7.0",
+    "@supabase/supabase-js": "^2.105.1",
     "cors": "^2.8.6",
     "dotenv": "^17.2.3",
     "express": "^5.2.1",
@@ -28,7 +29,7 @@
     "ioredis": "^5.10.1",
     "node-cache": "^5.1.2",
     "path": "^0.12.7",
-    "prisma": "^5.22.0",
+    "postgres": "^3.4.9",
     "rss-parser": "^3.13.0",
     "smartapi-javascript": "^1.0.27",
     "socket.io": "^4.8.3",

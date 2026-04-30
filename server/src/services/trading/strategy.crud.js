@@ -1,10 +1,9 @@
-const prisma = require("../../config/prisma");
+const sql = require("../../config/db");
 const { getStatus } = require("./strategy.state");
 
 /**
  * Retries an async DB operation up to `maxRetries` times with exponential backoff.
- * This prevents a sleeping Neon database from crashing a strategy on startup.
- * @param {Function} fn - Async function to retry (e.g., () => prisma.xxx.findUnique(...))
+ * @param {Function} fn - Async function to retry
  * @param {number} maxRetries - Max number of attempts (default: 3)
  * @param {number} baseDelayMs - Initial delay in ms, doubles each attempt (default: 1000ms)
  * @returns {Promise<any>} - Result of the successful call
@@ -16,17 +15,19 @@ async function withDbRetry(fn, maxRetries = 3, baseDelayMs = 1000) {
             return await fn();
         } catch (err) {
             lastError = err;
+            // Supavisor/Supabase specific retryable errors
             const isRetryable =
-                err.message.includes("Can't reach database") ||
-                err.message.includes("connection pool") ||
-                err.message.includes("ECONNREFUSED") ||
-                err.message.includes("Connection timed out");
+                err.message.includes("connection") ||
+                err.message.includes("terminated") ||
+                err.message.includes("closed") ||
+                err.message.includes("timeout") ||
+                err.message.includes("reset");
 
             if (!isRetryable || attempt === maxRetries) {
-                throw err; // Non-retryable error or out of attempts
+                throw err;
             }
 
-            const delay = baseDelayMs * Math.pow(2, attempt - 1); // 1s, 2s, 4s
+            const delay = baseDelayMs * Math.pow(2, attempt - 1);
             console.warn(`[DbRetry] Attempt ${attempt}/${maxRetries} failed. Retrying in ${delay}ms... Error: ${err.message}`);
             await new Promise(resolve => setTimeout(resolve, delay));
         }
@@ -36,15 +37,12 @@ async function withDbRetry(fn, maxRetries = 3, baseDelayMs = 1000) {
 
 async function saveStrategy(config) {
     if (config.name) {
-        const existing = await prisma.strategies.findFirst({
-            where: {
-                name: {
-                    equals: config.name.trim(),
-                    mode: 'insensitive'
-                }
-            }
-        });
-        if (existing) {
+        const existing = await sql`
+            SELECT id FROM strategies 
+            WHERE LOWER(TRIM(name)) = LOWER(TRIM(${config.name}))
+            LIMIT 1
+        `;
+        if (existing.length > 0) {
             throw new Error(`A strategy named "${config.name}" already exists.`);
         }
     }
@@ -52,27 +50,25 @@ async function saveStrategy(config) {
     const cleanConfig = { ...config };
     delete cleanConfig.is_paper_trading;
 
-    const data = await prisma.strategies.create({
-        data: {
-            name: config.name || `Strategy ${new Date().toLocaleTimeString()}`,
-            config: cleanConfig
-        }
-    });
+    const name = config.name || `Strategy ${new Date().toLocaleTimeString()}`;
+
+    const [data] = await sql`
+        INSERT INTO strategies (name, config, status)
+        VALUES (${name}, ${sql.json(cleanConfig)}, 'INACTIVE')
+        RETURNING *
+    `;
     return data;
 }
 
 async function updateStrategy(strategyId, config) {
     if (config.name) {
-        const existing = await prisma.strategies.findFirst({
-            where: {
-                name: {
-                    equals: config.name.trim(),
-                    mode: 'insensitive'
-                },
-                id: { not: strategyId }
-            }
-        });
-        if (existing) {
+        const existing = await sql`
+            SELECT id FROM strategies 
+            WHERE LOWER(TRIM(name)) = LOWER(TRIM(${config.name}))
+            AND id != ${strategyId}
+            LIMIT 1
+        `;
+        if (existing.length > 0) {
             throw new Error(`A strategy named "${config.name}" already exists.`);
         }
     }
@@ -80,71 +76,67 @@ async function updateStrategy(strategyId, config) {
     const cleanConfig = { ...config };
     delete cleanConfig.is_paper_trading;
 
-    const data = await prisma.strategies.update({
-        where: { id: strategyId },
-        data: {
-            name: config.name || `Strategy ${new Date().toLocaleTimeString()}`,
-            config: cleanConfig
-        }
-    });
+    const name = config.name || `Strategy ${new Date().toLocaleTimeString()}`;
+
+    const [data] = await sql`
+        UPDATE strategies 
+        SET name = ${name}, config = ${sql.json(cleanConfig)}, updated_at = NOW()
+        WHERE id = ${strategyId}
+        RETURNING *
+    `;
 
     return data;
 }
 
 async function deleteStrategy(strategyId) {
-    await prisma.strategies.delete({
-        where: { id: strategyId }
-    });
+    await sql`DELETE FROM strategies WHERE id = ${strategyId}`;
     return true;
 }
 
 async function getUserStrategies() {
     const data = await withDbRetry(() =>
-        prisma.strategies.findMany({ orderBy: { created_at: 'desc' } })
+        sql`SELECT * FROM strategies ORDER BY created_at DESC`
     );
     return data;
 }
 
 async function getActiveStrategies() {
     const executions = await withDbRetry(() =>
-        prisma.strategy_executions.findMany({
-            where: { status: { in: ['WAITING', 'IN_POSITION', 'PAUSED'] } },
-            orderBy: { started_at: 'desc' },
-            include: { strategy: { select: { name: true } } }
-        })
+        sql`
+            SELECT e.*, s.name as strategy_name
+            FROM strategy_executions e
+            LEFT JOIN strategies s ON e.strategy_id = s.id
+            WHERE e.status IN ('WAITING', 'IN_POSITION', 'PAUSED')
+            ORDER BY e.started_at DESC
+        `
     );
 
-    return Promise.all(executions.map(exec => getStatus(exec.id)));
+    // Map back to expected structure
+    const results = executions.map(e => ({
+        ...e,
+        strategy: { name: e.strategy_name }
+    }));
+
+    return Promise.all(results.map(exec => getStatus(exec.id)));
 }
 
 async function getExecutionHistory() {
     const executions = await withDbRetry(() =>
-        prisma.strategy_executions.findMany({
-            where: {
-                status: {
-                    in: ["COMPLETED", "FAILED", "TERMINATED", "CANCELLED", "STOPPED", "SQUARED_OFF"]
-                }
-            },
-            orderBy: {
-                completed_at: { sort: "desc", nulls: "last" }
-            },
-            include: {
-                strategy: {
-                    select: {
-                        name: true,
-                        config: true
-                    }
-                }
-            },
-            take: 50
-        })
+        sql`
+            SELECT e.*, s.name as strategy_name, s.config as strategy_config
+            FROM strategy_executions e
+            LEFT JOIN strategies s ON e.strategy_id = s.id
+            WHERE e.status IN ('COMPLETED', 'FAILED', 'TERMINATED', 'CANCELLED', 'STOPPED', 'SQUARED_OFF')
+            ORDER BY COALESCE(e.completed_at, e.started_at) DESC
+            LIMIT 50
+        `
     );
 
     return executions.map(dbExec => ({
         id: dbExec.id,
         status: dbExec.status,
-        config: dbExec.execution_details?.config || dbExec.strategy?.config || {},
-        name: dbExec.strategy?.name || (dbExec.execution_details?.config?.name) || "Deployed Strategy",
+        config: dbExec.execution_details?.config || dbExec.strategy_config || {},
+        name: dbExec.strategy_name || (dbExec.execution_details?.config?.name) || "Deployed Strategy",
         error: dbExec.execution_details?.error,
         logs: dbExec.execution_details?.logs || [],
         legs: dbExec.execution_details?.legs || [],
@@ -153,7 +145,7 @@ async function getExecutionHistory() {
         totalOriginalValue: dbExec.execution_details?.totalOriginalValue || 0,
         exitType: dbExec.exit_type,
         started_at: dbExec.started_at,
-        completed_at: dbExec.completed_at || dbExec.updatedAt
+        completed_at: dbExec.completed_at
     }));
 }
 

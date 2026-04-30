@@ -2,15 +2,9 @@
  * STRATEGY ENGINE SERVICE
  * =======================
  * This is the "Brain" or "Orchestrator" of the trading system.
- * 
- * It manages the high-level life cycle of every strategy:
- * 1. STARTING: Taking a saved template and making it "Live."
- * 2. WAITING: Holding the strategy until the "Entry Time" (e.g., 9:20 AM) hits.
- * 3. RUNNING: Starting the monitor loop once positions are opened.
- * 4. RECOVERY: Automatically restarting strategies if the server crashes.
  */
 
-const prisma = require("../../config/prisma");
+const sql = require("../../config/db");
 const { getAuthorizedInstance } = require("../../config/smartapi");
 const marketSocketService = require("../marketSocket.service");
 const { activeStrategies, getLtpSecure, updateStrategyInMemory, addStrategyLog } = require("./strategy.state");
@@ -23,7 +17,6 @@ const { placeExitOrder } = require("./strategy.execution");
 
 /**
  * The CORE LOOP function.
- * Once called, this sets up a timer that runs every 1 second for a specific strategy.
  */
 async function executeStrategy(strategyId) {
     const strategy = activeStrategies.get(strategyId);
@@ -31,9 +24,7 @@ async function executeStrategy(strategyId) {
 
     addStrategyLog(strategyId, `Strategy Execution started. Waiting for Entry Time ${strategy.config.entry_time}...`, "INFO");
 
-    // Every 1000ms (1 second), we check what this strategy needs to do.
     const interval = setInterval(async () => {
-        // If the last tick is still being processed, we skip this one to avoid "double work."
         if (strategy.isProcessing) return;
         strategy.isProcessing = true;
 
@@ -41,17 +32,12 @@ async function executeStrategy(strategyId) {
             const status = strategy.status;
             const currentTime = getISTTime();
 
-            // PHASE 1: WAITING -> Start Entry
-            // If the strategy is waiting and the clock hits your Entry Time (e.g., 9:20 AM).
             if (status === "WAITING" && currentTime >= strategy.config.entry_time) {
                 await handleInitialEntry(strategyId, strategy);
             }
 
-            // PHASE 2: IN_POSITION -> Monitor and Manage
-            // If the strategy has open trades, we call the Monitor service to check prices.
             if (status === "IN_POSITION") {
                 const result = await monitorStrategyLoop(strategyId, strategy);
-                // If the monitor says "TERMINATE" (e.g., Target Hit or Exit Time reached), we stop the timer.
                 if (result === "TERMINATE") {
                     clearInterval(interval);
                     return;
@@ -64,16 +50,14 @@ async function executeStrategy(strategyId) {
         }
     }, 1000);
 
-    strategy.interval = interval; // Save the timer so we can stop it later if needed.
+    strategy.interval = interval; 
 }
 
 /**
  * STARTS a strategy.
- * This takes your "Template" (saved configuration) and creates a "Live Execution" in the database.
  */
 async function startStrategy(strategyId, overrideIsPaperTrading) {
-    // 1. Fetch your saved strategy rules from the database.
-    const template = await withDbRetry(() => prisma.strategies.findUnique({ where: { id: strategyId } }));
+    const [template] = await withDbRetry(() => sql`SELECT * FROM strategies WHERE id = ${strategyId} LIMIT 1`);
     if (!template) throw new Error("Strategy template not found");
 
     const runtimeConfig = {
@@ -81,16 +65,12 @@ async function startStrategy(strategyId, overrideIsPaperTrading) {
         is_paper_trading: overrideIsPaperTrading !== undefined ? overrideIsPaperTrading : (template.config.is_paper_trading || false)
     };
 
-    // 2. Create a record in 'strategy_executions' so we can track this specific run.
-    const execution = await withDbRetry(() => prisma.strategy_executions.create({
-        data: { 
-            strategy_id: template.id, 
-            status: 'WAITING', 
-            execution_details: { config: runtimeConfig } 
-        }
-    }));
+    const [execution] = await withDbRetry(() => sql`
+        INSERT INTO strategy_executions (strategy_id, status, execution_details)
+        VALUES (${template.id}, 'WAITING', ${sql.json({ config: runtimeConfig })})
+        RETURNING *
+    `);
 
-    // 3. Create the runtime object in memory.
     const runtimeStrategy = {
         id: execution.id,
         config: runtimeConfig,
@@ -100,16 +80,12 @@ async function startStrategy(strategyId, overrideIsPaperTrading) {
         legs: []
     };
 
-    activeStrategies.set(execution.id, runtimeStrategy); // Add to the "Active List"
-    executeStrategy(execution.id); // Kick off the 1-second loop
+    activeStrategies.set(execution.id, runtimeStrategy);
+    executeStrategy(execution.id);
     return execution.id;
 }
 
-/**
- * Manually closes all open positions in a strategy.
- */
 async function stopStrategy(strategyId) {
-    const { activeStrategies } = require("./strategy.state");
     const strategy = activeStrategies.get(strategyId);
     if (!strategy) return;
     if (strategy.interval) clearInterval(strategy.interval);
@@ -124,36 +100,28 @@ async function stopStrategy(strategyId) {
 }
 
 async function deleteStrategyExecution(executionId) {
-    const { activeStrategies } = require("./strategy.state");
     const strategy = activeStrategies.get(executionId);
     if (strategy && strategy.interval) clearInterval(strategy.interval);
     activeStrategies.delete(executionId);
-    await prisma.strategy_executions.delete({ where: { id: executionId } });
+    await sql`DELETE FROM strategy_executions WHERE id = ${executionId}`;
     return { success: true };
 }
 
-/**
- * AUTO-RESUME SERVICE
- * When the server starts up, this function looks for any strategies that were 
- * running before the restart and brings them back to life exactly where they left off.
- */
 async function initializeActiveStrategies() {
     try {
-        // 1. Look for strategies in the database that are NOT completed.
         const activeExecutions = await withDbRetry(() =>
-            prisma.strategy_executions.findMany({
-                where: { status: { in: ["WAITING", "IN_POSITION"] } },
-                include: { strategy: true }
-            })
+            sql`
+                SELECT e.*, s.name as strategy_name, s.config as strategy_template_config
+                FROM strategy_executions e
+                JOIN strategies s ON e.strategy_id = s.id
+                WHERE e.status IN ('WAITING', 'IN_POSITION')
+            `
         );
 
         for (const exec of activeExecutions) {
-            if (!exec.strategy) continue;
-
-            // 2. Reconstruct the runtime object from the saved database data.
             const runtimeStrategy = {
                 id: exec.id,
-                config: exec.execution_details?.config || exec.strategy.config,
+                config: exec.execution_details?.config || exec.strategy_template_config,
                 status: exec.status,
                 startTime: exec.started_at,
                 legs: exec.execution_details?.legs || [],
@@ -165,10 +133,9 @@ async function initializeActiveStrategies() {
                 totalOriginalValue: exec.execution_details?.totalOriginalValue || 0
             };
 
-            // 3. Re-activate the loop.
             activeStrategies.set(exec.id, runtimeStrategy);
             executeStrategy(exec.id);
-            console.log(`[Auto-Resume] Restored strategy ${exec.id} (${exec.strategy.name}) in ${exec.status} state.`);
+            console.log(`[Auto-Resume] Restored strategy ${exec.id} (${exec.strategy_name}) in ${exec.status} state.`);
         }
     } catch (err) {
         console.error("Failed to initialize active strategies:", err.message);
