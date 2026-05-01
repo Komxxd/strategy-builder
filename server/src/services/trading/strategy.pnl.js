@@ -52,7 +52,7 @@ function checkOverallPnlLimits({ config, totalPnlRupees, avgPnl }) {
     return { hit: false };
 }
 
-function evaluateLegLimits({ leg, config }) {
+function evaluateLegLimits({ leg, config, strategyId, addStrategyLog }) {
     let result = {
         isHit: false,
         exitReason: "LEG_STOP_LOSS",
@@ -62,66 +62,110 @@ function evaluateLegLimits({ leg, config }) {
     };
 
     // 1. Evaluate Trailing Stop Loss mathematically (Step-based Tracking)
-    if (leg.leg.tsl_enabled && leg.tslReferencePrice !== undefined && leg.currentLtp !== null && leg.leg.tsl_move > 0 && leg.leg.tsl_trail > 0) {
-        const tslType = leg.leg.tsl_type || "PERCENTAGE";
-        const tslMove = parseFloat(leg.leg.tsl_move);
-        const tslTrail = parseFloat(leg.leg.tsl_trail);
+    const isReentered = leg.reentry_count > 0;
+    // 1. If SL Override is ON, TSL only exists if TSL Override is also ON.
+    // 2. If SL Override is OFF, we fallback to the original leg's TSL settings.
+    const isSlOverride = isReentered && leg.leg.reentry_sl_enabled === true;
+    const isTslOverride = isSlOverride && leg.leg.reentry_tsl_enabled === true;
+    
+    const isTslEnabled = isSlOverride 
+        ? (leg.leg.reentry_tsl_enabled === true) 
+        : (leg.leg.tsl_enabled || false);
 
-        let moveThreshold = tslMove;
-        let trailAmount = tslTrail;
+    const tslType = isTslOverride ? (leg.leg.reentry_tsl_type || "PERCENTAGE") : (leg.leg.tsl_type || "PERCENTAGE");
+    let tslMove = isTslOverride ? parseFloat(leg.leg.reentry_tsl_move || 0) : parseFloat(leg.leg.tsl_move || 0);
+    let tslTrail = isTslOverride ? parseFloat(leg.leg.reentry_tsl_trail || 0) : parseFloat(leg.leg.tsl_trail || 0);
 
-        if (tslType === "PERCENTAGE") {
-            moveThreshold = leg.entryPrice * (tslMove / 100);
-            trailAmount = leg.entryPrice * (tslTrail / 100);
-        } else if (tslType === "POINTS") {
-            moveThreshold = tslMove;
-            trailAmount = tslTrail;
+    // SAFETY FALLBACK: If override values are 0/NaN but original values exist, use them.
+    if (isTslOverride && (isNaN(tslMove) || tslMove <= 0)) {
+        tslMove = parseFloat(leg.leg.tsl_move || 0);
+    }
+    if (isTslOverride && (isNaN(tslTrail) || tslTrail <= 0)) {
+        tslTrail = parseFloat(leg.leg.tsl_trail || 0);
+    }
+
+    if (addStrategyLog && strategyId) {
+        if (!leg._tsl_debug_tick || leg._tsl_debug_tick % 20 === 0) {
+            addStrategyLog(strategyId, `[TSL-RE-DEBUG] Leg ${leg.instrument?.symbol}: isSlOv: ${isSlOverride}, isTslOv: ${isTslOverride}, isTslEn: ${isTslEnabled}, Ref: ${leg.tslReferencePrice}, LTP: ${leg.currentLtp}, SL: ${leg.slTriggerPrice}, MoveVal: ${tslMove}`, "INFO");
+            
+            // ONE-TIME RAW CONFIG LOG (to dashboard for visibility)
+            if (isReentered && tslMove === 0 && !leg._raw_config_logged) {
+                addStrategyLog(strategyId, `[RAW-CONFIG] ${leg.instrument?.symbol}: ${JSON.stringify(leg.leg).substring(0, 500)}`, "WARNING");
+                leg._raw_config_logged = true;
+            }
         }
+        leg._tsl_debug_tick = (leg._tsl_debug_tick || 0) + 1;
+    }
 
-        let favorableMove = 0;
-        if (leg.leg.side === "BUY") {
-            favorableMove = leg.currentLtp - leg.tslReferencePrice;
-        } else if (leg.leg.side === "SELL") {
-            favorableMove = leg.tslReferencePrice - leg.currentLtp;
-        }
+    if (isTslEnabled && leg.tslReferencePrice !== undefined && leg.currentLtp !== null) {
+        if (!isNaN(tslMove) && !isNaN(tslTrail) && tslMove > 0 && tslTrail > 0) {
+            let moveThreshold = tslMove;
+            let trailAmount = tslTrail;
 
-        if (favorableMove >= moveThreshold) {
-            const steps = Math.floor(favorableMove / moveThreshold);
-            const totalTrail = steps * trailAmount;
+            if (tslType === "PERCENTAGE") {
+                moveThreshold = (leg.entryPrice || 0) * (tslMove / 100);
+                trailAmount = (leg.entryPrice || 0) * (tslTrail / 100);
+            }
 
-            if (steps > 0) {
-                const oldTrigger = leg.slTriggerPrice;
-                let newTrigger = oldTrigger;
+            if (moveThreshold > 0 && addStrategyLog && strategyId && leg.reentry_count > 0) {
+                 // Log once every 10 ticks to avoid spam
+                 if (!leg._tsl_log_tick || leg._tsl_log_tick % 20 === 0) {
+                    addStrategyLog(strategyId, `[TSL-CHECK] Leg ${leg.instrument?.symbol} (#${leg.reentry_count}): RefPrice: ₹${(leg.tslReferencePrice || leg.entryPrice || 0).toFixed(2)}, LTP: ₹${(leg.currentLtp || 0).toFixed(2)}, Threshold: ${moveThreshold.toFixed(2)}, Type: ${tslType}`, "INFO");
+                 }
+                 leg._tsl_log_tick = (leg._tsl_log_tick || 0) + 1;
+            }
 
+            if (moveThreshold > 0) {
+                let favorableMove = 0;
                 if (leg.leg.side === "BUY") {
-                    newTrigger = oldTrigger + totalTrail;
-                } else {
-                    newTrigger = oldTrigger - totalTrail;
+                    favorableMove = (leg.currentLtp || 0) - (leg.tslReferencePrice || leg.entryPrice || 0);
+                } else if (leg.leg.side === "SELL") {
+                    favorableMove = (leg.tslReferencePrice || leg.entryPrice || 0) - (leg.currentLtp || 0);
                 }
 
-                let isValidTrail = true;
-                if (oldTrigger !== null && oldTrigger !== undefined) {
-                    isValidTrail = leg.leg.side === "BUY" ? newTrigger > oldTrigger : newTrigger < oldTrigger;
-                }
+                if (favorableMove >= moveThreshold) {
+                    const steps = Math.floor(favorableMove / moveThreshold);
+                    const totalTrail = steps * trailAmount;
 
-                if (isValidTrail) {
-                    const roundedTrigger = roundToTick(newTrigger);
-                    const offsetAmt = getLimitOffsetAmt(roundedTrigger, config);
-                    const newLimit = roundToTick(leg.leg.side === "BUY" ?
-                        roundedTrigger - offsetAmt :
-                        roundedTrigger + offsetAmt);
-                    
-                    const newReferencePrice = leg.leg.side === "BUY"
-                        ? leg.tslReferencePrice + (steps * moveThreshold)
-                        : leg.tslReferencePrice - (steps * moveThreshold);
+                    if (steps > 0) {
+                        const oldTrigger = leg.slTriggerPrice;
+                        let newTrigger = oldTrigger;
 
-                    result.tslStepped = true;
-                    result.tslUpdates = {
-                        oldTrigger,
-                        newTrigger: roundedTrigger,
-                        newLimit,
-                        newReferencePrice
-                    };
+                        if (oldTrigger !== null && oldTrigger !== undefined) {
+                            if (leg.leg.side === "BUY") {
+                                newTrigger = oldTrigger + totalTrail;
+                            } else {
+                                newTrigger = oldTrigger - totalTrail;
+                            }
+
+                            let isValidTrail = leg.leg.side === "BUY" ? newTrigger > oldTrigger : newTrigger < oldTrigger;
+
+                            if (isValidTrail) {
+                                const roundedTrigger = roundToTick(newTrigger);
+                                const offsetAmt = getLimitOffsetAmt(roundedTrigger, config);
+                                const newLimit = roundToTick(leg.leg.side === "BUY" ?
+                                    roundedTrigger - offsetAmt :
+                                    roundedTrigger + offsetAmt);
+                                
+                                const newReferencePrice = leg.leg.side === "BUY"
+                                    ? (leg.tslReferencePrice || leg.entryPrice) + (steps * moveThreshold)
+                                    : (leg.tslReferencePrice || leg.entryPrice) - (steps * moveThreshold);
+
+                                result.tslStepped = true;
+                                result.tslUpdates = {
+                                    oldTrigger,
+                                    newTrigger: roundedTrigger,
+                                    newLimit,
+                                    newReferencePrice
+                                };
+                            }
+                        } else {
+                            if (leg.reentry_count > 0 && addStrategyLog && strategyId) {
+                                // This is the crucial log - why is it not trailing?
+                                addStrategyLog(strategyId, `[TSL-DEBUG] ${leg.instrument?.symbol} Re-entry #${leg.reentry_count}: Favorable move ${favorableMove.toFixed(2)} >= Threshold ${moveThreshold.toFixed(2)}, but slTriggerPrice is missing.`, "WARNING");
+                            }
+                        }
+                    }
                 }
             }
         }

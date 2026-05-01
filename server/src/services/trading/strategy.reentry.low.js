@@ -185,6 +185,7 @@ async function monitorReentryFill(leg, config, strategyId, addStrategyLog, order
             leg.entryPrice = fill;
             leg.entryTime = getISTTime();
             leg.original_traded_price = fill;
+            leg.tslReferencePrice = fill;
             leg.reentry_count = (leg.reentry_count || 0) + 1;
             addStrategyLog(strategyId, `[RE-LOW] Re-entry filled for ${leg.instrument.symbol} at ₹${fill}. Low reached: ₹${leg.final_low_reached}`, "INFO");
 
@@ -221,6 +222,7 @@ async function deployReentrySL(leg, config, strategyId, addStrategyLog) {
             leg.slOrderId = slOrder.orderid;
             leg.slUniqueOrderId = slOrder.uniqueorderid;
             leg.slTriggerPrice = prices?.trigger;
+            leg.initialSlTriggerPrice = prices?.trigger;
             leg.slLimitPrice = prices?.limit;
         }
     }

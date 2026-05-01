@@ -727,6 +727,59 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
                                             </div>
                                         </div>
                                     )}
+
+                                    {leg.reentry_sl_enabled && (
+                                        <div className="flex items-center gap-2 pt-1">
+                                            <input
+                                                type="checkbox"
+                                                id={`reentry-tsl-${idPrefix}`}
+                                                className="w-3.5 h-3.5 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                                checked={leg.reentry_tsl_enabled || false}
+                                                onChange={(e) => onChange({ ...leg, reentry_tsl_enabled: e.target.checked })}
+                                            />
+                                            <Label htmlFor={`reentry-tsl-${idPrefix}`} className="text-[10px] font-medium tracking-wide text-foreground cursor-pointer uppercase">
+                                                Override TSL on Re-Entry
+                                            </Label>
+                                        </div>
+                                    )}
+
+                                    {leg.reentry_sl_enabled && leg.reentry_tsl_enabled && (
+                                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pl-5 animate-in slide-in-from-top-2 border-l-2 border-primary/20">
+                                            <div className="space-y-1">
+                                                <Label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground block mb-2">TSL Type</Label>
+                                                <Select
+                                                    value={leg.reentry_tsl_type || 'PERCENTAGE'}
+                                                    onValueChange={(v) => onChange({ ...leg, reentry_tsl_type: v })}
+                                                >
+                                                    <SelectTrigger className="h-9 rounded-lg text-[10px]">
+                                                        <SelectValue placeholder="TSL Type" />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        <SelectItem value="PERCENTAGE">Percentage (%)</SelectItem>
+                                                        <SelectItem value="POINTS">Points (Pts)</SelectItem>
+                                                    </SelectContent>
+                                                </Select>
+                                            </div>
+                                            <div className="space-y-1">
+                                                <Label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground block mb-2">Move</Label>
+                                                <Input
+                                                    className="h-9 rounded-lg text-[10px]"
+                                                    type="number"
+                                                    value={leg.reentry_tsl_move !== undefined ? leg.reentry_tsl_move : (leg.tsl_move || 0)}
+                                                    onChange={(e) => onChange({ ...leg, reentry_tsl_move: parseFloat(e.target.value) })}
+                                                />
+                                            </div>
+                                            <div className="space-y-1">
+                                                <Label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground block mb-2">Trail</Label>
+                                                <Input
+                                                    className="h-9 rounded-lg text-[10px]"
+                                                    type="number"
+                                                    value={leg.reentry_tsl_trail !== undefined ? leg.reentry_tsl_trail : (leg.tsl_trail || 0)}
+                                                    onChange={(e) => onChange({ ...leg, reentry_tsl_trail: parseFloat(e.target.value) })}
+                                                />
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         )}
@@ -877,6 +930,59 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
                                                     type="number"
                                                     value={leg.reentry_sl_value !== undefined ? leg.reentry_sl_value : (leg.stop_loss || 0)}
                                                     onChange={(e) => onChange({ ...leg, reentry_sl_value: parseFloat(e.target.value) })}
+                                                />
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {leg.reentry_sl_enabled && (
+                                        <div className="flex items-center gap-2 pt-1">
+                                            <input
+                                                type="checkbox"
+                                                id={`resl-tsl-${idPrefix}`}
+                                                className="w-3.5 h-3.5 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                                checked={leg.reentry_tsl_enabled || false}
+                                                onChange={(e) => onChange({ ...leg, reentry_tsl_enabled: e.target.checked })}
+                                            />
+                                            <Label htmlFor={`resl-tsl-${idPrefix}`} className="text-[10px] font-medium tracking-wide text-foreground cursor-pointer uppercase">
+                                                Override TSL on Re-Entry
+                                            </Label>
+                                        </div>
+                                    )}
+
+                                    {leg.reentry_sl_enabled && leg.reentry_tsl_enabled && (
+                                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pl-5 animate-in slide-in-from-top-2 border-l-2 border-primary/20">
+                                            <div className="space-y-1">
+                                                <Label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground block mb-2">TSL Type</Label>
+                                                <Select
+                                                    value={leg.reentry_tsl_type || 'PERCENTAGE'}
+                                                    onValueChange={(v) => onChange({ ...leg, reentry_tsl_type: v })}
+                                                >
+                                                    <SelectTrigger className="h-9 rounded-lg text-[10px]">
+                                                        <SelectValue placeholder="TSL Type" />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        <SelectItem value="PERCENTAGE">Percentage (%)</SelectItem>
+                                                        <SelectItem value="POINTS">Points (Pts)</SelectItem>
+                                                    </SelectContent>
+                                                </Select>
+                                            </div>
+                                            <div className="space-y-1">
+                                                <Label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground block mb-2">Move</Label>
+                                                <Input
+                                                    className="h-9 rounded-lg text-[10px]"
+                                                    type="number"
+                                                    value={leg.reentry_tsl_move !== undefined ? leg.reentry_tsl_move : (leg.tsl_move || 0)}
+                                                    onChange={(e) => onChange({ ...leg, reentry_tsl_move: parseFloat(e.target.value) })}
+                                                />
+                                            </div>
+                                            <div className="space-y-1">
+                                                <Label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground block mb-2">Trail</Label>
+                                                <Input
+                                                    className="h-9 rounded-lg text-[10px]"
+                                                    type="number"
+                                                    value={leg.reentry_tsl_trail !== undefined ? leg.reentry_tsl_trail : (leg.tsl_trail || 0)}
+                                                    onChange={(e) => onChange({ ...leg, reentry_tsl_trail: parseFloat(e.target.value) })}
                                                 />
                                             </div>
                                         </div>
@@ -1040,6 +1146,59 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
                                             </div>
                                         </div>
                                     )}
+
+                                    {leg.reentry_sl_enabled && (
+                                        <div className="flex items-center gap-2 pt-1">
+                                            <input
+                                                type="checkbox"
+                                                id={`rehigh-tsl-${idPrefix}`}
+                                                className="w-3.5 h-3.5 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                                checked={leg.reentry_tsl_enabled || false}
+                                                onChange={(e) => onChange({ ...leg, reentry_tsl_enabled: e.target.checked })}
+                                            />
+                                            <Label htmlFor={`rehigh-tsl-${idPrefix}`} className="text-[10px] font-medium tracking-wide text-foreground cursor-pointer uppercase">
+                                                Override TSL on Re-Entry
+                                            </Label>
+                                        </div>
+                                    )}
+
+                                    {leg.reentry_sl_enabled && leg.reentry_tsl_enabled && (
+                                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pl-5 animate-in slide-in-from-top-2 border-l-2 border-primary/20">
+                                            <div className="space-y-1">
+                                                <Label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground block mb-2">TSL Type</Label>
+                                                <Select
+                                                    value={leg.reentry_tsl_type || 'PERCENTAGE'}
+                                                    onValueChange={(v) => onChange({ ...leg, reentry_tsl_type: v })}
+                                                >
+                                                    <SelectTrigger className="h-9 rounded-lg text-[10px]">
+                                                        <SelectValue placeholder="TSL Type" />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        <SelectItem value="PERCENTAGE">Percentage (%)</SelectItem>
+                                                        <SelectItem value="POINTS">Points (Pts)</SelectItem>
+                                                    </SelectContent>
+                                                </Select>
+                                            </div>
+                                            <div className="space-y-1">
+                                                <Label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground block mb-2">Move</Label>
+                                                <Input
+                                                    className="h-9 rounded-lg text-[10px]"
+                                                    type="number"
+                                                    value={leg.reentry_tsl_move !== undefined ? leg.reentry_tsl_move : (leg.tsl_move || 0)}
+                                                    onChange={(e) => onChange({ ...leg, reentry_tsl_move: parseFloat(e.target.value) })}
+                                                />
+                                            </div>
+                                            <div className="space-y-1">
+                                                <Label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground block mb-2">Trail</Label>
+                                                <Input
+                                                    className="h-9 rounded-lg text-[10px]"
+                                                    type="number"
+                                                    value={leg.reentry_tsl_trail !== undefined ? leg.reentry_tsl_trail : (leg.tsl_trail || 0)}
+                                                    onChange={(e) => onChange({ ...leg, reentry_tsl_trail: parseFloat(e.target.value) })}
+                                                />
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         )}
@@ -1193,6 +1352,69 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
                                                     type="number"
                                                     value={leg.reentry_sl_value !== undefined ? leg.reentry_sl_value : (leg.stop_loss || 0)}
                                                     onChange={(e) => onChange({ ...leg, reentry_sl_value: parseFloat(e.target.value) })}
+                                                />
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {leg.reentry_sl_enabled && (
+                                        <div className="flex items-center gap-2 pt-1">
+                                            <input
+                                                type="checkbox"
+                                                id={`relow-tsl-${idPrefix}`}
+                                                className="w-3.5 h-3.5 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                                checked={leg.reentry_tsl_enabled || false}
+                                                onChange={(e) => {
+                                                    const checked = e.target.checked;
+                                                    let updatedLeg = { ...leg, reentry_tsl_enabled: checked };
+                                                    if (checked) {
+                                                        // Initialize with original values if not set
+                                                        if (updatedLeg.reentry_tsl_move === undefined) updatedLeg.reentry_tsl_move = leg.tsl_move || 0;
+                                                        if (updatedLeg.reentry_tsl_trail === undefined) updatedLeg.reentry_tsl_trail = leg.tsl_trail || 0;
+                                                        if (updatedLeg.reentry_tsl_type === undefined) updatedLeg.reentry_tsl_type = leg.tsl_type || 'PERCENTAGE';
+                                                    }
+                                                    onChange(updatedLeg);
+                                                }}
+                                            />
+                                            <Label htmlFor={`relow-tsl-${idPrefix}`} className="text-[10px] font-medium tracking-wide text-foreground cursor-pointer uppercase">
+                                                Override TSL on Re-Entry
+                                            </Label>
+                                        </div>
+                                    )}
+
+                                    {leg.reentry_sl_enabled && leg.reentry_tsl_enabled && (
+                                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pl-5 animate-in slide-in-from-top-2 border-l-2 border-primary/20">
+                                            <div className="space-y-1">
+                                                <Label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground block mb-2">TSL Type</Label>
+                                                <Select
+                                                    value={leg.reentry_tsl_type || 'PERCENTAGE'}
+                                                    onValueChange={(v) => onChange({ ...leg, reentry_tsl_type: v })}
+                                                >
+                                                    <SelectTrigger className="h-9 rounded-lg text-[10px]">
+                                                        <SelectValue placeholder="TSL Type" />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        <SelectItem value="PERCENTAGE">Percentage (%)</SelectItem>
+                                                        <SelectItem value="POINTS">Points (Pts)</SelectItem>
+                                                    </SelectContent>
+                                                </Select>
+                                            </div>
+                                            <div className="space-y-1">
+                                                <Label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground block mb-2">Move</Label>
+                                                <Input
+                                                    className="h-9 rounded-lg text-[10px]"
+                                                    type="number"
+                                                    value={leg.reentry_tsl_move !== undefined ? leg.reentry_tsl_move : (leg.tsl_move || 0)}
+                                                    onChange={(e) => onChange({ ...leg, reentry_tsl_move: parseFloat(e.target.value) })}
+                                                />
+                                            </div>
+                                            <div className="space-y-1">
+                                                <Label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground block mb-2">Trail</Label>
+                                                <Input
+                                                    className="h-9 rounded-lg text-[10px]"
+                                                    type="number"
+                                                    value={leg.reentry_tsl_trail !== undefined ? leg.reentry_tsl_trail : (leg.tsl_trail || 0)}
+                                                    onChange={(e) => onChange({ ...leg, reentry_tsl_trail: parseFloat(e.target.value) })}
                                                 />
                                             </div>
                                         </div>
@@ -1626,7 +1848,7 @@ export const StrategyBuilder = ({ isConnected }) => {
         entry_limit_offset_type: 'POINTS',
         chase_time_seconds: 45,
         legs: [
-            { strike_criteria: 'STRIKE_TYPE', option_type: 'CE', strike: 'ATM', premium: 0, side: 'BUY', lots: 1, sl_type: 'PERCENTAGE', stop_loss: 10, simple_mntm_enabled: false, simple_mntm_mode: 'SIMPLE_PLUS_PCT', simple_mntm_value: 0, recost_enabled: false, recost_mode: 'RECOST_PLUS_PCT', recost_value: 0, max_reentry: 1, reentry_sl_enabled: false, reentry_sl_type: 'PERCENTAGE', reentry_sl_value: 10, re_asap_enabled: false, re_asap_max_entries: 1, lazy_leg_enabled: false, lazy_leg: null, tsl_enabled: false, tsl_type: 'PERCENTAGE', tsl_move: 0 }
+            { strike_criteria: 'STRIKE_TYPE', option_type: 'CE', strike: 'ATM', premium: 0, side: 'BUY', lots: 1, sl_type: 'PERCENTAGE', stop_loss: 10, simple_mntm_enabled: false, simple_mntm_mode: 'SIMPLE_PLUS_PCT', simple_mntm_value: 0, recost_enabled: false, recost_mode: 'RECOST_PLUS_PCT', recost_value: 0, max_reentry: 1, reentry_sl_enabled: false, reentry_sl_type: 'PERCENTAGE', reentry_sl_value: 10, reentry_tsl_enabled: false, reentry_tsl_type: 'PERCENTAGE', reentry_tsl_move: 0, reentry_tsl_trail: 0, re_asap_enabled: false, re_asap_max_entries: 1, lazy_leg_enabled: false, lazy_leg: null, tsl_enabled: false, tsl_type: 'PERCENTAGE', tsl_move: 0 }
         ]
     });
 

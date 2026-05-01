@@ -411,7 +411,13 @@ async function monitorStrategyLoop(strategyId, strategy) {
         for (const leg of strategy.legs) {
             if (leg.exited || leg.state === "WAITING_FOR_RECOST") continue;
 
-            const evalResult = evaluateLegLimits({ leg, config });
+            const evalResult = evaluateLegLimits({ leg, config, strategyId, addStrategyLog });
+            
+            // Debug TSL re-entry
+            if (leg.reentry_count > 0 && leg.leg.tsl_enabled) {
+                // We can't easily see internal variables of evaluateLegLimits here, 
+                // but we can check the result.
+            }
 
             if (evalResult.initSlReq) {
                 leg.initialSlTriggerPrice = evalResult.tslUpdates.initTrigger;
