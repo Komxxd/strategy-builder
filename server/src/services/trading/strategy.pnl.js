@@ -5,6 +5,7 @@ function checkOverallPnlLimits({ config, totalPnlRupees, avgPnl }) {
     const slType = config.overall_sl_type || "PERCENTAGE";
     const slValue = parseFloat(config.overall_sl_value || 0);
 
+    const multiplier = parseFloat(config.quantity_multiplier) || 1;
     if (config.overall_sl_enabled && slValue > 0) {
         if (slType === "PERCENTAGE" && avgPnl <= -slValue) {
             return { 
@@ -14,11 +15,11 @@ function checkOverallPnlLimits({ config, totalPnlRupees, avgPnl }) {
                 logLevel: "CRITICAL",
                 logMessage: "SQUARING OFF due to Overall Stop Loss hit."
             };
-        } else if (slType === "AMOUNT" && totalPnlRupees <= -slValue) {
+        } else if (slType === "AMOUNT" && totalPnlRupees <= -(slValue * multiplier)) {
             return { 
                 hit: true, 
                 exitType: "OVERALL_STOP_LOSS", 
-                reason: `Overall SL₹ (₹${slValue}) hit`,
+                reason: `Overall SL₹ (₹${(slValue * multiplier).toFixed(2)}) hit`,
                 logLevel: "CRITICAL",
                 logMessage: "SQUARING OFF due to Overall Stop Loss hit."
             };
@@ -38,11 +39,11 @@ function checkOverallPnlLimits({ config, totalPnlRupees, avgPnl }) {
                 logLevel: "SUCCESS",
                 logMessage: "SQUARING OFF due to Overall Target hit."
             };
-        } else if (targetType === "AMOUNT" && totalPnlRupees >= targetValue) {
+        } else if (targetType === "AMOUNT" && totalPnlRupees >= (targetValue * multiplier)) {
             return { 
                 hit: true, 
                 exitType: "OVERALL_TARGET", 
-                reason: `Overall Target₹ (₹${targetValue}) hit`,
+                reason: `Overall Target₹ (₹${(targetValue * multiplier).toFixed(2)}) hit`,
                 logLevel: "SUCCESS",
                 logMessage: "SQUARING OFF due to Overall Target hit."
             };

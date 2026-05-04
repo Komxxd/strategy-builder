@@ -43,7 +43,7 @@ async function placeOrder(config, instrument, connectionId) {
         triggerprice: (config.triggerprice || "0").toString(),
         squareoff: (config.squareoff || "0").toString(),
         stoploss: (config.stoploss || "0").toString(),
-        quantity: (config.lots * parseInt(instrument.lotsize)).toString(),
+        quantity: (Math.floor(config.lots * parseInt(instrument.lotsize) * (parseFloat(config.quantity_multiplier) || 1))).toString(),
         scripconsent: "yes"
     };
 

@@ -6,12 +6,13 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { StopCircle, Loader2, TrendingUp, Search, Timer, LayoutDashboard, Target, Save, Play, Plus, Trash2, ShieldCheck, Zap, Copy, MessageSquare, Ghost, X, Settings2, Clock, ChevronDown, ChevronUp, GripVertical, RefreshCw } from 'lucide-react';
+import { StopCircle, Loader2, TrendingUp, Search, Timer, LayoutDashboard, Target, Save, Play, Plus, Trash2, ShieldCheck, Zap, Copy, MessageSquare, Ghost, X, Settings2, Clock, ChevronDown, ChevronUp, GripVertical, RefreshCw, Sliders, Eye } from 'lucide-react';
 import { Switch } from "@/components/ui/switch";
 import axios from 'axios';
 import { io } from 'socket.io-client';
 import { StrategyLogs } from './StrategyLogs';
 import { StrategyConfigModal } from './StrategyConfigModal';
+import { ExecutionSettingsModal } from './ExecutionSettingsModal';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:5001/api";
 const SOCKET_URL = API_BASE_URL.replace(/\/api\/?$/, "");
@@ -1833,6 +1834,8 @@ export const StrategyBuilder = ({ isConnected }) => {
     const [searchTerm, setSearchTerm] = useState('');
     const [isConfigExpanded, setIsConfigExpanded] = useState(false);
     const [collapsedSections, setCollapsedSections] = useState({ 'saved-strategies': false });
+    const [executionModalOpen, setExecutionModalOpen] = useState(false);
+    const [selectedStrategyForExecution, setSelectedStrategyForExecution] = useState(null);
 
     const [config, setConfig] = useState({
         name: '',
@@ -1856,6 +1859,7 @@ export const StrategyBuilder = ({ isConnected }) => {
         entry_limit_offset: 0,
         entry_limit_offset_type: 'POINTS',
         chase_time_seconds: 45,
+        quantity_multiplier: 1,
         legs: [
             { strike_criteria: 'STRIKE_TYPE', option_type: 'CE', strike: 'ATM', premium: 0, side: 'BUY', lots: 1, sl_type: 'PERCENTAGE', stop_loss: 10, simple_mntm_enabled: false, simple_mntm_mode: 'SIMPLE_PLUS_PCT', simple_mntm_value: 0, recost_enabled: false, recost_mode: 'RECOST_PLUS_PCT', recost_value: 0, max_reentry: 1, reentry_sl_enabled: false, reentry_sl_type: 'PERCENTAGE', reentry_sl_value: 10, reentry_tsl_enabled: false, reentry_tsl_type: 'PERCENTAGE', reentry_tsl_move: 0, reentry_tsl_trail: 0, re_asap_enabled: false, re_asap_max_entries: 1, lazy_leg_enabled: false, lazy_leg: null, tsl_enabled: false, tsl_type: 'PERCENTAGE', tsl_move: 0 }
         ]
@@ -1951,6 +1955,16 @@ export const StrategyBuilder = ({ isConnected }) => {
             }
         } finally {
             setLoading(false);
+        }
+    };
+
+    const handleExecutionSettingsSave = async (id, updatedConfig) => {
+        try {
+            await axios.put(`${API_BASE_URL}/strategy/update/${id}`, updatedConfig);
+            fetchSavedStrategies();
+        } catch (err) {
+            console.error("Error updating execution settings:", err);
+            alert("Failed to update execution settings");
         }
     };
 
@@ -2323,9 +2337,10 @@ export const StrategyBuilder = ({ isConnected }) => {
                                                                         <span className="text-[10px] font-mono font-medium text-red-500 bg-red-50 border border-red-100 px-1.5 py-0.5 shadow-sm rounded">
                                                                             SL: -₹{(() => {
                                                                                 const total = strategyData.totalOriginalValue;
-                                                                                const val = strategyData.config.overall_sl_value || 0;
+                                                                                const multiplier = strategyData.config?.quantity_multiplier || 1;
+                                                                                const val = (strategyData.config.overall_sl_value || 0) * multiplier;
                                                                                 const amt = (strategyData.config.overall_sl_type === 'PERCENTAGE' 
-                                                                                    ? total * (val/100) 
+                                                                                    ? total * (strategyData.config.overall_sl_value/100) 
                                                                                     : val);
                                                                                 return amt.toFixed(2);
                                                                             })()}
@@ -2335,9 +2350,10 @@ export const StrategyBuilder = ({ isConnected }) => {
                                                                         <span className="text-[10px] font-mono font-medium text-emerald-600 bg-emerald-50 border border-emerald-100 px-1.5 py-0.5 shadow-sm rounded">
                                                                             Tgt: +₹{(() => {
                                                                                 const total = strategyData.totalOriginalValue;
-                                                                                const val = strategyData.config.overall_target_value || 0;
+                                                                                const multiplier = strategyData.config?.quantity_multiplier || 1;
+                                                                                const val = (strategyData.config.overall_target_value || 0) * multiplier;
                                                                                 const amt = (strategyData.config.overall_target_type === 'PERCENTAGE' 
-                                                                                    ? total * (val/100) 
+                                                                                    ? total * (strategyData.config.overall_target_value/100) 
                                                                                     : val);
                                                                                 return amt.toFixed(2);
                                                                             })()}
@@ -2428,7 +2444,7 @@ export const StrategyBuilder = ({ isConnected }) => {
                                                                                         <div className="flex items-center gap-1 flex-wrap">
                                                                                             <span className="text-[12px] font-medium">{l.instrument?.symbol || "---"} ({l.leg?.side})</span>
                                                                                             <span className="text-[11px] font-medium text-slate-600">
-                                                                                                {l.leg?.lots} {l.leg?.lots > 1 ? 'Lots' : 'Lot'}
+                                                                                                {l.leg?.lots * (strategyData.config?.quantity_multiplier || 1)} {(l.leg?.lots * (strategyData.config?.quantity_multiplier || 1)) > 1 ? 'Lots' : 'Lot'}
                                                                                             </span>
                                                                                             <span className="text-muted-foreground text-[10px] font-mono">|</span>
                                                                                             <span className="text-primary font-medium text-[10px] font-mono">{l.entryTime || "---"}</span>
@@ -2807,12 +2823,31 @@ export const StrategyBuilder = ({ isConnected }) => {
                                                             </div>
                                                             <div className="col-span-1 xl:col-span-3 flex xl:block items-center justify-between">
                                                                 <span className="xl:hidden text-[10px] uppercase font-medium text-black tracking-wider pr-4">Type</span>
-                                                                <span className="px-1.5 py-0.5 rounded text-[10px] xl:text-[9px] font-medium bg-slate-100 text-black text-right xl:text-left line-clamp-2">
-                                                                    {s.config?.legs?.map((l) => `${l.side} ${l.option_type} (${l.lots} ${l.lots > 1 ? 'L' : 'L'})`).join(' | ') || '---'}
-                                                                </span>
+                                                                <div className="flex flex-wrap items-center gap-1">
+                                                                    <span className="px-1.5 py-0.5 rounded text-[10px] xl:text-[9px] font-medium bg-slate-100 text-black text-right xl:text-left line-clamp-2">
+                                                                        {s.config?.legs?.map((l) => `${l.side} ${l.option_type} (${l.lots * (s.config?.quantity_multiplier || 1)}L)`).join(' | ') || '---'}
+                                                                    </span>
+                                                                    {s.config?.quantity_multiplier > 1 && (
+                                                                        <span className="px-1.5 py-0.5 rounded text-[10px] xl:text-[9px] font-black bg-indigo-100 text-indigo-700 border border-indigo-200">
+                                                                            x{s.config.quantity_multiplier}
+                                                                        </span>
+                                                                    )}
+                                                                </div>
                                                             </div>
                                                             <div className="col-span-1 xl:col-span-3 text-right mt-2 xl:mt-0 pt-3 xl:pt-0 border-t border-dashed border-gray-100 xl:border-none">
                                                                 <div className="flex flex-wrap items-center justify-start xl:justify-end gap-1.5 w-full">
+                                                                    <Button
+                                                                        size="sm"
+                                                                        variant="outline"
+                                                                        className="h-8 xl:h-7 px-2.5 rounded-md text-[11px] xl:text-[10px] flex-1 xl:flex-none border-indigo-200 bg-indigo-50/50 text-indigo-700 hover:bg-indigo-100 gap-1 shadow-sm font-bold"
+                                                                        onClick={() => {
+                                                                            setSelectedStrategyForExecution(s);
+                                                                            setExecutionModalOpen(true);
+                                                                        }}
+                                                                        title="Execution Settings"
+                                                                    >
+                                                                        <Sliders className="h-3 w-3" /> Settings
+                                                                    </Button>
                                                                     <Button
                                                                         size="sm"
                                                                         className={`h-8 xl:h-7 px-3 gap-1 rounded-md text-[11px] xl:text-[10px] font-medium shadow-sm flex-1 xl:flex-none ${!isConnected ? 'opacity-50 grayscale cursor-not-allowed' : ''}`}
@@ -2825,14 +2860,14 @@ export const StrategyBuilder = ({ isConnected }) => {
                                                                     <Button
                                                                         size="sm"
                                                                         variant="outline"
-                                                                        className="h-8 xl:h-7 px-3 gap-1 rounded-md text-[11px] xl:text-[10px] font-medium border-indigo-500 hover:bg-indigo-50 text-indigo-600 shadow-sm flex-1 xl:flex-none"
+                                                                        className="h-8 xl:h-7 px-3 gap-1 rounded-md text-[11px] xl:text-[10px] font-medium border-slate-200 hover:bg-slate-50 text-slate-600 shadow-sm flex-1 xl:flex-none"
                                                                         onClick={() => {
                                                                             setViewConfig(s.config);
                                                                             setViewStrategyName(s.name || s.config?.name || 'Strategy');
                                                                             setConfigWindowOpen(true);
                                                                         }}
                                                                     >
-                                                                        <Settings2 className="h-3 w-3" /> View
+                                                                        <Eye className="h-3 w-3" /> View
                                                                     </Button>
                                                                     <Button
                                                                         size="sm"
@@ -2871,6 +2906,12 @@ export const StrategyBuilder = ({ isConnected }) => {
                     onClose={() => setConfigWindowOpen(false)}
                     config={viewConfig}
                     strategyName={viewStrategyName}
+                />
+                <ExecutionSettingsModal
+                    isOpen={executionModalOpen}
+                    onClose={() => setExecutionModalOpen(false)}
+                    strategy={selectedStrategyForExecution}
+                    onSave={handleExecutionSettingsSave}
                 />
             </Tabs>
         </div >

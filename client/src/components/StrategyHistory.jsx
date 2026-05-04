@@ -230,7 +230,9 @@ export const StrategyHistory = () => {
                                                             <span className={`text-[8px] font-black px-1 rounded uppercase ${leg.leg?.side === 'BUY' ? 'bg-blue-600 text-white' : 'bg-orange-600 text-white'}`}>
                                                                 {leg.leg?.side}
                                                             </span>
-                                                            <span className="text-[9px] font-bold text-black bg-slate-50 px-1 border border-slate-100 rounded">{leg.leg?.lots}L</span>
+                                                            <span className="text-[9px] font-bold text-black bg-slate-50 px-1 border border-slate-100 rounded">
+                                                                {leg.leg?.lots * (item.config?.quantity_multiplier || 1)}L
+                                                            </span>
                                                         </div>
                                                         <div className="text-right shrink-0">
                                                             <div className={`text-[11px] font-mono font-black leading-none ${(leg.pnlPercent || leg.currentActivePnlPercent || 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>

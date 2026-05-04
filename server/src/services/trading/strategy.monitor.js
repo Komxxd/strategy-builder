@@ -343,7 +343,11 @@ async function monitorStrategyLoop(strategyId, strategy) {
 
                     const pnlPoints = leg.leg.side === "BUY" ? (leg.currentLtp - leg.entryPrice) : (leg.entryPrice - leg.currentLtp);
                     leg.currentActivePnlPoints = pnlPoints;
-                    const quantity = leg.leg.lots * parseInt(leg.instrument.lotsize || 1);
+                    
+                    // SCALE QUANTITY BY MULTIPLIER
+                    const multiplier = parseFloat(config.quantity_multiplier) || 1;
+                    const quantity = leg.leg.lots * parseInt(leg.instrument.lotsize || 1) * multiplier;
+                    
                     leg.currentActivePnlRupees = pnlPoints * quantity;
                     leg.pnlPercent = ((leg.bookedPnlPoints || 0) + pnlPoints) / leg.original_traded_price * 100;
                     leg.currentActivePnlPercent = (pnlPoints / leg.entryPrice) * 100;
@@ -359,7 +363,8 @@ async function monitorStrategyLoop(strategyId, strategy) {
 
         const totalOriginalValue = strategy.legs.reduce((sum, l) => {
             if (!l.original_traded_price) return sum;
-            const quantity = (l.leg?.lots || 0) * parseInt(l.instrument?.lotsize || 1);
+            const multiplier = parseFloat(config.quantity_multiplier) || 1;
+            const quantity = (l.leg?.lots || 0) * parseInt(l.instrument?.lotsize || 1) * multiplier;
             return sum + (l.original_traded_price * quantity);
         }, 0);
 
