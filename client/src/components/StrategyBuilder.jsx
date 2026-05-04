@@ -2069,7 +2069,8 @@ export const StrategyBuilder = ({ isConnected }) => {
                 const entry = l.entryPrice || 1;
                 const side = l.leg?.side || "SELL";
                 const pnlPoints = side === "BUY" ? (curLtp - entry) : (entry - curLtp);
-                const quantity = (l.leg?.lots || 0) * (parseInt(l.instrument?.lotsize) || 1);
+                const multiplier = parseFloat(strategy.config?.quantity_multiplier) || 1;
+                const quantity = (l.leg?.lots || 0) * (parseInt(l.instrument?.lotsize) || 1) * multiplier;
 
                 const curActiveRupees = pnlPoints * quantity;
                 const curActivePercent = (pnlPoints / entry) * 100;
@@ -2094,7 +2095,8 @@ export const StrategyBuilder = ({ isConnected }) => {
         const totalPnlRupees = updatedLegs.reduce((sum, l) => sum + (l.pnlRupees || 0), 0);
         const totalOriginalValue = updatedLegs.reduce((sum, l) => {
             if (!l.original_traded_price) return sum;
-            const quantity = (l.leg?.lots || 0) * (parseInt(l.instrument?.lotsize) || 1);
+            const multiplier = parseFloat(strategy.config?.quantity_multiplier) || 1;
+            const quantity = (l.leg?.lots || 0) * (parseInt(l.instrument?.lotsize) || 1) * multiplier;
             return sum + (l.original_traded_price * quantity);
         }, 0);
 
