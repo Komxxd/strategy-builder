@@ -97,7 +97,44 @@ function getLegStrikeSelection({ index, option_type, strike, spotPrice }) {
     return { atmStrike, targetStrike, strikeLabel: strikeStr };
 }
 
-async function findOptionInstrument(indexName, optionType, strike) {
+function resolveExpiryDate(matches, expiryType = 'weekly') {
+    // 1. Get unique sorted expiry dates
+    const uniqueExpiries = [...new Set(matches.map(m => m.expiry))].sort((a, b) => new Date(a) - new Date(b));
+    if (uniqueExpiries.length === 0) return null;
+
+    if (expiryType === 'weekly') return uniqueExpiries[0];
+    if (expiryType === 'next_weekly') return uniqueExpiries[1] || uniqueExpiries[0];
+
+    // For monthly and next_monthly
+    const months = {};
+    for (const exp of uniqueExpiries) {
+        // e.g. "25JUN2026" -> parse to Date
+        const d = new Date(exp);
+        const yyyymm = `${d.getFullYear()}-${(d.getMonth() + 1).toString().padStart(2, '0')}`;
+        if (!months[yyyymm]) months[yyyymm] = [];
+        months[yyyymm].push(exp);
+    }
+    
+    // Sort month keys
+    const sortedMonthKeys = Object.keys(months).sort();
+    
+    if (expiryType === 'monthly') {
+        const firstMonth = sortedMonthKeys[0];
+        // The monthly is the LAST expiry of the first available month
+        const firstMonthExpiries = months[firstMonth];
+        return firstMonthExpiries[firstMonthExpiries.length - 1];
+    }
+    
+    if (expiryType === 'next_monthly') {
+        const nextMonth = sortedMonthKeys[1] || sortedMonthKeys[0];
+        const nextMonthExpiries = months[nextMonth];
+        return nextMonthExpiries[nextMonthExpiries.length - 1];
+    }
+    
+    return uniqueExpiries[0];
+}
+
+async function findOptionInstrument(indexName, optionType, strike, expiryType = 'weekly') {
     let matches = [];
     try {
         const cacheKey = `instr:OPTIDX:${indexName}:${optionType}:${strike}`;
@@ -132,13 +169,14 @@ async function findOptionInstrument(indexName, optionType, strike) {
 
     if (matches.length === 0) return null;
 
-    // Sort by expiry to get the nearest one
-    matches.sort((a, b) => new Date(a.expiry) - new Date(b.expiry));
+    const targetExpiry = resolveExpiryDate(matches, expiryType);
+    if (!targetExpiry) return null;
 
-    return matches[0];
+    // Return the specific instrument matching the target expiry
+    return matches.find(inst => inst.expiry === targetExpiry);
 }
 
-async function findClosestPremiumInstrument(indexName, optionType, targetPremium, connectionId) {
+async function findClosestPremiumInstrument(indexName, optionType, targetPremium, connectionId, expiryType = 'weekly') {
     const exchange = indexName === "SENSEX" ? "BFO" : "NFO";
     let matchesRaw = [];
 
@@ -177,12 +215,14 @@ async function findClosestPremiumInstrument(indexName, optionType, targetPremium
         throw new Error(`[Closest Premium] No ${optionType} instruments found for ${indexName} expiring after today.`);
     }
 
-    // 2. Find the nearest expiry date
-    matches.sort((a, b) => new Date(a.expiry) - new Date(b.expiry));
-    const nearestExpiry = matches[0].expiry;
+    // 2. Resolve the exact expiry date based on the user's expiryType selection
+    const targetExpiry = resolveExpiryDate(matches, expiryType);
+    if (!targetExpiry) {
+        throw new Error(`[Closest Premium] Could not resolve ${expiryType} expiry date for ${indexName}.`);
+    }
 
-    // 3. Filter down to ONLY the strikes for that nearest expiry
-    const currentExpiryOptions = matches.filter(inst => inst.expiry === nearestExpiry);
+    // 3. Filter down to ONLY the strikes for that target expiry
+    const currentExpiryOptions = matches.filter(inst => inst.expiry === targetExpiry);
     const tokens = currentExpiryOptions.map(inst => inst.token).filter(Boolean);
 
     if (tokens.length === 0) {
@@ -248,5 +288,6 @@ module.exports = {
    getATMStrike,
    getLegStrikeSelection,
    findOptionInstrument,
-   findClosestPremiumInstrument
+   findClosestPremiumInstrument,
+   reloadInstruments
 };

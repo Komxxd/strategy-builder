@@ -49,7 +49,7 @@ async function handleInitialEntry(strategyId, strategy) {
         for (const leg of legs) {
             let targetInstrument = null;
             if (leg.strike_criteria === 'CLOSEST_PREMIUM') {
-                targetInstrument = await findClosestPremiumInstrument(config.index, leg.option_type, leg.premium, config.connectionId);
+                targetInstrument = await findClosestPremiumInstrument(config.index, leg.option_type, leg.premium, config.connectionId, leg.expiry_type);
             } else {
                 const { targetStrike, strikeLabel } = getLegStrikeSelection({
                     index: config.index,
@@ -58,10 +58,10 @@ async function handleInitialEntry(strategyId, strategy) {
                     spotPrice
                 });
                 addStrategyLog(strategyId, `Leg ${resolvedLegs.length + 1}: Selecting ${strikeLabel} (${leg.option_type}) at Strike ${targetStrike}.`, "INFO");
-                targetInstrument = await findOptionInstrument(config.index, leg.option_type, targetStrike);
+                targetInstrument = await findOptionInstrument(config.index, leg.option_type, targetStrike, leg.expiry_type);
             }
             if (!targetInstrument) {
-                throw new Error(`Could not find ${leg.option_type} instrument`);
+                throw new Error(`Could not find ${leg.option_type} instrument with expiry ${leg.expiry_type || 'weekly'}`);
             }
             resolvedLegs.push({ leg, instrument: targetInstrument });
         }

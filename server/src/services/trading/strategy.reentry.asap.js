@@ -18,10 +18,10 @@ async function handleReentryAsap({ leg, config, strategyId, addStrategyLog }) {
 
         let targetInstrument = null;
         if (leg.leg.strike_criteria === 'CLOSEST_PREMIUM') {
-            targetInstrument = await findClosestPremiumInstrument(config.index, leg.leg.option_type, leg.leg.premium, config.connectionId);
+            targetInstrument = await findClosestPremiumInstrument(config.index, leg.leg.option_type, leg.leg.premium, config.connectionId, leg.leg.expiry_type);
         } else {
             const { targetStrike } = getLegStrikeSelection({ index: config.index, option_type: leg.leg.option_type, strike: leg.leg.strike, spotPrice });
-            targetInstrument = await findOptionInstrument(config.index, leg.leg.option_type, targetStrike);
+            targetInstrument = await findOptionInstrument(config.index, leg.leg.option_type, targetStrike, leg.leg.expiry_type);
         }
 
         if (!targetInstrument) {

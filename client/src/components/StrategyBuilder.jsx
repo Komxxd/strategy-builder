@@ -27,6 +27,7 @@ axios.interceptors.request.use((config) => {
 });
 
 const DEFAULT_LEG = {
+    expiry_type: 'weekly',
     strike_criteria: 'STRIKE_TYPE',
     option_type: 'CE',
     strike: 'ATM',
@@ -223,6 +224,26 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
 
             <div className="flex flex-wrap items-end gap-x-2 gap-y-2 w-full">
                 <div className="space-y-1.5 flex-1 min-w-[100px] sm:min-w-[120px]">
+                    <Label className="text-[9px] font-medium uppercase tracking-wider text-muted-foreground flex items-center">
+                        Expiry
+                    </Label>
+                    <Select
+                        value={leg.expiry_type || 'weekly'}
+                        onValueChange={(v) => onChange({ ...leg, expiry_type: v })}
+                    >
+                        <SelectTrigger className="h-9 w-full rounded-lg text-[12px]">
+                            <SelectValue placeholder="Expiry" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="weekly">Weekly</SelectItem>
+                            <SelectItem value="next_weekly">Next Weekly</SelectItem>
+                            <SelectItem value="monthly">Monthly</SelectItem>
+                            <SelectItem value="next_monthly">Next Monthly</SelectItem>
+                        </SelectContent>
+                    </Select>
+                </div>
+
+                <div className="space-y-1.5 flex-1 min-w-[80px] sm:min-w-[100px]">
                     <Label className="text-[9px] font-medium uppercase tracking-wider text-muted-foreground flex items-center">
                         Option Type
                     </Label>
