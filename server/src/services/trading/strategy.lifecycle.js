@@ -746,11 +746,32 @@ async function squareOffStrategy(strategyId) {
 
     const strategy = activeStrategies.get(strategyId);
     if (!strategy) throw new Error("Strategy not found");
-    if (strategy.status !== "IN_POSITION") throw new Error('Strategy must be in IN_POSITION to be squared off');
+    
+    // FIX: Allow square off from WAITING status (abort before entry).
+    // Previously only IN_POSITION was allowed, which meant users couldn't abort
+    // a strategy that was waiting for entry time or had failed to enter.
+    if (!["IN_POSITION", "WAITING"].includes(strategy.status)) {
+        throw new Error(`Strategy must be in IN_POSITION or WAITING to be squared off. Current: ${strategy.status}`);
+    }
 
     if (strategy.exitAttempted) throw new Error('Exit already in progress');
     strategy.exitAttempted = true;
     
+    // CASE A: Strategy is still WAITING (no positions yet)
+    if (strategy.status === "WAITING") {
+        addStrategyLog(strategyId, "MANUAL ABORT triggered. Strategy was WAITING — no positions to close.", "INFO");
+        strategy.status = "COMPLETED";
+        if (strategy.interval) clearInterval(strategy.interval);
+        updateStrategyInMemory(strategyId, {
+            status: "COMPLETED", 
+            exit_type: "MANUAL_ABORT",
+            legs: strategy.legs
+        });
+        activeStrategies.delete(strategyId);
+        return true;
+    }
+
+    // CASE B: Strategy is IN_POSITION
     addStrategyLog(strategyId, "MANUAL SQUARE OFF triggered. Closing all positions...", "CRITICAL");
 
     const { config } = strategy;

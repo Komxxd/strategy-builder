@@ -7,6 +7,25 @@ const { getLtpSecure } = require("./strategy.state");
 const INSTRUMENT_PATH = path.join(__dirname, "../../data/instruments.json");
 let instruments = [];
 
+// Redis cache TTL for instrument lookups (1 hour).
+// Prevents stale instruments from persisting across expiry boundaries.
+const INSTRUMENT_CACHE_TTL = 3600;
+
+/**
+ * Returns today's date at midnight in IST (UTC+5:30).
+ * Critical: The server runs in UTC (DigitalOcean), but Indian markets use IST.
+ * Without this, on expiry days at ~9:15 AM IST (3:45 AM UTC), `new Date()` is
+ * still "yesterday" in UTC, causing the system to select expired/monthly contracts.
+ */
+function getTodayIST() {
+    const now = new Date();
+    // Shift to IST by adding 5h30m offset
+    const istOffset = 5.5 * 60 * 60 * 1000;
+    const istNow = new Date(now.getTime() + istOffset);
+    istNow.setHours(0, 0, 0, 0);
+    return istNow;
+}
+
 function loadInstruments() {
     if (instruments.length > 0) return;
     try {
@@ -64,7 +83,8 @@ async function findOptionInstrument(indexName, optionType, strike) {
                 inst.symbol.endsWith(optionType) &&
                 (parseFloat(inst.strike) / 100) === strike
             );
-            await redis.set(cacheKey, JSON.stringify(matches));
+            // FIX: Add TTL to prevent stale instruments across expiry boundaries
+            await redis.set(cacheKey, JSON.stringify(matches), 'EX', INSTRUMENT_CACHE_TTL);
         }
     } catch (err) {
         loadInstruments();
@@ -76,8 +96,8 @@ async function findOptionInstrument(indexName, optionType, strike) {
         );
     }
 
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    // FIX: Use IST date, not UTC. Server is on DigitalOcean (UTC), markets are IST.
+    const today = getTodayIST();
     matches = matches.filter(inst => new Date(inst.expiry) >= today);
 
     if (matches.length === 0) return null;
@@ -105,7 +125,8 @@ async function findClosestPremiumInstrument(indexName, optionType, targetPremium
                 inst.instrumenttype === "OPTIDX" &&
                 inst.symbol.endsWith(optionType)
             );
-            await redis.set(cacheKey, JSON.stringify(matchesRaw));
+            // FIX: Add TTL to prevent stale instruments across expiry boundaries
+            await redis.set(cacheKey, JSON.stringify(matchesRaw), 'EX', INSTRUMENT_CACHE_TTL);
         }
     } catch (err) {
         loadInstruments();
@@ -116,8 +137,8 @@ async function findClosestPremiumInstrument(indexName, optionType, targetPremium
         );
     }
 
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    // FIX: Use IST date, not UTC. Server is on DigitalOcean (UTC), markets are IST.
+    const today = getTodayIST();
 
     // 1. Get all options for this index and type
     const matches = matchesRaw.filter(inst => new Date(inst.expiry) >= today);

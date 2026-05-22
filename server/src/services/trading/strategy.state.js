@@ -23,7 +23,10 @@ async function runGlobalDbWriter() {
     const { withDbRetry } = require("./strategy.crud");
 
     try {
-        await Promise.all(updates.map(async ([executionId, updateData]) => {
+        // SERIALIZE writes instead of Promise.all to prevent pool exhaustion.
+        // With max:5 connections and potentially 8+ strategies, parallel writes 
+        // can saturate the pool and cause CONNECT_TIMEOUT cascades.
+        for (const [executionId, updateData] of updates) {
             try {
                 await withDbRetry(() => sql`
                     UPDATE strategy_executions 
@@ -36,7 +39,7 @@ async function runGlobalDbWriter() {
                 const current = pendingDbUpdates.get(executionId) || {};
                 pendingDbUpdates.set(executionId, { ...updateData, ...current });
             }
-        }));
+        }
     } catch (err) {
         console.error("[DbWriter] Fatal error in bulk update loop:", err.message);
     } finally {

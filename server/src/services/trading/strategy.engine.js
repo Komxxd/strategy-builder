@@ -60,14 +60,22 @@ async function startStrategy(strategyId, overrideIsPaperTrading) {
     const [template] = await withDbRetry(() => sql`SELECT * FROM strategies WHERE id = ${strategyId} LIMIT 1`);
     if (!template) throw new Error("Strategy template not found");
 
+    // FIX: Coerce to strict boolean. Prevents "true" (string) !== true (boolean) mismatch
+    // that would route a paper trade into live execution.
+    const isPaper = overrideIsPaperTrading === true || overrideIsPaperTrading === "true"
+        ? true
+        : (overrideIsPaperTrading === false || overrideIsPaperTrading === "false" ? false : (template.config.is_paper_trading === true));
+
     const runtimeConfig = {
         ...template.config,
-        is_paper_trading: overrideIsPaperTrading !== undefined ? overrideIsPaperTrading : (template.config.is_paper_trading || false)
+        is_paper_trading: isPaper
     };
 
+    // FIX: Store is_paper_trading as a top-level column so it NEVER gets lost 
+    // even if execution_details fails to persist during DB write timeouts.
     const [execution] = await withDbRetry(() => sql`
-        INSERT INTO strategy_executions (strategy_id, status, execution_details)
-        VALUES (${template.id}, 'WAITING', ${sql.json({ config: runtimeConfig })})
+        INSERT INTO strategy_executions (strategy_id, status, is_paper_trading, execution_details)
+        VALUES (${template.id}, 'WAITING', ${isPaper}, ${sql.json({ config: runtimeConfig })})
         RETURNING *
     `);
 
@@ -87,7 +95,7 @@ async function startStrategy(strategyId, overrideIsPaperTrading) {
 
 async function stopStrategy(strategyId) {
     const strategy = activeStrategies.get(strategyId);
-    if (!strategy) return;
+    if (!strategy) throw new Error("Strategy not found in active memory. It may have already been stopped or the server was restarted.");
     if (strategy.interval) clearInterval(strategy.interval);
     strategy.status = "STOPPED";
     updateStrategyInMemory(strategyId, { 
@@ -119,9 +127,18 @@ async function initializeActiveStrategies() {
         );
 
         for (const exec of activeExecutions) {
+            // FIX: Reconstruct config with guaranteed is_paper_trading from the 
+            // dedicated column. This prevents paper strategies from going live 
+            // after a server restart when execution_details was not yet persisted.
+            const baseConfig = exec.execution_details?.config || exec.strategy_template_config;
+            const restoredConfig = {
+                ...baseConfig,
+                is_paper_trading: exec.is_paper_trading === true
+            };
+
             const runtimeStrategy = {
                 id: exec.id,
-                config: exec.execution_details?.config || exec.strategy_template_config,
+                config: restoredConfig,
                 status: exec.status,
                 startTime: exec.started_at,
                 legs: exec.execution_details?.legs || [],
@@ -135,7 +152,7 @@ async function initializeActiveStrategies() {
 
             activeStrategies.set(exec.id, runtimeStrategy);
             executeStrategy(exec.id);
-            console.log(`[Auto-Resume] Restored strategy ${exec.id} (${exec.strategy_name}) in ${exec.status} state.`);
+            console.log(`[Auto-Resume] Restored strategy ${exec.id} (${exec.strategy_name}) in ${exec.status} state. Paper: ${restoredConfig.is_paper_trading}`);
         }
     } catch (err) {
         console.error("Failed to initialize active strategies:", err.message);
