@@ -28,6 +28,7 @@
     "helmet": "^8.1.0",
     "ioredis": "^5.10.1",
     "node-cache": "^5.1.2",
+    "node-cron": "^4.2.1",
     "path": "^0.12.7",
     "postgres": "^3.4.9",
     "rss-parser": "^3.13.0",

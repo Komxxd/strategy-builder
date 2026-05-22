@@ -41,6 +41,35 @@ function loadInstruments() {
     }
 }
 
+async function reloadInstruments() {
+    try {
+        instruments = []; // Clear memory
+        
+        // Find all instrument cache keys in Redis
+        let cursor = '0';
+        const keysToDelete = [];
+        do {
+            const [newCursor, keys] = await redis.scan(cursor, 'MATCH', 'instr:*', 'COUNT', 100);
+            cursor = newCursor;
+            if (keys.length > 0) {
+                keysToDelete.push(...keys);
+            }
+        } while (cursor !== '0');
+        
+        // Delete all found keys
+        if (keysToDelete.length > 0) {
+            await redis.del(keysToDelete);
+            console.log(`[Instruments] Cleared ${keysToDelete.length} stale Redis cache keys.`);
+        }
+        
+        // Reload from newly downloaded file into memory
+        loadInstruments();
+        console.log(`[Instruments] In-memory instruments list reloaded successfully.`);
+    } catch (err) {
+        console.error("[Instruments] Failed to reload instruments:", err.message);
+    }
+}
+
 function getATMStrike(indexName, spotPrice) {
     let step = 100;
     if (indexName === "NIFTY") step = 50;

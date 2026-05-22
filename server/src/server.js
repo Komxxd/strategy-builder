@@ -39,7 +39,10 @@ io.on("connection", (socket) => {
     });
 });
 
-// Auto-download instruments if they don't exist or are older than 24 hours
+const cron = require("node-cron");
+const { reloadInstruments } = require("./services/trading/strategy.instruments");
+
+// Auto-download instruments on startup if they don't exist or are older than 24 hours
 const INSTRUMENT_PATH = path.join(__dirname, "./data/instruments.json");
 const shouldDownload = !fs.existsSync(INSTRUMENT_PATH) || (Date.now() - fs.statSync(INSTRUMENT_PATH).mtimeMs > 24 * 60 * 60 * 1000);
 
@@ -47,11 +50,25 @@ if (shouldDownload) {
     console.log("Instruments file stale or missing. Downloading...");
     downloadInstruments()
         .then(() => {
-            console.log("Instruments downloaded successfully");
-            // Clear strategy service cache if needed (it reloads via loadInstruments() check)
+            console.log("Instruments downloaded successfully on startup");
+            reloadInstruments();
         })
-        .catch(err => console.error("Error downloading instruments:", err));
+        .catch(err => console.error("Error downloading instruments on startup:", err));
 }
+
+// Schedule daily instrument download at 8:00 AM IST
+cron.schedule("0 8 * * *", () => {
+    console.log("[Cron] Auto-updating instrument list at 8:00 AM IST...");
+    downloadInstruments()
+        .then(() => {
+            console.log("[Cron] Instruments auto-updated successfully");
+            reloadInstruments();
+        })
+        .catch(err => console.error("[Cron] Error auto-updating instruments:", err));
+}, {
+    scheduled: true,
+    timezone: "Asia/Kolkata"
+});
 /**
  * Graceful Shutdown Handler
  *
