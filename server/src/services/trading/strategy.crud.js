@@ -149,6 +149,31 @@ async function getExecutionHistory() {
     }));
 }
 
+/**
+ * Safely patches only execution settings (e.g. quantity_multiplier) on a strategy.
+ * Reads the existing config from DB first, merges the settings, writes back.
+ * This prevents accidental overwrites of the full config.
+ */
+async function patchExecutionSettings(strategyId, settings) {
+    const [existing] = await withDbRetry(() =>
+        sql`SELECT * FROM strategies WHERE id = ${strategyId} LIMIT 1`
+    );
+    if (!existing) throw new Error("Strategy not found");
+
+    const mergedConfig = {
+        ...existing.config,
+        ...settings
+    };
+
+    const [data] = await withDbRetry(() => sql`
+        UPDATE strategies
+        SET config = ${sql.json(mergedConfig)}, updated_at = NOW()
+        WHERE id = ${strategyId}
+        RETURNING *
+    `);
+    return data;
+}
+
 module.exports = {
    withDbRetry,
    saveStrategy,
@@ -156,5 +181,6 @@ module.exports = {
    deleteStrategy,
    getUserStrategies,
    getActiveStrategies,
-   getExecutionHistory
+   getExecutionHistory,
+   patchExecutionSettings
 };

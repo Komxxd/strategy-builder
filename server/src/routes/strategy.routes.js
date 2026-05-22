@@ -44,6 +44,17 @@ router.put("/update/:id", validateStrategy, async (req, res) => {
     }
 });
 
+// Safe partial update for execution settings (quantity_multiplier, etc.)
+// No validateStrategy middleware — we only merge specific fields into the existing config.
+router.patch("/settings/:id", async (req, res) => {
+    try {
+        const strategy = await strategyService.patchExecutionSettings(req.params.id, req.body);
+        res.json({ success: true, data: strategy });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message || "Failed to update execution settings" });
+    }
+});
+
 
 router.delete("/delete/:id", async (req, res) => {
     try {

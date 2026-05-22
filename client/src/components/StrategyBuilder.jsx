@@ -1958,9 +1958,9 @@ export const StrategyBuilder = ({ isConnected }) => {
         }
     };
 
-    const handleExecutionSettingsSave = async (id, updatedConfig) => {
+    const handleExecutionSettingsSave = async (id, settings) => {
         try {
-            await axios.put(`${API_BASE_URL}/strategy/update/${id}`, updatedConfig);
+            await axios.patch(`${API_BASE_URL}/strategy/settings/${id}`, settings);
             fetchSavedStrategies();
         } catch (err) {
             console.error("Error updating execution settings:", err);
@@ -2593,7 +2593,7 @@ export const StrategyBuilder = ({ isConnected }) => {
                                                                                         <div className="flex flex-1 items-center gap-1 flex-wrap">
                                                                                             <span className="text-[12px] font-bold text-black">{l.instrument?.symbol || "---"} ({l.leg?.side})</span>
                                                                                             <span className="text-[11px] font-bold text-black/40">
-                                                                                                {l.leg?.lots} {l.leg?.lots > 1 ? 'Lots' : 'Lot'}
+                                                                                                {l.leg?.lots * (strategyData.config?.quantity_multiplier || 1)} {(l.leg?.lots * (strategyData.config?.quantity_multiplier || 1)) > 1 ? 'Lots' : 'Lot'}
                                                                                             </span>
                                                                                             <span className="text-black/30 text-[10px] font-mono">|</span>
                                                                                             <span className="text-black font-bold text-[10px] font-mono">{l.entryTime || "---"}</span>

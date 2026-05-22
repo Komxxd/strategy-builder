@@ -16,9 +16,8 @@ export const ExecutionSettingsModal = ({ isOpen, onClose, strategy, onSave }) =>
 
     if (!isOpen || !strategy) return null;
 
-    const handleSave = () => {
-        onSave(strategy.id, {
-            ...strategy.config,
+    const handleSave = async () => {
+        await onSave(strategy.id, {
             quantity_multiplier: parseFloat(multiplier) || 1
         });
         onClose();
