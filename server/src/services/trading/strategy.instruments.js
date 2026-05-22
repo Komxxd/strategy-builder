@@ -7,9 +7,10 @@ const { getLtpSecure } = require("./strategy.state");
 const INSTRUMENT_PATH = path.join(__dirname, "../../data/instruments.json");
 let instruments = [];
 
-// Redis cache TTL for instrument lookups (1 hour).
-// Prevents stale instruments from persisting across expiry boundaries.
-const INSTRUMENT_CACHE_TTL = 3600;
+// Redis cache TTL for instrument lookups (24 hours).
+// The IST-aware date filter handles expiry correctness regardless of cache age,
+// so a longer TTL is safe and avoids re-parsing the large instruments file.
+const INSTRUMENT_CACHE_TTL = 86400;
 
 /**
  * Returns today's date at midnight in IST (UTC+5:30).
