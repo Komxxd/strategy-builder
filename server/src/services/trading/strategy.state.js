@@ -212,6 +212,7 @@ async function getStatus(strategyId) {
     if (s) {
         return {
             id: s.id,
+            strategy_id: s.strategy_id,
             status: s.status,
             config: s.config,
             error: s.error,
@@ -243,6 +244,7 @@ async function getStatus(strategyId) {
 
     return {
         id: dbExec.id,
+        strategy_id: dbExec.strategy_id,
         status: dbExec.status,
         config: dbExec.execution_details?.config || {},
         name: dbExec.strategy_name || "Deployed Strategy",

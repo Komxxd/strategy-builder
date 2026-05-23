@@ -81,6 +81,7 @@ async function startStrategy(strategyId, overrideIsPaperTrading) {
 
     const runtimeStrategy = {
         id: execution.id,
+        strategy_id: template.id,
         config: runtimeConfig,
         status: "WAITING",
         entryAttempted: false,
@@ -138,6 +139,7 @@ async function initializeActiveStrategies() {
 
             const runtimeStrategy = {
                 id: exec.id,
+                strategy_id: exec.strategy_id,
                 config: restoredConfig,
                 status: exec.status,
                 startTime: exec.started_at,

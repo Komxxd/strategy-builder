@@ -2833,7 +2833,7 @@ export const StrategyBuilder = ({ isConnected }) => {
                                                                 </div>
                                                                 <div>
                                                                     {s.name || s.config?.name || 'Unnamed Strategy'}
-                                                                    <div className="text-[9px] font-mono text-black font-normal">ID: {s.id.split('-')[0] || s.id}</div>
+                                                                    <div className="text-[9px] font-mono text-black font-normal mt-0.5">ID: {s.id.split('-')[0] || s.id}</div>
                                                                 </div>
                                                             </div>
                                                             <div className="col-span-1 xl:col-span-2 font-mono text-[11px] xl:text-[10px] text-black xl:text-black flex xl:block items-center justify-between">
@@ -2855,6 +2855,26 @@ export const StrategyBuilder = ({ isConnected }) => {
                                                                             x{s.config.quantity_multiplier}
                                                                         </span>
                                                                     )}
+                                                                    {(() => {
+                                                                        const activeExecs = Object.values(runningStrategies).filter(exec => exec.strategy_id === s.id && exec.status !== 'TERMINATED' && exec.status !== 'FAILED');
+                                                                        const paperCount = activeExecs.filter(e => e.config?.is_paper_trading).length;
+                                                                        const liveCount = activeExecs.filter(e => !e.config?.is_paper_trading).length;
+                                                                        
+                                                                        return (
+                                                                            <>
+                                                                                {paperCount > 0 && (
+                                                                                    <span className="px-1.5 py-0.5 rounded text-[10px] xl:text-[9px] font-black bg-blue-100 text-blue-700 border border-blue-200">
+                                                                                        {paperCount} Paper
+                                                                                    </span>
+                                                                                )}
+                                                                                {liveCount > 0 && (
+                                                                                    <span className="px-1.5 py-0.5 rounded text-[10px] xl:text-[9px] font-black bg-orange-100 text-orange-700 border border-orange-200">
+                                                                                        {liveCount} Live
+                                                                                    </span>
+                                                                                )}
+                                                                            </>
+                                                                        );
+                                                                    })()}
                                                                 </div>
                                                             </div>
                                                             <div className="col-span-1 xl:col-span-3 text-right mt-2 xl:mt-0 pt-3 xl:pt-0 border-t border-dashed border-gray-100 xl:border-none">
