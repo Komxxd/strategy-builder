@@ -246,7 +246,10 @@ async function getStatus(strategyId) {
         id: dbExec.id,
         strategy_id: dbExec.strategy_id,
         status: dbExec.status,
-        config: dbExec.execution_details?.config || {},
+        config: {
+            ...(dbExec.execution_details?.config || {}),
+            is_paper_trading: dbExec.is_paper_trading
+        },
         name: dbExec.strategy_name || "Deployed Strategy",
         error: dbExec.execution_details?.error,
         legs: dbExec.execution_details?.legs || [],

@@ -2013,10 +2013,17 @@ export const StrategyBuilder = ({ isConnected }) => {
     const handleStop = async (id) => {
         if (!id) return;
         try {
+            setRunningStrategies(prev => {
+                const next = { ...prev };
+                delete next[id];
+                return next;
+            });
             await axios.post(`${API_BASE_URL}/strategy/stop/${id}`);
-            fetchActive();
+            // Intentionally not calling fetchActive() here to avoid race condition with DB write.
+            // The optimistic update handles the UI, and the background interval skips this deleted ID.
         } catch (err) {
             alert("Error stopping strategy: " + err.message);
+            fetchActive(); // Revert optimistic update on error
         }
     };
 
@@ -2024,10 +2031,16 @@ export const StrategyBuilder = ({ isConnected }) => {
         if (!id) return;
         if (!confirm("Are you sure you want to instantly square off all positions for this strategy?")) return;
         try {
+            setRunningStrategies(prev => {
+                const next = { ...prev };
+                delete next[id];
+                return next;
+            });
             await axios.post(`${API_BASE_URL}/strategy/squareoff/${id}`);
-            fetchActive();
+            // Intentionally not calling fetchActive() here to avoid race condition with DB write.
         } catch (err) {
             alert("Error squaring off strategy: " + err.response?.data?.message || err.message);
+            fetchActive(); // Revert optimistic update on error
         }
     };
 
@@ -2036,7 +2049,12 @@ export const StrategyBuilder = ({ isConnected }) => {
         if (!confirm("Are you sure you want to instantly square off this specific leg?")) return;
         try {
             await axios.post(`${API_BASE_URL}/strategy/squareoff/${id}/leg/${legIndex}`);
-            fetchActive();
+            // Fetch directly from in-memory status to get fresh leg data, avoiding DB stale read
+            const res = await axios.get(`${API_BASE_URL}/strategy/status/${id}`);
+            setRunningStrategies(prev => ({
+                ...prev,
+                [id]: res.data.data
+            }));
         } catch (err) {
             alert("Error squaring off leg: " + err.response?.data?.message || err.message);
         }
@@ -2047,7 +2065,11 @@ export const StrategyBuilder = ({ isConnected }) => {
         if (!confirm("Resume this PAUSED strategy? Monitoring will restart.")) return;
         try {
             await axios.post(`${API_BASE_URL}/strategy/resume/${id}`);
-            fetchActive();
+            const res = await axios.get(`${API_BASE_URL}/strategy/status/${id}`);
+            setRunningStrategies(prev => ({
+                ...prev,
+                [id]: res.data.data
+            }));
         } catch (err) {
             alert("Error resuming strategy: " + (err.response?.data?.message || err.message));
         }
@@ -2213,7 +2235,8 @@ export const StrategyBuilder = ({ isConnected }) => {
                         let hasChanges = false;
 
                         updates.forEach(u => {
-                            if (u.error || u.data.status === "COMPLETED" || u.data.status === "FAILED") {
+                            const isTerminalState = u.data?.status && ["COMPLETED", "FAILED", "TERMINATED", "STOPPED", "CANCELLED", "SQUARED_OFF"].includes(u.data.status);
+                            if (u.error || isTerminalState) {
                                 if (next[u.id]) {
                                     delete next[u.id];
                                     hasChanges = true;
@@ -2248,9 +2271,7 @@ export const StrategyBuilder = ({ isConnected }) => {
                         return hasChanges ? next : prev;
                     });
 
-                    if (updates.some(u => !u.error && (u.data.status === "COMPLETED" || u.data.status === "FAILED"))) {
-                        fetchActive();
-                    }
+                    // Intentionally removed fetchActive() to prevent bringing deleted/ghost strategies back to UI
                 } catch (err) {
                     console.error("Error polling statuses:", err);
                 }
@@ -2351,10 +2372,10 @@ export const StrategyBuilder = ({ isConnected }) => {
                                                                         ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
                                                                         : 'bg-red-50 text-red-700 border-red-200'
                                                                         }`}>
-                                                                        PnL: {(strategyData.pnlPercent || 0) > 0 ? '+' : ''}{(strategyData.pnlPercent || 0).toFixed(2)}% | {(strategyData.totalPnlRupees || 0) > 0 ? '+' : ''}₹{(strategyData.totalPnlRupees || 0).toFixed(0)}
+                                                                        PnL: {(Number(strategyData.pnlPercent) || 0) > 0 ? '+' : ''}{(Number(strategyData.pnlPercent) || 0).toFixed(2)}% | {(Number(strategyData.totalPnlRupees) || 0) > 0 ? '+' : ''}₹{(Number(strategyData.totalPnlRupees) || 0).toFixed(0)}
                                                                     </span>
                                                                     <span className="text-[10px] font-mono font-bold text-black bg-slate-50 border border-slate-200 px-1.5 py-0.5 shadow-sm rounded">
-                                                                        Trade Value: ₹{(strategyData.totalOriginalValue || 0).toFixed(0)}
+                                                                        Trade Value: ₹{(Number(strategyData.totalOriginalValue) || 0).toFixed(0)}
                                                                     </span>
                                                                     {strategyData.config?.overall_sl_enabled && strategyData.totalOriginalValue > 0 && (
                                                                         <span className="text-[10px] font-mono font-medium text-red-500 bg-red-50 border border-red-100 px-1.5 py-0.5 shadow-sm rounded">
@@ -2566,11 +2587,11 @@ export const StrategyBuilder = ({ isConnected }) => {
                                                                                     </div>
                                                                                     <div className="flex items-center gap-4">
                                                                                         <div className="flex items-center gap-3">
-                                                                                            <span className={`text-[12px] font-mono font-medium ${(l.currentActivePnlPercent || 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                                                                                                {(l.currentActivePnlPercent || 0) > 0 ? '+' : ''}{(l.currentActivePnlPercent || 0).toFixed(2)}%
+                                                                                            <span className={`text-[12px] font-mono font-medium ${(Number(l.currentActivePnlPercent) || 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                                                                                                {(Number(l.currentActivePnlPercent) || 0) > 0 ? '+' : ''}{(Number(l.currentActivePnlPercent) || 0).toFixed(2)}%
                                                                                             </span>
-                                                                                            <span className={`text-[12px] font-mono font-medium ${(l.currentActivePnlRupees || 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                                                                                                {(l.currentActivePnlRupees || 0) > 0 ? '+' : ''}₹{(l.currentActivePnlRupees || 0).toFixed(2)}
+                                                                                            <span className={`text-[12px] font-mono font-medium ${(Number(l.currentActivePnlRupees) || 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                                                                                                {(Number(l.currentActivePnlRupees) || 0) > 0 ? '+' : ''}₹{(Number(l.currentActivePnlRupees) || 0).toFixed(2)}
                                                                                             </span>
                                                                                         </div>
                                                                                         <Button
@@ -2665,11 +2686,11 @@ export const StrategyBuilder = ({ isConnected }) => {
                                                                                             {/* Removed exitSnapshot peakPrice display */}
                                                                                         </div>
                                                                                         <div className="flex items-center gap-3 shrink-0">
-                                                                                            <span className={`text-[12px] font-mono font-medium ${(l.pnlPercent || 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                                                                                                {(l.pnlPercent || 0) > 0 ? '+' : ''}{(l.pnlPercent || 0).toFixed(2)}%
+                                                                                            <span className={`text-[12px] font-mono font-medium ${(Number(l.pnlPercent) || 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                                                                                                {(Number(l.pnlPercent) || 0) > 0 ? '+' : ''}{(Number(l.pnlPercent) || 0).toFixed(2)}%
                                                                                             </span>
-                                                                                            <span className={`text-[12px] font-mono font-medium ${(l.pnlRupees || 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                                                                                                {(l.pnlRupees || 0) > 0 ? '+' : ''}₹{(l.pnlRupees || 0).toFixed(2)}
+                                                                                            <span className={`text-[12px] font-mono font-medium ${(Number(l.pnlRupees) || 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                                                                                                {(Number(l.pnlRupees) || 0) > 0 ? '+' : ''}₹{(Number(l.pnlRupees) || 0).toFixed(2)}
                                                                                             </span>
                                                                                             <span className="px-2 py-0.5 text-[10px] font-bold bg-slate-200 text-black rounded uppercase">Closed</span>
                                                                                         </div>

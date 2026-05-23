@@ -1,6 +1,11 @@
 const sql = require("../../config/db");
 const { getStatus } = require("./strategy.state");
 
+const fixTimezone = (date) => {
+    if (!date) return null;
+    return new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+};
+
 /**
  * Retries an async DB operation up to `maxRetries` times with exponential backoff.
  * @param {Function} fn - Async function to retry
@@ -97,7 +102,11 @@ async function getUserStrategies() {
     const data = await withDbRetry(() =>
         sql`SELECT * FROM strategies ORDER BY created_at DESC`
     );
-    return data;
+    return data.map(s => ({
+        ...s,
+        created_at: fixTimezone(s.created_at),
+        updated_at: fixTimezone(s.updated_at)
+    }));
 }
 
 async function getActiveStrategies() {
@@ -135,7 +144,10 @@ async function getExecutionHistory() {
     return executions.map(dbExec => ({
         id: dbExec.id,
         status: dbExec.status,
-        config: dbExec.execution_details?.config || dbExec.strategy_config || {},
+        config: {
+            ...(dbExec.execution_details?.config || dbExec.strategy_config || {}),
+            is_paper_trading: dbExec.is_paper_trading
+        },
         name: dbExec.strategy_name || (dbExec.execution_details?.config?.name) || "Deployed Strategy",
         error: dbExec.execution_details?.error,
         logs: dbExec.execution_details?.logs || [],
@@ -144,8 +156,8 @@ async function getExecutionHistory() {
         totalPnlRupees: dbExec.total_pnl_rupees || 0,
         totalOriginalValue: dbExec.execution_details?.totalOriginalValue || 0,
         exitType: dbExec.exit_type,
-        started_at: dbExec.started_at,
-        completed_at: dbExec.completed_at
+        started_at: fixTimezone(dbExec.started_at),
+        completed_at: fixTimezone(dbExec.completed_at)
     }));
 }
 
