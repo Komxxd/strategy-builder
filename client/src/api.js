@@ -17,7 +17,7 @@ let socket = null;
 export function initSocket() {
     if (!socket) {
         const socketUrl = import.meta.env.VITE_API_BASE_URL
-            ? import.meta.env.VITE_API_BASE_URL.replace('/api', '')
+            ? import.meta.env.VITE_API_BASE_URL.replace(/\/api\/?$/, "")
             : "http://localhost:5001";
         socket = io(socketUrl);
     }
