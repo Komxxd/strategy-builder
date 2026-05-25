@@ -73,66 +73,69 @@ async function handleReentryReSL({ leg, config, strategyId, addStrategyLog, curr
         leg.mtp = roundedMtp;
         leg.rtp = rtp;
 
-        try {
-            const fill = await waitForOrderFillPrice(
-                leg.uniqueOrderId,
-                config.connectionId,
-                config.is_paper_trading === true,
-                leg.instrument,
-                28800000,
-                1000,
-                {
-                    side: side,
-                    ordertype: ordertype,
-                    price: parseFloat(finalPriceStr || 0),
-                    triggerprice: parseFloat(triggerPriceStr || 0)
-                }
-            );
-            if (fill) {
-                leg.entryPrice = fill;
-                leg.entryTime = getISTTime();
-                leg.original_traded_price = leg.entryPrice;
-                leg.peakPrice = leg.entryPrice;
-                leg.tslReferencePrice = leg.entryPrice;
-                leg.state = "ACTIVE";
-                addStrategyLog(strategyId, `[RE-SL] Re-entry filled for ${leg.instrument.symbol} at ₹${leg.entryPrice}.`, "INFO");
-
-                // Redeploy exchange SL if needed
-                const isSlEnabled = leg.leg.reentry_sl_enabled ? true : leg.leg.sl_enabled !== false;
-                if (config.variety === "STOPLOSS" && leg.entryPrice && isSlEnabled) {
-                    const activeSlType = leg.leg.reentry_sl_enabled ? leg.leg.reentry_sl_type : (leg.leg.sl_type || "PERCENTAGE");
-                    const activeSlValue = leg.leg.reentry_sl_enabled ? leg.leg.reentry_sl_value : leg.leg.stop_loss;
-
-                    const slOrder = await placeStopLossWithRetry({
-                        baseConfig: config,
-                        legSide: leg.leg.side,
-                        entryPrice: leg.entryPrice,
-                        instrument: leg.instrument,
-                        lots: leg.leg.lots,
-                        slType: activeSlType,
-                        slValue: activeSlValue,
-                        slLimitMargin: config.entry_limit_offset,
-                        slLimitMarginType: config.entry_limit_offset_type || 'POINTS',
-                        connectionId: config.connectionId,
-                        strategyId: strategyId
-                    });
-
-                    const prices = computeStopLossExitPrices(leg.entryPrice, leg.leg.side, activeSlType, activeSlValue, getLimitOffsetAmt(leg.entryPrice, config), config.entry_limit_offset_type || 'POINTS');
-                    if (slOrder?.orderid) {
-                        leg.slOrderId = slOrder.orderid;
-                        leg.slUniqueOrderId = slOrder.uniqueorderid;
-                    } else {
-                        addStrategyLog(strategyId, `[FALLBACK] Initializing virtual SL monitoring for ${leg.instrument.symbol} (RE-SL Entry).`, "WARNING");
+        leg.state = "WAITING_FOR_FILL";
+        setTimeout(async () => {
+            try {
+                const fill = await waitForOrderFillPrice(
+                    leg.uniqueOrderId,
+                    config.connectionId,
+                    config.is_paper_trading === true,
+                    leg.instrument,
+                    28800000,
+                    1000,
+                    {
+                        side: side,
+                        ordertype: ordertype,
+                        price: parseFloat(finalPriceStr || 0),
+                        triggerprice: parseFloat(triggerPriceStr || 0)
                     }
-                    leg.slTriggerPrice = prices?.trigger;
-                    leg.initialSlTriggerPrice = prices?.trigger;
-                    leg.slLimitPrice = prices?.limit;
-                    leg.exchangeSlProcessed = false;
+                );
+                if (fill) {
+                    leg.entryPrice = fill;
+                    leg.entryTime = getISTTime();
+                    leg.original_traded_price = leg.entryPrice;
+                    leg.peakPrice = leg.entryPrice;
+                    leg.tslReferencePrice = leg.entryPrice;
+                    leg.state = "ACTIVE";
+                    addStrategyLog(strategyId, `[RE-SL] Re-entry filled for ${leg.instrument.symbol} at ₹${leg.entryPrice}.`, "INFO");
+
+                    // Redeploy exchange SL if needed
+                    const isSlEnabled = leg.leg.reentry_sl_enabled ? true : leg.leg.sl_enabled !== false;
+                    if (config.variety === "STOPLOSS" && leg.entryPrice && isSlEnabled) {
+                        const activeSlType = leg.leg.reentry_sl_enabled ? leg.leg.reentry_sl_type : (leg.leg.sl_type || "PERCENTAGE");
+                        const activeSlValue = leg.leg.reentry_sl_enabled ? leg.leg.reentry_sl_value : leg.leg.stop_loss;
+
+                        const slOrder = await placeStopLossWithRetry({
+                            baseConfig: config,
+                            legSide: leg.leg.side,
+                            entryPrice: leg.entryPrice,
+                            instrument: leg.instrument,
+                            lots: leg.leg.lots,
+                            slType: activeSlType,
+                            slValue: activeSlValue,
+                            slLimitMargin: config.entry_limit_offset,
+                            slLimitMarginType: config.entry_limit_offset_type || 'POINTS',
+                            connectionId: config.connectionId,
+                            strategyId: strategyId
+                        });
+
+                        const prices = computeStopLossExitPrices(leg.entryPrice, leg.leg.side, activeSlType, activeSlValue, getLimitOffsetAmt(leg.entryPrice, config), config.entry_limit_offset_type || 'POINTS');
+                        if (slOrder?.orderid) {
+                            leg.slOrderId = slOrder.orderid;
+                            leg.slUniqueOrderId = slOrder.uniqueorderid;
+                        } else {
+                            addStrategyLog(strategyId, `[FALLBACK] Initializing virtual SL monitoring for ${leg.instrument.symbol} (RE-SL Entry).`, "WARNING");
+                        }
+                        leg.slTriggerPrice = prices?.trigger;
+                        leg.initialSlTriggerPrice = prices?.trigger;
+                        leg.slLimitPrice = prices?.limit;
+                        leg.exchangeSlProcessed = false;
+                    }
                 }
+            } catch (e) {
+                console.error("[RE-SL] Fill monitoring failed:", e.message);
             }
-        } catch (e) {
-            console.error("[RE-SL] Fill monitoring failed:", e.message);
-        }
+        }, 0);
     } catch (err) {
         if (err.message === "LPP_TRIGGER_REJECTION") {
             addStrategyLog(strategyId, `[RE-SL] MTP order rejected by LPP for ${leg.instrument.symbol}. Switching to INTERNAL MONITORING for Target: ₹${roundedMtp}.`, "WARNING");

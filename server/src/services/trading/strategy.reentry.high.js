@@ -94,9 +94,10 @@ async function handleReentryHigh({ leg, config, strategyId, addStrategyLog, curr
         leg.uniqueOrderId = reEntryOrder.uniqueorderid;
         leg.rtp = rtp; // Sync RTP for frontend display
         
-        // If this is MTP placement, we move to FILL state
+        // Move to WAITING_FOR_FILL state while order sits at broker
+        leg.state = "WAITING_FOR_FILL";
+        
         if (isMtpPlacement) {
-            leg.state = "ACTIVE"; 
             addStrategyLog(strategyId, `[RE-HIGH] MTP Order placed for ${leg.instrument?.symbol} at ₹${targetPrice}.`, "INFO");
         } else {
             addStrategyLog(strategyId, `[RE-HIGH] Resting Limit placed for ${leg.instrument?.symbol} at ₹${finalPriceStr}.`, "INFO");
