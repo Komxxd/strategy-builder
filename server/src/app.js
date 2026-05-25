@@ -17,7 +17,7 @@ app.use(helmet()); // Sets various secure HTTP headers
 // 2. Strict CORS Lockdown (Tier 1 - Rule 4)
 const frontendUrls = process.env.FRONTEND_URL
     ? process.env.FRONTEND_URL.split(',').map(u => u.trim())
-    : ["http://localhost:5173", "http://localhost:5174"];
+    : ["http://localhost:5173", "http://localhost:5174", "https://corequant-dashboard.onrender.com"];
 
 app.use(cors({
     origin: function (origin, callback) {
@@ -30,7 +30,7 @@ app.use(cors({
         }
     },
     credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'x-api-key']
 }));
 

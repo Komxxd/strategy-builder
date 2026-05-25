@@ -6,13 +6,14 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { StopCircle, Loader2, TrendingUp, Search, Timer, LayoutDashboard, Target, Save, Play, Plus, Trash2, ShieldCheck, Zap, Copy, MessageSquare, Ghost, X, Settings2, Clock, ChevronDown, ChevronUp, GripVertical, RefreshCw, Sliders, Eye } from 'lucide-react';
+import { StopCircle, Loader2, TrendingUp, Search, Timer, LayoutDashboard, Target, Save, Play, Plus, Trash2, ShieldCheck, Zap, Copy, MessageSquare, Ghost, X, Settings2, Clock, ChevronDown, ChevronUp, GripVertical, RefreshCw, Sliders, Eye, Database } from 'lucide-react';
 import { Switch } from "@/components/ui/switch";
 import axios from 'axios';
 import { io } from 'socket.io-client';
 import { StrategyLogs } from './StrategyLogs';
 import { StrategyConfigModal } from './StrategyConfigModal';
 import { ExecutionSettingsModal } from './ExecutionSettingsModal';
+
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:5001/api";
 const SOCKET_URL = API_BASE_URL.replace(/\/api\/?$/, "");
@@ -1858,6 +1859,7 @@ export const StrategyBuilder = ({ isConnected }) => {
     const [executionModalOpen, setExecutionModalOpen] = useState(false);
     const [selectedStrategyForExecution, setSelectedStrategyForExecution] = useState(null);
 
+
     const [config, setConfig] = useState({
         name: '',
         index: 'NIFTY',
@@ -2294,9 +2296,12 @@ export const StrategyBuilder = ({ isConnected }) => {
                                 <Target className="h-4 w-4 text-primary" />
                                 Strategy Configuration
                             </CardTitle>
-                            <Button variant="ghost" size="sm" className="h-7 w-7 p-0 shrink-0">
-                                {isConfigExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-                            </Button>
+                            <div className="flex items-center gap-2">
+
+                                <Button variant="ghost" size="sm" className="h-7 w-7 p-0 shrink-0">
+                                    {isConfigExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                                </Button>
+                            </div>
                         </div>
                     </CardHeader>
                     {isConfigExpanded && (
@@ -2977,6 +2982,7 @@ export const StrategyBuilder = ({ isConnected }) => {
                     strategy={selectedStrategyForExecution}
                     onSave={handleExecutionSettingsSave}
                 />
+
             </Tabs>
         </div >
     );

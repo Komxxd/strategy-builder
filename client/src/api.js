@@ -99,4 +99,3 @@ export async function fetchCandles({ exchange, symboltoken, interval, fromdate, 
     return res.json();
 }
 
-
