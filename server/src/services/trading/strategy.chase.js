@@ -6,7 +6,7 @@ const { roundToTick, getLimitOffsetAmt } = require("./strategy.offset");
  * Single, non-blocking check for order fill status on the broker.
  * Returns { filled, price, rejected, reason } without looping.
  */
-async function checkOrderFillOnce(uniqueOrderId, connectionId) {
+async function checkOrderFillOnce(uniqueOrderId, connectionId, expectedQuantity = null) {
     try {
         const api = await getAuthorizedInstance(connectionId);
         const details = await api.indOrderDetails(uniqueOrderId);
@@ -15,7 +15,14 @@ async function checkOrderFillOnce(uniqueOrderId, connectionId) {
             const filledShares = Number(details.data.filledshares || details.data.filledShares || 0);
             const orderStatus = (details.data.orderstatus || details.data.status || "").toString().toLowerCase();
 
-            if ((avgPrice > 0 && filledShares > 0) || orderStatus === "complete" || orderStatus === "filled") {
+            let isFullyFilled = false;
+            if (expectedQuantity) {
+                isFullyFilled = (filledShares >= expectedQuantity) || orderStatus === "complete" || orderStatus === "filled";
+            } else {
+                isFullyFilled = (avgPrice > 0 && filledShares > 0) || orderStatus === "complete" || orderStatus === "filled";
+            }
+
+            if (isFullyFilled) {
                 return { filled: true, price: avgPrice > 0 ? avgPrice : null, rejected: false, reason: "" };
             }
             if (orderStatus === "rejected" || orderStatus === "cancelled") {
@@ -45,6 +52,7 @@ async function checkOrderFillOnce(uniqueOrderId, connectionId) {
  * @returns {number|null} Fill price, or null if not filled after 45s
  */
 async function chaseOrderFill({ orderId, uniqueOrderId, instrument, config, legSide, lots, connectionId, strategyId, baseLtp }) {
+    const expectedQuantity = lots * parseInt(instrument.lotsize);
     const INITIAL_WAIT_MS = 1000;
     const CHASE_INTERVAL_MS = 1000;
     const MAX_CHASE_MS = (parseInt(config.chase_time_seconds) || 45) * 1000;
@@ -66,7 +74,7 @@ async function chaseOrderFill({ orderId, uniqueOrderId, instrument, config, legS
     // Phase 1: Wait 1 second for the initial fill (order may fill at the original price)
     await new Promise(r => setTimeout(r, INITIAL_WAIT_MS));
 
-    let check = await checkOrderFillOnce(uniqueOrderId, connectionId);
+    let check = await checkOrderFillOnce(uniqueOrderId, connectionId, expectedQuantity);
     if (check.filled) {
         logChase(`${instrument.symbol} filled at ₹${check.price} on first check (no chase needed).`);
         return check.price;
@@ -113,7 +121,7 @@ async function chaseOrderFill({ orderId, uniqueOrderId, instrument, config, legS
             } catch (modErr) {
                 const errMsg = modErr.message || "";
                 if (errMsg.toLowerCase().includes("completed") || errMsg.toLowerCase().includes("traded")) {
-                    const finalCheck = await checkOrderFillOnce(uniqueOrderId, connectionId);
+                    const finalCheck = await checkOrderFillOnce(uniqueOrderId, connectionId, expectedQuantity);
                     if (finalCheck.filled) {
                         logChase(`✅ Filled at ₹${finalCheck.price} (detected during modify).`);
                         return finalCheck.price;
@@ -131,7 +139,7 @@ async function chaseOrderFill({ orderId, uniqueOrderId, instrument, config, legS
         await new Promise(r => setTimeout(r, CHASE_INTERVAL_MS));
 
         // 3. Check fill
-        check = await checkOrderFillOnce(uniqueOrderId, connectionId);
+        check = await checkOrderFillOnce(uniqueOrderId, connectionId, expectedQuantity);
         if (check.filled) {
             const elapsed = ((Date.now() - start) / 1000).toFixed(1);
             logChase(`✅ SUCCESS: ${instrument.symbol} filled at ₹${check.price} after ${elapsed}s chase (${modifyCount} mods).`);
@@ -149,7 +157,7 @@ async function chaseOrderFill({ orderId, uniqueOrderId, instrument, config, legS
         await api.cancelOrder({ variety: "NORMAL", orderid: orderId });
         logChase(`EXHAUSTED: Cancelled unfilled order ${orderId} after 45s.`, "CRITICAL");
     } catch (cancelErr) {
-        const lastCheck = await checkOrderFillOnce(uniqueOrderId, connectionId);
+        const lastCheck = await checkOrderFillOnce(uniqueOrderId, connectionId, expectedQuantity);
         if (lastCheck.filled) return lastCheck.price;
     }
 
