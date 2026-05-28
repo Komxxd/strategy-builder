@@ -4,9 +4,11 @@ const marketSocketService = require("../marketSocket.service");
 const { getISTFullDate } = require("./strategy.time");
 let activeStrategies = new Map();
 let globalLtpMap = {};
+let globalLtpTimeMap = {};
 
 function updateLtp(key, price) {
     globalLtpMap[key] = price;
+    globalLtpTimeMap[key] = Date.now();
 }
 
 let isFetchingGlobalLtp = false;
@@ -60,7 +62,7 @@ let inFlightLtpRequests = new Map();
 async function getLtpSecure({ exchange, symboltoken, connectionId }) {
     const key = `${exchange}_${symboltoken}`;
 
-    if (globalLtpMap[key]) {
+    if (globalLtpMap[key] && globalLtpTimeMap[key] && (Date.now() - globalLtpTimeMap[key] < 5000)) {
         return {
             status: true,
             data: {

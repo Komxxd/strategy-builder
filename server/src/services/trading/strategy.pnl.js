@@ -8,17 +8,17 @@ function checkOverallPnlLimits({ config, totalPnlRupees, avgPnl }) {
     const multiplier = parseFloat(config.quantity_multiplier) || 1;
     if (config.overall_sl_enabled && slValue > 0) {
         if (slType === "PERCENTAGE" && avgPnl <= -slValue) {
-            return { 
-                hit: true, 
-                exitType: "OVERALL_STOP_LOSS", 
+            return {
+                hit: true,
+                exitType: "OVERALL_STOP_LOSS",
                 reason: `Overall SL% (${slValue}%) hit`,
                 logLevel: "CRITICAL",
                 logMessage: "SQUARING OFF due to Overall Stop Loss hit."
             };
         } else if (slType === "AMOUNT" && totalPnlRupees <= -(slValue * multiplier)) {
-            return { 
-                hit: true, 
-                exitType: "OVERALL_STOP_LOSS", 
+            return {
+                hit: true,
+                exitType: "OVERALL_STOP_LOSS",
                 reason: `Overall SL₹ (₹${(slValue * multiplier).toFixed(2)}) hit`,
                 logLevel: "CRITICAL",
                 logMessage: "SQUARING OFF due to Overall Stop Loss hit."
@@ -32,17 +32,17 @@ function checkOverallPnlLimits({ config, totalPnlRupees, avgPnl }) {
 
     if (config.overall_target_enabled && targetValue > 0) {
         if (targetType === "PERCENTAGE" && avgPnl >= targetValue) {
-            return { 
-                hit: true, 
-                exitType: "OVERALL_TARGET", 
+            return {
+                hit: true,
+                exitType: "OVERALL_TARGET",
                 reason: `Overall Target% (${targetValue}%) hit`,
                 logLevel: "SUCCESS",
                 logMessage: "SQUARING OFF due to Overall Target hit."
             };
         } else if (targetType === "AMOUNT" && totalPnlRupees >= (targetValue * multiplier)) {
-            return { 
-                hit: true, 
-                exitType: "OVERALL_TARGET", 
+            return {
+                hit: true,
+                exitType: "OVERALL_TARGET",
                 reason: `Overall Target₹ (₹${(targetValue * multiplier).toFixed(2)}) hit`,
                 logLevel: "SUCCESS",
                 logMessage: "SQUARING OFF due to Overall Target hit."
@@ -68,9 +68,9 @@ function evaluateLegLimits({ leg, config, strategyId, addStrategyLog }) {
     // 2. If SL Override is OFF, we fallback to the original leg's TSL settings.
     const isSlOverride = isReentered && leg.leg.reentry_sl_enabled === true;
     const isTslOverride = isSlOverride && leg.leg.reentry_tsl_enabled === true;
-    
-    const isTslEnabled = isSlOverride 
-        ? (leg.leg.reentry_tsl_enabled === true) 
+
+    const isTslEnabled = isSlOverride
+        ? (leg.leg.reentry_tsl_enabled === true)
         : (leg.leg.tsl_enabled || false);
 
     const tslType = isTslOverride ? (leg.leg.reentry_tsl_type || "PERCENTAGE") : (leg.leg.tsl_type || "PERCENTAGE");
@@ -97,7 +97,6 @@ function evaluateLegLimits({ leg, config, strategyId, addStrategyLog }) {
                 trailAmount = (leg.entryPrice || 0) * (tslTrail / 100);
             }
 
-            // Removed verbose TSL-CHECK debug logging
 
             if (moveThreshold > 0) {
                 let favorableMove = 0;
@@ -130,7 +129,7 @@ function evaluateLegLimits({ leg, config, strategyId, addStrategyLog }) {
                                 const newLimit = roundToTick(leg.leg.side === "BUY" ?
                                     roundedTrigger - offsetAmt :
                                     roundedTrigger + offsetAmt);
-                                
+
                                 const newReferencePrice = leg.leg.side === "BUY"
                                     ? (leg.tslReferencePrice || leg.entryPrice) + (steps * moveThreshold)
                                     : (leg.tslReferencePrice || leg.entryPrice) - (steps * moveThreshold);
@@ -160,7 +159,7 @@ function evaluateLegLimits({ leg, config, strategyId, addStrategyLog }) {
                 if (config.variety !== "STOPLOSS" || config.is_paper_trading === true || !leg.slOrderId) {
                     result.isHit = true;
                     result.exitReason = "TRAILING_STOP_LOSS";
-                    return result; 
+                    return result;
                 }
             } else if (leg.leg.side === "SELL" && leg.currentLtp >= activeTrigger) {
                 if (config.variety !== "STOPLOSS" || config.is_paper_trading === true || !leg.slOrderId) {
@@ -198,10 +197,10 @@ function evaluateLegLimits({ leg, config, strategyId, addStrategyLog }) {
                     leg.leg.side,
                     activeSlType,
                     activeSlValue,
-                    offsetAmount, 
+                    offsetAmount,
                     'POINTS'
                 );
-                
+
                 if (prices) {
                     if (!result.tslUpdates) result.tslUpdates = {};
                     result.tslUpdates.initTrigger = prices.trigger;
