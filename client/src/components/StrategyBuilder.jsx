@@ -2360,6 +2360,11 @@ export const StrategyBuilder = ({ isConnected }) => {
                                                             <span className={`text-[9px] font-black px-1.5 py-0.5 rounded shadow-sm uppercase ${strategyData.config?.is_paper_trading ? 'bg-blue-100/80 text-blue-700 border border-blue-200' : 'bg-orange-100/80 text-orange-700 border border-orange-200'}`}>
                                                                 {strategyData.status} • {strategyData.config?.is_paper_trading ? 'PAPER' : 'LIVE'} • {strategyData.config?.index}
                                                             </span>
+                                                            {strategyData.config?.quantity_multiplier > 1 && (
+                                                                <span className="text-[9px] font-black px-1.5 py-0.5 rounded shadow-sm uppercase bg-indigo-100/80 text-indigo-700 border border-indigo-200">
+                                                                    {strategyData.config.quantity_multiplier}x QTY
+                                                                </span>
+                                                            )}
 
                                                             {strategyData.config?.exit_time && (
                                                                 <span className="text-[9px] font-black px-1.5 py-0.5 rounded shadow-sm uppercase bg-slate-100/80 text-slate-700 border border-slate-200 flex items-center gap-1">
