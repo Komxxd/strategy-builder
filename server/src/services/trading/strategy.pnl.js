@@ -85,18 +85,7 @@ function evaluateLegLimits({ leg, config, strategyId, addStrategyLog }) {
         tslTrail = parseFloat(leg.leg.tsl_trail || 0);
     }
 
-    if (addStrategyLog && strategyId) {
-        if (!leg._tsl_debug_tick || leg._tsl_debug_tick % 20 === 0) {
-            addStrategyLog(strategyId, `[TSL-RE-DEBUG] Leg ${leg.instrument?.symbol}: isSlOv: ${isSlOverride}, isTslOv: ${isTslOverride}, isTslEn: ${isTslEnabled}, Ref: ${leg.tslReferencePrice}, LTP: ${leg.currentLtp}, SL: ${leg.slTriggerPrice}, MoveVal: ${tslMove}`, "INFO");
-            
-            // ONE-TIME RAW CONFIG LOG (to dashboard for visibility)
-            if (isReentered && tslMove === 0 && !leg._raw_config_logged) {
-                addStrategyLog(strategyId, `[RAW-CONFIG] ${leg.instrument?.symbol}: ${JSON.stringify(leg.leg).substring(0, 500)}`, "WARNING");
-                leg._raw_config_logged = true;
-            }
-        }
-        leg._tsl_debug_tick = (leg._tsl_debug_tick || 0) + 1;
-    }
+    // Removed verbose TSL debug logging
 
     if (isTslEnabled && leg.tslReferencePrice !== undefined && leg.currentLtp !== null) {
         if (!isNaN(tslMove) && !isNaN(tslTrail) && tslMove > 0 && tslTrail > 0) {
@@ -108,13 +97,7 @@ function evaluateLegLimits({ leg, config, strategyId, addStrategyLog }) {
                 trailAmount = (leg.entryPrice || 0) * (tslTrail / 100);
             }
 
-            if (moveThreshold > 0 && addStrategyLog && strategyId && leg.reentry_count > 0) {
-                 // Log once every 10 ticks to avoid spam
-                 if (!leg._tsl_log_tick || leg._tsl_log_tick % 20 === 0) {
-                    addStrategyLog(strategyId, `[TSL-CHECK] Leg ${leg.instrument?.symbol} (#${leg.reentry_count}): RefPrice: ₹${(leg.tslReferencePrice || leg.entryPrice || 0).toFixed(2)}, LTP: ₹${(leg.currentLtp || 0).toFixed(2)}, Threshold: ${moveThreshold.toFixed(2)}, Type: ${tslType}`, "INFO");
-                 }
-                 leg._tsl_log_tick = (leg._tsl_log_tick || 0) + 1;
-            }
+            // Removed verbose TSL-CHECK debug logging
 
             if (moveThreshold > 0) {
                 let favorableMove = 0;
