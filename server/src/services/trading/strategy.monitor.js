@@ -300,7 +300,8 @@ async function monitorStrategyLoop(strategyId, strategy) {
                     const rtp = leg.recost_trigger_price;
                     let triggerReEntry = false;
 
-                    if (leg.leg.recost_mode.includes("PLUS")) {
+                    const recostMode = leg.leg.recost_mode || "RECOST_PLUS_PCT";
+                    if (recostMode.includes("PLUS")) {
                         if (prevTick <= rtp && currentTick >= rtp) triggerReEntry = true;
                     } else {
                         if (prevTick >= rtp && currentTick <= rtp) triggerReEntry = true;
@@ -318,7 +319,8 @@ async function monitorStrategyLoop(strategyId, strategy) {
                     const rtp = leg.resl_trigger_price;
                     let triggerReEntry = false;
 
-                    if (leg.leg.resl_mode.includes("PLUS")) {
+                    const reslMode = leg.leg.resl_mode || "RESL_PLUS_PCT";
+                    if (reslMode.includes("PLUS")) {
                         if (prevTick <= rtp && currentTick >= rtp) triggerReEntry = true;
                     } else {
                         if (prevTick >= rtp && currentTick <= rtp) triggerReEntry = true;
