@@ -25,7 +25,7 @@ const { placeOrder, waitForOrderFillPrice, placeStopLossWithRetry } = require(".
 async function handleLegStopOut(leg, exitType, strategy) {
     const strategyId = strategy.id;
     const config = strategy.config;
-    
+
     // STEP 1: Finalize the current leg's finances
     // We move any active profit/loss into the "Booked" bucket so it's permanently saved.
     leg.state = "COMPLETED";
@@ -120,7 +120,7 @@ async function handleLegStopOut(leg, exitType, strategy) {
         const mntmMode = leg.leg.recost_mntm_mode || "RECOST_PLUS_PCT";
         const mntmVal = leg.leg.recost_mntm_value || 0;
         let mntmMtp = newRtp;
-        
+
         if (leg.leg.recost_mntm_enabled) {
             if (mntmMode === "RECOST_PLUS_PCT") mntmMtp = newRtp + (newRtp * mntmVal / 100);
             else if (mntmMode === "RECOST_PLUS_PTS") mntmMtp = newRtp + mntmVal;
@@ -143,7 +143,7 @@ async function handleLegStopOut(leg, exitType, strategy) {
             entryPrice: null,
             currentLtp: currentLtp,
             last_tick_price: currentLtp,
-            reentry_count: leg.reentry_count, 
+            reentry_count: leg.reentry_count,
             original_traded_price: 0,
             base_otp: otp,
             recost_trigger_price: newRtp,
@@ -160,11 +160,11 @@ async function handleLegStopOut(leg, exitType, strategy) {
             slTriggerPrice: null,
             slLimitPrice: null,
             rtp: newRtp,
-            mtp: finalMtp,
+            mtp: leg.leg.recost_mntm_enabled ? finalMtp : null,
             exchangeSlProcessed: false
         };
         strategy.legs.push(newLeg);
-        return; 
+        return;
     }
 
     /** 
@@ -192,7 +192,7 @@ async function handleLegStopOut(leg, exitType, strategy) {
         const mntmMode = leg.leg.resl_mntm_mode || "RESL_PLUS_PCT";
         const mntmVal = leg.leg.resl_mntm_value || 0;
         let mntmMtp = newRtp;
-        
+
         if (leg.leg.resl_mntm_enabled) {
             // MTP = Momentum Target Price.
             if (mntmMode === "RESL_PLUS_PCT") mntmMtp = newRtp + (newRtp * mntmVal / 100);
@@ -216,7 +216,7 @@ async function handleLegStopOut(leg, exitType, strategy) {
             entryPrice: null,
             currentLtp: currentLtp,
             last_tick_price: currentLtp,
-            reentry_count: leg.reentry_count, 
+            reentry_count: leg.reentry_count,
             original_traded_price: 0,
             base_otp: leg.base_otp || leg.original_traded_price,
             resl_trigger_price: newRtp,
@@ -233,11 +233,11 @@ async function handleLegStopOut(leg, exitType, strategy) {
             slTriggerPrice: null,
             slLimitPrice: null,
             rtp: newRtp,
-            mtp: finalMtp,
+            mtp: leg.leg.resl_mntm_enabled ? finalMtp : null,
             exchangeSlProcessed: false
         };
         strategy.legs.push(newLeg);
-        return; 
+        return;
     }
 
 
@@ -249,7 +249,7 @@ async function handleLegStopOut(leg, exitType, strategy) {
     if (leg.leg.rehigh_enabled && (leg.reentry_count < (leg.leg.max_reentry || 1))) {
         const peakPrice = leg.currentLtp || leg.original_traded_price;
         const currentLtp = leg.currentLtp || peakPrice;
-        
+
         let triggerPrice = peakPrice;
         const mode = leg.leg.rehigh_mode || 'REHIGH_MINUS_PTS';
         const val = leg.leg.rehigh_value || 0;
@@ -272,7 +272,7 @@ async function handleLegStopOut(leg, exitType, strategy) {
             entryPrice: null,
             currentLtp: currentLtp,
             last_tick_price: currentLtp,
-            reentry_count: leg.reentry_count, 
+            reentry_count: leg.reentry_count,
             original_traded_price: 0,
             base_otp: leg.base_otp || leg.original_traded_price,
             re_high_trigger_price: triggerPrice,
@@ -295,7 +295,7 @@ async function handleLegStopOut(leg, exitType, strategy) {
             exchangeSlProcessed: false
         };
         strategy.legs.push(newLeg);
-        return; 
+        return;
     }
 
     /** 
@@ -305,8 +305,8 @@ async function handleLegStopOut(leg, exitType, strategy) {
      */
     if (leg.leg.relow_enabled && (leg.reentry_count < (leg.leg.max_reentry || 1))) {
         const currentLtp = leg.currentLtp || leg.original_traded_price;
-        const lowPrice = currentLtp; 
-        
+        const lowPrice = currentLtp;
+
         let triggerPrice = lowPrice;
         const mode = leg.leg.relow_mode || 'RELOW_PLUS_PTS';
         const val = leg.leg.relow_value || 0;
@@ -331,7 +331,7 @@ async function handleLegStopOut(leg, exitType, strategy) {
             entryPrice: null,
             currentLtp: currentLtp,
             last_tick_price: currentLtp,
-            reentry_count: leg.reentry_count, 
+            reentry_count: leg.reentry_count,
             original_traded_price: 0,
             base_otp: leg.base_otp || leg.original_traded_price,
             re_low_trigger_price: triggerPrice,
@@ -354,13 +354,13 @@ async function handleLegStopOut(leg, exitType, strategy) {
             exchangeSlProcessed: false
         };
         strategy.legs.push(newLeg);
-        return; 
+        return;
     }
     if (leg.leg.lazy_leg_enabled && leg.leg.lazy_leg) {
         addStrategyLog(strategyId, `Lazy Leg triggered after ${leg.instrument?.symbol || "leg"} stop-out. Initializing lazy leg...`, "INFO");
 
         const newLeg = {
-            leg: { ...leg.leg.lazy_leg }, 
+            leg: { ...leg.leg.lazy_leg },
             instrument: null,
             orderId: null,
             uniqueOrderId: null,
@@ -406,8 +406,8 @@ function pauseStrategy(strategyId, reason) {
     }
 
     addStrategyLog(strategyId, `Strategy PAUSED: ${reason}. Manual intervention required.`, "CRITICAL");
-    updateStrategyInMemory(strategyId, { 
-        status: "PAUSED", 
+    updateStrategyInMemory(strategyId, {
+        status: "PAUSED",
         error: reason,
         pnlPercent: strategy.pnlPercent || 0,
         totalPnlRupees: strategy.totalPnlRupees || 0,
@@ -432,8 +432,8 @@ function stopStrategy(strategyId, reason) {
     }
 
     addStrategyLog(strategyId, `Strategy CLOSED: ${reason}.`, "CRITICAL");
-    updateStrategyInMemory(strategyId, { 
-        status: "COMPLETED", 
+    updateStrategyInMemory(strategyId, {
+        status: "COMPLETED",
         error: reason,
         pnlPercent: strategy.pnlPercent || 0,
         totalPnlRupees: strategy.totalPnlRupees || 0,
@@ -453,7 +453,7 @@ async function squareOffStrategy(strategyId) {
 
     const strategy = activeStrategies.get(strategyId);
     if (!strategy) throw new Error("Strategy not found");
-    
+
     // FIX: Allow square off from WAITING status (abort before entry).
     // Previously only IN_POSITION was allowed, which meant users couldn't abort
     // a strategy that was waiting for entry time or had failed to enter.
@@ -463,14 +463,14 @@ async function squareOffStrategy(strategyId) {
 
     if (strategy.exitAttempted) throw new Error('Exit already in progress');
     strategy.exitAttempted = true;
-    
+
     // CASE A: Strategy is still WAITING (no positions yet)
     if (strategy.status === "WAITING") {
         addStrategyLog(strategyId, "MANUAL ABORT triggered. Strategy was WAITING — no positions to close.", "INFO");
         strategy.status = "COMPLETED";
         if (strategy.interval) clearInterval(strategy.interval);
         updateStrategyInMemory(strategyId, {
-            status: "COMPLETED", 
+            status: "COMPLETED",
             exit_type: "MANUAL_ABORT",
             legs: strategy.legs
         });
@@ -489,7 +489,7 @@ async function squareOffStrategy(strategyId) {
                 try {
                     const api = await getAuthorizedInstance(config.connectionId);
                     await api.cancelOrder({ variety: "STOPLOSS", orderid: leg.slOrderId });
-                } catch (e) {}
+                } catch (e) { }
             }
         }));
     }
@@ -502,8 +502,8 @@ async function squareOffStrategy(strategyId) {
 
         strategy.status = "COMPLETED";
         updateStrategyInMemory(strategyId, {
-            status: "COMPLETED", 
-            exit_type: "MANUAL_SQUARE_OFF", 
+            status: "COMPLETED",
+            exit_type: "MANUAL_SQUARE_OFF",
             final_pnl_percent: strategy.pnlPercent || 0,
             totalPnlRupees: strategy.totalPnlRupees || 0,
             totalOriginalValue: strategy.totalOriginalValue || 0,
@@ -562,10 +562,10 @@ async function resumeStrategy(strategyId) {
     }
 
     marketSocketService.sendAlert(`Strategy resumed — monitoring active`, "success");
-    updateStrategyInMemory(strategyId, { 
-        status: strategy.status, 
-        error: null, 
-        entryAttempted: strategy.entryAttempted 
+    updateStrategyInMemory(strategyId, {
+        status: strategy.status,
+        error: null,
+        entryAttempted: strategy.entryAttempted
     });
 
     // Re-start the engine interval
