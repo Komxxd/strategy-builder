@@ -2282,6 +2282,15 @@ export const StrategyBuilder = ({ isConnected }) => {
         return () => clearInterval(interval);
     }, [Object.keys(runningStrategies).length, isConnected]);
 
+    const filteredRunningStrategies = Object.entries(runningStrategies).filter(([_, strategyData]) => {
+        const isPaper = !!strategyData.config?.is_paper_trading;
+        return activeTab === 'paper' ? isPaper : !isPaper;
+    });
+    
+    const cumulativeActivePnl = filteredRunningStrategies.reduce((sum, [_, s]) => sum + (Number(s.totalPnlRupees) || 0), 0);
+    const cumulativeActiveValue = filteredRunningStrategies.reduce((sum, [_, s]) => sum + (Number(s.totalOriginalValue) || 0), 0);
+    const cumulativeActivePnlPercent = cumulativeActiveValue > 0 ? (cumulativeActivePnl / cumulativeActiveValue) * 100 : 0;
+
     return (
         <div className="space-y-4">
             <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
@@ -2322,9 +2331,19 @@ export const StrategyBuilder = ({ isConnected }) => {
                                     <CardTitle className="flex items-center gap-2 text-[11px] font-medium">
                                         <Play className="h-4 w-4 text-primary" /> Active Executions
                                     </CardTitle>
-                                    <Button variant="ghost" size="sm" className="h-8 w-8 p-0 shrink-0">
-                                        {collapsedSections['active-strategies'] ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
-                                    </Button>
+                                    <div className="flex items-center gap-4">
+                                        {filteredRunningStrategies.length > 0 && (
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Overall PnL:</span>
+                                                <span className={`text-[12px] font-mono font-bold px-2 py-0.5 rounded shadow-sm border ${cumulativeActivePnl >= 0 ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-red-50 text-red-700 border-red-200'}`}>
+                                                    {cumulativeActivePnl > 0 ? '+' : ''}{cumulativeActivePnlPercent.toFixed(2)}% | {cumulativeActivePnl > 0 ? '+' : ''}₹{cumulativeActivePnl.toFixed(0)}
+                                                </span>
+                                            </div>
+                                        )}
+                                        <Button variant="ghost" size="sm" className="h-8 w-8 p-0 shrink-0">
+                                            {collapsedSections['active-strategies'] ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
+                                        </Button>
+                                    </div>
                                 </div>
                             </Card>
                             {!collapsedSections['active-strategies'] && (
