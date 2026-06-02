@@ -173,34 +173,47 @@ async function handleLegStopOut(leg, exitType, strategy) {
      * It's essentially "trying again" at the same price point.
      */
     if (leg.leg.resl_enabled && (leg.reentry_count < (leg.leg.max_reentry || 1))) {
-        const slPrice = leg.currentLtp || leg.exitSnapshot?.exitLtp; // Price where the SL hit
-        const mode = leg.leg.resl_mode || "RESL_PLUS_PCT";
-        const val = leg.leg.resl_value || 0;
-        let rtp = slPrice;
+        let newRtp;
+        let finalMtp = null;
+        let slPrice;
+        
+        if (leg.base_resl_rtp != null) {
+            // Carry over the initial RTP & MTP for all subsequent re-entries
+            newRtp = leg.base_resl_rtp;
+            finalMtp = leg.base_resl_mtp;
+            slPrice = leg.base_resl_sl_hit;
+        } else {
+            slPrice = leg.currentLtp || leg.exitSnapshot?.exitLtp; // Price where the FIRST SL hit
+            const mode = leg.leg.resl_mode || "RESL_PLUS_PCT";
+            const val = leg.leg.resl_value || 0;
+            let rtp = slPrice;
 
-        // RTP = Re-entry Trigger Price. 
-        if (mode === "RESL_PLUS_PCT") rtp = slPrice + (slPrice * val / 100);
-        else if (mode === "RESL_PLUS_PTS") rtp = slPrice + val;
-        else if (mode === "RESL_MINUS_PCT") rtp = slPrice - (slPrice * val / 100);
-        else if (mode === "RESL_MINUS_PTS") rtp = slPrice - val;
+            // RTP = Re-entry Trigger Price. 
+            if (mode === "RESL_PLUS_PCT") rtp = slPrice + (slPrice * val / 100);
+            else if (mode === "RESL_PLUS_PTS") rtp = slPrice + val;
+            else if (mode === "RESL_MINUS_PCT") rtp = slPrice - (slPrice * val / 100);
+            else if (mode === "RESL_MINUS_PTS") rtp = slPrice - val;
 
-        const newRtp = roundToTick(rtp);
+            newRtp = roundToTick(rtp);
+
+            const mntmMode = leg.leg.resl_mntm_mode || "RESL_PLUS_PCT";
+            const mntmVal = leg.leg.resl_mntm_value || 0;
+            let mntmMtp = newRtp;
+            
+            if (leg.leg.resl_mntm_enabled) {
+                // MTP = Momentum Target Price.
+                if (mntmMode === "RESL_PLUS_PCT") mntmMtp = newRtp + (newRtp * mntmVal / 100);
+                else if (mntmMode === "RESL_PLUS_PTS") mntmMtp = newRtp + mntmVal;
+                else if (mntmMode === "RESL_MINUS_PCT") mntmMtp = newRtp - (newRtp * mntmVal / 100);
+                else if (mntmMode === "RESL_MINUS_PTS") mntmMtp = newRtp - mntmVal;
+                finalMtp = roundToTick(mntmMtp);
+            }
+        }
+
         const currentLtp = leg.currentLtp || newRtp;
         const side = leg.leg.side;
 
         console.log(`[RE-SL] SL Hit for ${leg.instrument?.symbol}. Setting state to WAITING_FOR_RESL_MNTM. Target Price=${newRtp}`);
-        const mntmMode = leg.leg.resl_mntm_mode || "RESL_PLUS_PCT";
-        const mntmVal = leg.leg.resl_mntm_value || 0;
-        let mntmMtp = newRtp;
-
-        if (leg.leg.resl_mntm_enabled) {
-            // MTP = Momentum Target Price.
-            if (mntmMode === "RESL_PLUS_PCT") mntmMtp = newRtp + (newRtp * mntmVal / 100);
-            else if (mntmMode === "RESL_PLUS_PTS") mntmMtp = newRtp + mntmVal;
-            else if (mntmMode === "RESL_MINUS_PCT") mntmMtp = newRtp - (newRtp * mntmVal / 100);
-            else if (mntmMode === "RESL_MINUS_PTS") mntmMtp = newRtp - mntmVal;
-        }
-        const finalMtp = roundToTick(mntmMtp);
 
         const newLeg = {
             leg: { ...leg.leg },
@@ -219,6 +232,9 @@ async function handleLegStopOut(leg, exitType, strategy) {
             reentry_count: leg.reentry_count,
             original_traded_price: 0,
             base_otp: leg.base_otp || leg.original_traded_price,
+            base_resl_rtp: newRtp,
+            base_resl_mtp: finalMtp,
+            base_resl_sl_hit: slPrice,
             resl_trigger_price: newRtp,
             bookedPnlPoints: 0,
             bookedPnlRupees: 0,
@@ -233,7 +249,7 @@ async function handleLegStopOut(leg, exitType, strategy) {
             slTriggerPrice: null,
             slLimitPrice: null,
             rtp: newRtp,
-            mtp: leg.leg.resl_mntm_enabled ? finalMtp : null,
+            mtp: finalMtp,
             exchangeSlProcessed: false
         };
         strategy.legs.push(newLeg);

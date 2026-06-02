@@ -4,50 +4,67 @@ const { getISTTime } = require("./strategy.time");
 
 async function handleReentryReSL({ leg, config, strategyId, addStrategyLog, currentTick }) {
     const rtp = leg.resl_trigger_price;
-    console.log(`[RE-SL] Condition met for ${leg.instrument.symbol} at ${currentTick}! Target Price (${rtp}) Reached. Calculating MTP...`);
-    addStrategyLog(strategyId, `Re-Entry (SL Hit Basis) for ${leg.instrument.symbol}: Price ₹${currentTick} crossed Target ₹${rtp}. Re-entering...`, "INFO");
-    
-    leg.reentry_count++;
+    let targetPrice = rtp;
 
-    // Calculate MTP (Mntm Trigger Price) from RTP
-    const mntmMode = leg.leg.resl_mntm_mode || "RESL_PLUS_PCT";
-    const mntmVal = parseFloat(leg.leg.resl_mntm_value || 0);
-    let mtp = rtp;
+    if (leg.leg.resl_mntm_enabled) {
+        console.log(`[RE-SL] Condition met for ${leg.instrument.symbol} at ${currentTick}! Target Price (${rtp}) Reached. Calculating MTP...`);
+        const mntmMode = leg.leg.resl_mntm_mode || "RESL_PLUS_PCT";
+        const mntmVal = parseFloat(leg.leg.resl_mntm_value || 0);
+        let mtp = rtp;
 
-    if (mntmMode === "RESL_PLUS_PCT") mtp = rtp + (rtp * mntmVal / 100);
-    else if (mntmMode === "RESL_PLUS_PTS") mtp = rtp + mntmVal;
-    else if (mntmMode === "RESL_MINUS_PCT") mtp = rtp - (rtp * mntmVal / 100);
-    else if (mntmMode === "RESL_MINUS_PTS") mtp = rtp - mntmVal;
+        if (mntmMode === "RESL_PLUS_PCT" || mntmMode === "PLUS_PCT" || mntmMode === "PERCENTAGE") mtp = rtp + (rtp * mntmVal / 100);
+        else if (mntmMode === "RESL_PLUS_PTS" || mntmMode === "PLUS_PTS" || mntmMode === "POINTS") mtp = rtp + mntmVal;
+        else if (mntmMode === "RESL_MINUS_PCT" || mntmMode === "MINUS_PCT") mtp = rtp - (rtp * mntmVal / 100);
+        else if (mntmMode === "RESL_MINUS_PTS" || mntmMode === "MINUS_PTS") mtp = rtp - mntmVal;
 
-    const roundedMtp = roundToTick(mtp);
+        targetPrice = roundToTick(mtp);
+        leg.mtp = targetPrice;
+    } else {
+        console.log(`[RE-SL] Condition met for ${leg.instrument.symbol} at ${currentTick}! Target Price (${rtp}) Reached. Placing order...`);
+        leg.mtp = null;
+    }
 
     // Determine Stoploss vs Limit
     let variety = config.variety || "NORMAL";
     let ordertype = config.ordertype || "LIMIT";
-    const offsetAmt = getLimitOffsetAmt(roundedMtp, config);
-    let finalPriceStr = roundedMtp.toString();
-    let triggerPriceStr = roundedMtp.toString();
+    const offsetAmt = getLimitOffsetAmt(targetPrice, config);
+    let finalPriceStr = targetPrice.toString();
+    let triggerPriceStr = targetPrice.toString();
     const side = leg.leg.side;
 
-    if (side === "SELL") {
-        if (roundedMtp < currentTick) {
-            variety = "STOPLOSS";
-            ordertype = "STOPLOSS_LIMIT";
-            finalPriceStr = roundToTick(roundedMtp - offsetAmt).toString();
-        } else {
-            variety = "NORMAL";
-            ordertype = "LIMIT";
-            finalPriceStr = roundToTick(roundedMtp - offsetAmt).toString();
+    if (leg.leg.resl_mntm_enabled) {
+        if (side === "SELL") {
+            if (targetPrice < currentTick) {
+                variety = "STOPLOSS";
+                ordertype = "STOPLOSS_LIMIT";
+                finalPriceStr = roundToTick(targetPrice - offsetAmt).toString();
+            } else {
+                variety = "NORMAL";
+                ordertype = "LIMIT";
+                triggerPriceStr = "0"; // Normal limit doesn't need trigger
+                finalPriceStr = roundToTick(targetPrice - offsetAmt).toString();
+            }
+        } else if (side === "BUY") {
+            if (targetPrice > currentTick) {
+                variety = "STOPLOSS";
+                ordertype = "STOPLOSS_LIMIT";
+                finalPriceStr = roundToTick(targetPrice + offsetAmt).toString();
+            } else {
+                variety = "NORMAL";
+                ordertype = "LIMIT";
+                triggerPriceStr = "0";
+                finalPriceStr = roundToTick(targetPrice + offsetAmt).toString();
+            }
         }
-    } else if (side === "BUY") {
-        if (roundedMtp > currentTick) {
-            variety = "STOPLOSS";
-            ordertype = "STOPLOSS_LIMIT";
-            finalPriceStr = roundToTick(roundedMtp + offsetAmt).toString();
+    } else {
+        // Non-Momentum Flow: Condition met, place normal limit order
+        variety = "NORMAL";
+        ordertype = "LIMIT";
+        triggerPriceStr = "0";
+        if (side === "BUY") {
+            finalPriceStr = roundToTick(targetPrice + offsetAmt).toString();
         } else {
-            variety = "NORMAL";
-            ordertype = "LIMIT";
-            finalPriceStr = roundToTick(roundedMtp + offsetAmt).toString();
+            finalPriceStr = roundToTick(targetPrice - offsetAmt).toString();
         }
     }
 
@@ -138,9 +155,9 @@ async function handleReentryReSL({ leg, config, strategyId, addStrategyLog, curr
         }, 0);
     } catch (err) {
         if (err.message === "LPP_TRIGGER_REJECTION") {
-            addStrategyLog(strategyId, `[RE-SL] MTP order rejected by LPP for ${leg.instrument.symbol}. Switching to INTERNAL MONITORING for Target: ₹${roundedMtp}.`, "WARNING");
+            addStrategyLog(strategyId, `[RE-SL] Target order rejected by LPP for ${leg.instrument.symbol}. Switching to INTERNAL MONITORING for Target: ₹${targetPrice}.`, "WARNING");
             leg.state = "WAITING_FOR_INTERNAL_FALLBACK";
-            leg.fallbackTargetPrice = roundedMtp;
+            leg.fallbackTargetPrice = targetPrice;
             leg.fallbackSide = side;
             return;
         }
