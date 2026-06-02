@@ -4,6 +4,8 @@ const { getISTTime } = require("./strategy.time");
 
 async function handleReentryReSL({ leg, config, strategyId, addStrategyLog, currentTick }) {
     const rtp = leg.resl_trigger_price;
+    addStrategyLog(strategyId, `Re-Entry (SL Hit Basis) for ${leg.instrument.symbol}: Price ₹${currentTick} crossed Target ₹${rtp}. Re-entering...`, "INFO");
+    leg.reentry_count = (leg.reentry_count || 0) + 1;
     let targetPrice = rtp;
 
     if (leg.leg.resl_mntm_enabled) {
@@ -27,7 +29,7 @@ async function handleReentryReSL({ leg, config, strategyId, addStrategyLog, curr
     // Determine Stoploss vs Limit
     let variety = config.variety || "NORMAL";
     let ordertype = config.ordertype || "LIMIT";
-    const offsetAmt = getLimitOffsetAmt(targetPrice, config);
+    const offsetAmt = config.is_paper_trading ? 0 : getLimitOffsetAmt(targetPrice, config);
     let finalPriceStr = targetPrice.toString();
     let triggerPriceStr = targetPrice.toString();
     const side = leg.leg.side;
@@ -70,7 +72,7 @@ async function handleReentryReSL({ leg, config, strategyId, addStrategyLog, curr
 
     try {
 
-        console.log(`[RE-SL] Firing Order for ${leg.instrument.symbol}. MTP=${roundedMtp}, LTP=${currentTick}, Var/Type=${variety}/${ordertype}`);
+        console.log(`[RE-SL] Firing Order for ${leg.instrument.symbol}. Target=${targetPrice}, LTP=${currentTick}, Var/Type=${variety}/${ordertype}`);
         const reEntryOrder = await placeOrder(
             {
                 ...config,
@@ -87,7 +89,6 @@ async function handleReentryReSL({ leg, config, strategyId, addStrategyLog, curr
 
         leg.orderId = reEntryOrder.orderid;
         leg.uniqueOrderId = reEntryOrder.uniqueorderid;
-        leg.mtp = roundedMtp;
         leg.rtp = rtp;
 
         leg.state = "WAITING_FOR_FILL";

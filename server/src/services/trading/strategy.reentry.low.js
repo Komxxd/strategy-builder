@@ -11,7 +11,7 @@ async function handleReentryLow({ leg, config, strategyId, addStrategyLog, curre
     const side = leg.leg.side;
     const rtp = leg.re_low_trigger_price; 
     const currentPrice = currentTick || leg.currentLtp;
-    const offsetAmt = getLimitOffsetAmt(rtp, config);
+    const offsetAmt = config.is_paper_trading ? 0 : getLimitOffsetAmt(rtp, config);
 
     // 2. Decide the Target Price (MTP or RTP)
     let targetPrice = rtp;
@@ -136,7 +136,7 @@ async function modifyReentryLowOrder({ leg, config, strategyId, addStrategyLog, 
 
     try {
         const api = await getAuthorizedInstance(config.connectionId);
-        const offsetAmt = getLimitOffsetAmt(newRtp, config);
+        const offsetAmt = config.is_paper_trading ? 0 : getLimitOffsetAmt(newRtp, config);
         const side = leg.leg.side;
         const newPrice = side === "BUY" ? roundToTick(newRtp + offsetAmt) : roundToTick(newRtp - offsetAmt);
 
