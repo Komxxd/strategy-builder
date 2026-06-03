@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { StopCircle, Loader2, TrendingUp, Search, Timer, LayoutDashboard, Target, Save, Play, Plus, Trash2, ShieldCheck, Zap, Copy, MessageSquare, Ghost, X, Settings2, Clock, ChevronDown, ChevronUp, GripVertical, RefreshCw, Sliders, Eye, Database } from 'lucide-react';
+import { StopCircle, Loader2, TrendingUp, Search, Timer, LayoutDashboard, Target, Save, Play, Plus, Trash2, ShieldCheck, Zap, Copy, MessageSquare, Ghost, X, Settings2, Clock, ChevronDown, ChevronUp, GripVertical, RefreshCw, Sliders, Eye, Database, Archive } from 'lucide-react';
 import { Switch } from "@/components/ui/switch";
 import axios from 'axios';
 import { io } from 'socket.io-client';
@@ -2029,6 +2029,22 @@ export const StrategyBuilder = ({ isConnected }) => {
         }
     };
 
+    const handleMoveToHistory = async (id) => {
+        if (!id) return;
+        if (!confirm("Are you sure you want to permanently move this strategy to history?")) return;
+        try {
+            setRunningStrategies(prev => {
+                const next = { ...prev };
+                delete next[id];
+                return next;
+            });
+            await axios.post(`${API_BASE_URL}/strategy/movetohistory/${id}`);
+        } catch (err) {
+            alert("Error moving strategy to history: " + err.message);
+            fetchActive(); // Revert optimistic update on error
+        }
+    };
+
     const handleSquareOff = async (id) => {
         if (!id) return;
         if (!confirm("Are you sure you want to instantly square off all positions for this strategy?")) return;
@@ -2238,7 +2254,20 @@ export const StrategyBuilder = ({ isConnected }) => {
 
                         updates.forEach(u => {
                             const isTerminalState = u.data?.status && ["COMPLETED", "FAILED", "TERMINATED", "STOPPED", "CANCELLED", "SQUARED_OFF"].includes(u.data.status);
-                            if (u.error || isTerminalState) {
+                            
+                            let shouldDelete = u.error;
+                            if (isTerminalState) {
+                                const now = new Date();
+                                const istTime = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
+                                
+                                if (istTime.getHours() < 15 || (istTime.getHours() === 15 && istTime.getMinutes() < 30)) {
+                                    shouldDelete = shouldDelete || false;
+                                } else {
+                                    shouldDelete = true;
+                                }
+                            }
+
+                            if (shouldDelete) {
                                 if (next[u.id]) {
                                     delete next[u.id];
                                     hasChanges = true;
@@ -2353,8 +2382,10 @@ export const StrategyBuilder = ({ isConnected }) => {
                                             const isPaper = !!strategyData.config?.is_paper_trading;
                                             return activeTab === 'paper' ? isPaper : !isPaper;
                                         })
-                                        .map(([id, strategyData]) => (
-                                            <Card key={id} className={`w-full border-border animate-in fade-in slide-in-from-bottom-4 duration-500 shadow-sm ${strategyData.config?.is_paper_trading ? 'bg-blue-50/50' : 'bg-orange-50/50'}`}>
+                                        .map(([id, strategyData]) => {
+                                            const isTerminal = ["COMPLETED", "FAILED", "TERMINATED", "STOPPED", "CANCELLED", "SQUARED_OFF"].includes(strategyData.status);
+                                            return (
+                                            <Card key={id} className={`w-full border-border animate-in fade-in slide-in-from-bottom-4 duration-500 shadow-sm ${strategyData.config?.is_paper_trading ? 'bg-blue-50/50' : 'bg-orange-50/50'} ${isTerminal ? 'opacity-60 grayscale' : ''}`}>
                                                 <CardContent className="p-3 space-y-2">
                                                      <div 
                                                          className="flex flex-col xl:flex-row xl:items-center justify-between gap-3 cursor-pointer hover:bg-black/5 rounded-xl p-2 -m-2 transition-colors relative group"
@@ -2482,18 +2513,30 @@ export const StrategyBuilder = ({ isConnected }) => {
                                                                     <RefreshCw className="h-3.5 w-3.5" /> Resume
                                                                 </Button>
                                                             )}
-                                                            <Button
-                                                                size="sm"
-                                                                variant="outline"
-                                                                className="h-8 px-3 gap-1 rounded-md text-[11px] font-medium border-red-200 bg-red-50/50 hover:bg-red-100 text-red-600 shadow-sm"
-                                                                onClick={() => handleStop(id)}
-                                                            >
-                                                                <StopCircle className="h-3.5 w-3.5" /> Terminate
-                                                            </Button>
+                                                            {!isTerminal && (
+                                                                <Button
+                                                                    size="sm"
+                                                                    variant="outline"
+                                                                    className="h-8 px-3 gap-1 rounded-md text-[11px] font-medium border-red-200 bg-red-50/50 hover:bg-red-100 text-red-600 shadow-sm"
+                                                                    onClick={() => handleStop(id)}
+                                                                >
+                                                                    <StopCircle className="h-3.5 w-3.5" /> Terminate
+                                                                </Button>
+                                                            )}
+                                                            {isTerminal && (
+                                                                <Button
+                                                                    size="sm"
+                                                                    variant="outline"
+                                                                    className="h-8 px-3 gap-1 rounded-md text-[11px] font-medium border-slate-300 bg-slate-100 hover:bg-slate-200 text-slate-700 shadow-sm"
+                                                                    onClick={() => handleMoveToHistory(id)}
+                                                                >
+                                                                    <Archive className="h-3.5 w-3.5" /> Move to History
+                                                                </Button>
+                                                            )}
                                                         </div>
                                                     </div>
 
-                                                                                                         {collapsedSections[id] === true && (strategyData?.status === "IN_POSITION" || strategyData?.status === "PAUSED" || strategyData?.status === "COMPLETED") ? (
+                                                                                                         {collapsedSections[id] === true && (strategyData?.status === "IN_POSITION" || strategyData?.status === "PAUSED" || isTerminal) ? (
                                                         <div className="space-y-2 pt-2 border-t border-border mt-1">
                                                             {/* Strategy Legs */}
 
@@ -2734,7 +2777,8 @@ export const StrategyBuilder = ({ isConnected }) => {
                                                     ) : null}
                                                 </CardContent>
                                             </Card>
-                                        ))}
+                                            );
+                                        })}
                                     {Object.entries(runningStrategies).filter(([_, strategyData]) => {
                                         const isPaper = !!strategyData.config?.is_paper_trading;
                                         return activeTab === 'paper' ? isPaper : !isPaper;

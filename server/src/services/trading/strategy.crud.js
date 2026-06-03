@@ -116,6 +116,12 @@ async function getActiveStrategies() {
             FROM strategy_executions e
             LEFT JOIN strategies s ON e.strategy_id = s.id
             WHERE e.status IN ('WAITING', 'IN_POSITION', 'PAUSED')
+               OR (
+                  e.status IN ('COMPLETED', 'FAILED', 'TERMINATED', 'CANCELLED', 'STOPPED', 'SQUARED_OFF')
+                  AND (e.started_at AT TIME ZONE 'Asia/Kolkata')::date = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Kolkata')::date
+                  AND (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Kolkata')::time < '15:30:00'::time
+                  AND (e.execution_details->>'moved_to_history' IS NULL OR e.execution_details->>'moved_to_history' != 'true')
+               )
             ORDER BY e.started_at DESC
         `
     );
@@ -136,6 +142,11 @@ async function getExecutionHistory() {
             FROM strategy_executions e
             LEFT JOIN strategies s ON e.strategy_id = s.id
             WHERE e.status IN ('COMPLETED', 'FAILED', 'TERMINATED', 'CANCELLED', 'STOPPED', 'SQUARED_OFF')
+              AND NOT (
+                  (e.started_at AT TIME ZONE 'Asia/Kolkata')::date = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Kolkata')::date
+                  AND (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Kolkata')::time < '15:30:00'::time
+                  AND (e.execution_details->>'moved_to_history' IS NULL OR e.execution_details->>'moved_to_history' != 'true')
+              )
             ORDER BY COALESCE(e.completed_at, e.started_at) DESC
             LIMIT 50
         `
@@ -186,6 +197,17 @@ async function patchExecutionSettings(strategyId, settings) {
     return data;
 }
 
+async function forceMoveToHistory(executionId) {
+    const [existing] = await withDbRetry(() => sql`SELECT execution_details FROM strategy_executions WHERE id = ${executionId}`);
+    if (!existing) return;
+    
+    const details = existing.execution_details || {};
+    details.moved_to_history = true;
+    
+    await withDbRetry(() => sql`UPDATE strategy_executions SET execution_details = ${sql.json(details)} WHERE id = ${executionId}`);
+    return true;
+}
+
 module.exports = {
    withDbRetry,
    saveStrategy,
@@ -194,5 +216,6 @@ module.exports = {
    getUserStrategies,
    getActiveStrategies,
    getExecutionHistory,
-   patchExecutionSettings
+   patchExecutionSettings,
+   forceMoveToHistory
 };

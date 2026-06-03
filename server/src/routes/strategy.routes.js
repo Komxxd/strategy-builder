@@ -105,6 +105,16 @@ router.post("/stop/:id", async (req, res) => {
     }
 });
 
+router.post("/movetohistory/:id", async (req, res) => {
+    try {
+        await strategyService.forceMoveToHistory(req.params.id);
+        res.json({ success: true, message: "Strategy moved to history" });
+    } catch (error) {
+        console.error("Error moving strategy to history:", error.message);
+        res.status(500).json({ success: false, message: "Failed to move strategy to history" });
+    }
+});
+
 router.post("/resume/:id", async (req, res) => {
     try {
         await strategyService.resumeStrategy(req.params.id);
