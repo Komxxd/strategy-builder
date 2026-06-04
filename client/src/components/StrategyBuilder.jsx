@@ -2017,12 +2017,10 @@ export const StrategyBuilder = ({ isConnected }) => {
         try {
             setRunningStrategies(prev => {
                 const next = { ...prev };
-                delete next[id];
+                if (next[id]) next[id] = { ...next[id], status: 'STOPPED' };
                 return next;
             });
             await axios.post(`${API_BASE_URL}/strategy/stop/${id}`);
-            // Intentionally not calling fetchActive() here to avoid race condition with DB write.
-            // The optimistic update handles the UI, and the background interval skips this deleted ID.
         } catch (err) {
             alert("Error stopping strategy: " + err.message);
             fetchActive(); // Revert optimistic update on error
@@ -2051,13 +2049,12 @@ export const StrategyBuilder = ({ isConnected }) => {
         try {
             setRunningStrategies(prev => {
                 const next = { ...prev };
-                delete next[id];
+                if (next[id]) next[id] = { ...next[id], status: 'SQUARED_OFF' };
                 return next;
             });
             await axios.post(`${API_BASE_URL}/strategy/squareoff/${id}`);
-            // Intentionally not calling fetchActive() here to avoid race condition with DB write.
         } catch (err) {
-            alert("Error squaring off strategy: " + err.response?.data?.message || err.message);
+            alert("Error squaring off strategy: " + (err.response?.data?.message || err.message));
             fetchActive(); // Revert optimistic update on error
         }
     };
