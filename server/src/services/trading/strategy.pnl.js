@@ -1,19 +1,23 @@
 const { roundToTick, getLimitOffsetAmt, computeStopLossExitPrices } = require("./strategy.offset");
 
-function checkOverallPnlLimits({ config, totalPnlRupees, avgPnl }) {
+function checkOverallPnlLimits({ config, totalPnlRupees, avgPnl, isMinuteClose }) {
     // 1. Check Overall Stop Loss
+    // If "On Close" is enabled for SL, only check at minute close (second 59)
+    const slOnClose = config.overall_sl_on_close === true;
+    const skipSl = slOnClose && !isMinuteClose;
+
     const slType = config.overall_sl_type || "PERCENTAGE";
     const slValue = parseFloat(config.overall_sl_value || 0);
 
     const multiplier = parseFloat(config.quantity_multiplier) || 1;
-    if (config.overall_sl_enabled && slValue > 0) {
+    if (!skipSl && config.overall_sl_enabled && slValue > 0) {
         if (slType === "PERCENTAGE" && avgPnl <= -slValue) {
             return {
                 hit: true,
                 exitType: "OVERALL_STOP_LOSS",
                 reason: `Overall SL% (${slValue}%) hit`,
                 logLevel: "CRITICAL",
-                logMessage: "SQUARING OFF due to Overall Stop Loss hit."
+                logMessage: `SQUARING OFF due to Overall Stop Loss hit${slOnClose ? " (On Close)" : ""}.`
             };
         } else if (slType === "AMOUNT" && totalPnlRupees <= -(slValue * multiplier)) {
             return {
@@ -21,23 +25,27 @@ function checkOverallPnlLimits({ config, totalPnlRupees, avgPnl }) {
                 exitType: "OVERALL_STOP_LOSS",
                 reason: `Overall SL₹ (₹${(slValue * multiplier).toFixed(2)}) hit`,
                 logLevel: "CRITICAL",
-                logMessage: "SQUARING OFF due to Overall Stop Loss hit."
+                logMessage: `SQUARING OFF due to Overall Stop Loss hit${slOnClose ? " (On Close)" : ""}.`
             };
         }
     }
 
     // 2. Check Overall Target
+    // If "On Close" is enabled for Target, only check at minute close (second 59)
+    const targetOnClose = config.overall_target_on_close === true;
+    const skipTarget = targetOnClose && !isMinuteClose;
+
     const targetType = config.overall_target_type || "PERCENTAGE";
     const targetValue = parseFloat(config.overall_target_value || 0);
 
-    if (config.overall_target_enabled && targetValue > 0) {
+    if (!skipTarget && config.overall_target_enabled && targetValue > 0) {
         if (targetType === "PERCENTAGE" && avgPnl >= targetValue) {
             return {
                 hit: true,
                 exitType: "OVERALL_TARGET",
                 reason: `Overall Target% (${targetValue}%) hit`,
                 logLevel: "SUCCESS",
-                logMessage: "SQUARING OFF due to Overall Target hit."
+                logMessage: `SQUARING OFF due to Overall Target hit${targetOnClose ? " (On Close)" : ""}.`
             };
         } else if (targetType === "AMOUNT" && totalPnlRupees >= (targetValue * multiplier)) {
             return {
@@ -45,7 +53,7 @@ function checkOverallPnlLimits({ config, totalPnlRupees, avgPnl }) {
                 exitType: "OVERALL_TARGET",
                 reason: `Overall Target₹ (₹${(targetValue * multiplier).toFixed(2)}) hit`,
                 logLevel: "SUCCESS",
-                logMessage: "SQUARING OFF due to Overall Target hit."
+                logMessage: `SQUARING OFF due to Overall Target hit${targetOnClose ? " (On Close)" : ""}.`
             };
         }
     }

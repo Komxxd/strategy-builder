@@ -374,8 +374,12 @@ async function monitorStrategyLoop(strategyId, strategy) {
         strategy.pnlPercent = avgPnl;
         strategy.totalOriginalValue = totalOriginalValue;
 
-        // Overall Limit Check
-        const limitCheck = checkOverallPnlLimits({ config, totalPnlRupees, avgPnl });
+        // Overall Limit Check — "On Close" support
+        // If on_close is enabled, the check only fires at second 59 of each minute
+        const currentSeconds = parseInt(currentTime.split(":")[2], 10);
+        const isMinuteClose = currentSeconds === 59;
+
+        const limitCheck = checkOverallPnlLimits({ config, totalPnlRupees, avgPnl, isMinuteClose });
         if (limitCheck.hit) {
             if (strategy.exitAttempted) return;
             strategy.exitAttempted = true;

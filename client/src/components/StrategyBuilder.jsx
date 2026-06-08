@@ -1665,35 +1665,47 @@ export const StrategyFormContent = ({ config, setConfig, editingId, setEditingId
                         />
                     </div>
                     {config.overall_sl_enabled && (
-                        <div className="flex items-center gap-2 animate-in fade-in slide-in-from-top-1 duration-300">
-                            <div className="flex flex-col gap-0.5 flex-1">
-                                <Label className="text-[8.5px] font-medium uppercase tracking-wider text-muted-foreground whitespace-nowrap">Type</Label>
-                                <Select value={config.overall_sl_type || 'PERCENTAGE'} onValueChange={(v) => setConfig({ ...config, overall_sl_type: v })}>
-                                    <SelectTrigger className="h-9 w-full sm:w-44 rounded-lg text-[11px] bg-background border-input">
-                                        <SelectValue placeholder="Type" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="PERCENTAGE">Percentage (%)</SelectItem>
-                                        <SelectItem value="AMOUNT">Amount (₹)</SelectItem>
-                                    </SelectContent>
-                                </Select>
+                        <div className="space-y-1.5 animate-in fade-in slide-in-from-top-1 duration-300">
+                            <div className="flex items-center gap-2">
+                                <div className="flex flex-col gap-0.5 flex-1">
+                                    <Label className="text-[8.5px] font-medium uppercase tracking-wider text-muted-foreground whitespace-nowrap">Type</Label>
+                                    <Select value={config.overall_sl_type || 'PERCENTAGE'} onValueChange={(v) => setConfig({ ...config, overall_sl_type: v })}>
+                                        <SelectTrigger className="h-9 w-full sm:w-44 rounded-lg text-[11px] bg-background border-input">
+                                            <SelectValue placeholder="Type" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="PERCENTAGE">Percentage (%)</SelectItem>
+                                            <SelectItem value="AMOUNT">Amount (₹)</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                                <div className="flex flex-col gap-0.5 w-24 sm:w-28 shrink-0">
+                                    <Label className="text-[8.5px] font-medium uppercase tracking-wider text-muted-foreground whitespace-nowrap">Value</Label>
+                                    <Input
+                                        className="h-9 w-full rounded-lg text-[11px] border-input bg-background focus:ring-emerald-500 focus:border-emerald-500"
+                                        type="text"
+                                        value={config.overall_sl_value}
+                                        onChange={(e) => {
+                                            const val = e.target.value;
+                                            if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                                                setConfig({ ...config, overall_sl_value: val });
+                                            }
+                                        }}
+                                        onBlur={(e) => {
+                                            setConfig({ ...config, overall_sl_value: parseFloat(e.target.value) || 0 });
+                                        }}
+                                    />
+                                </div>
                             </div>
-                            <div className="flex flex-col gap-0.5 w-24 sm:w-28 shrink-0">
-                                <Label className="text-[8.5px] font-medium uppercase tracking-wider text-muted-foreground whitespace-nowrap">Value</Label>
-                                <Input
-                                    className="h-9 w-full rounded-lg text-[11px] border-input bg-background focus:ring-emerald-500 focus:border-emerald-500"
-                                    type="text"
-                                    value={config.overall_sl_value}
-                                    onChange={(e) => {
-                                        const val = e.target.value;
-                                        if (val === '' || /^\d*\.?\d*$/.test(val)) {
-                                            setConfig({ ...config, overall_sl_value: val });
-                                        }
-                                    }}
-                                    onBlur={(e) => {
-                                        setConfig({ ...config, overall_sl_value: parseFloat(e.target.value) || 0 });
-                                    }}
+                            <div className="flex items-center gap-1.5">
+                                <input
+                                    type="checkbox"
+                                    id="overall-sl-on-close"
+                                    className="w-3.5 h-3.5 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                    checked={config.overall_sl_on_close || false}
+                                    onChange={(e) => setConfig({ ...config, overall_sl_on_close: e.target.checked })}
                                 />
+                                <Label htmlFor="overall-sl-on-close" className="text-[10px] cursor-pointer text-muted-foreground">On Close</Label>
                             </div>
                         </div>
                     )}
@@ -1709,35 +1721,47 @@ export const StrategyFormContent = ({ config, setConfig, editingId, setEditingId
                         />
                     </div>
                     {config.overall_target_enabled && (
-                        <div className="flex items-center gap-2 animate-in fade-in slide-in-from-top-1 duration-300">
-                            <div className="flex flex-col gap-0.5 flex-1">
-                                <Label className="text-[8.5px] font-medium uppercase tracking-wider text-muted-foreground whitespace-nowrap">Type</Label>
-                                <Select value={config.overall_target_type || 'PERCENTAGE'} onValueChange={(v) => setConfig({ ...config, overall_target_type: v })}>
-                                    <SelectTrigger className="h-9 w-full sm:w-44 rounded-lg text-[11px] bg-background border-input">
-                                        <SelectValue placeholder="Type" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="PERCENTAGE">Percentage (%)</SelectItem>
-                                        <SelectItem value="AMOUNT">Amount (₹)</SelectItem>
-                                    </SelectContent>
-                                </Select>
+                        <div className="space-y-1.5 animate-in fade-in slide-in-from-top-1 duration-300">
+                            <div className="flex items-center gap-2">
+                                <div className="flex flex-col gap-0.5 flex-1">
+                                    <Label className="text-[8.5px] font-medium uppercase tracking-wider text-muted-foreground whitespace-nowrap">Type</Label>
+                                    <Select value={config.overall_target_type || 'PERCENTAGE'} onValueChange={(v) => setConfig({ ...config, overall_target_type: v })}>
+                                        <SelectTrigger className="h-9 w-full sm:w-44 rounded-lg text-[11px] bg-background border-input">
+                                            <SelectValue placeholder="Type" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="PERCENTAGE">Percentage (%)</SelectItem>
+                                            <SelectItem value="AMOUNT">Amount (₹)</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                                <div className="flex flex-col gap-0.5 w-24 sm:w-28 shrink-0">
+                                    <Label className="text-[8.5px] font-medium uppercase tracking-wider text-muted-foreground whitespace-nowrap">Value</Label>
+                                    <Input
+                                        className="h-9 w-full rounded-lg text-[11px] border-input bg-background focus:ring-emerald-500 focus:border-emerald-500"
+                                        type="text"
+                                        value={config.overall_target_value}
+                                        onChange={(e) => {
+                                            const val = e.target.value;
+                                            if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                                                setConfig({ ...config, overall_target_value: val });
+                                            }
+                                        }}
+                                        onBlur={(e) => {
+                                            setConfig({ ...config, overall_target_value: parseFloat(e.target.value) || 0 });
+                                        }}
+                                    />
+                                </div>
                             </div>
-                            <div className="flex flex-col gap-0.5 w-24 sm:w-28 shrink-0">
-                                <Label className="text-[8.5px] font-medium uppercase tracking-wider text-muted-foreground whitespace-nowrap">Value</Label>
-                                <Input
-                                    className="h-9 w-full rounded-lg text-[11px] border-input bg-background focus:ring-emerald-500 focus:border-emerald-500"
-                                    type="text"
-                                    value={config.overall_target_value}
-                                    onChange={(e) => {
-                                        const val = e.target.value;
-                                        if (val === '' || /^\d*\.?\d*$/.test(val)) {
-                                            setConfig({ ...config, overall_target_value: val });
-                                        }
-                                    }}
-                                    onBlur={(e) => {
-                                        setConfig({ ...config, overall_target_value: parseFloat(e.target.value) || 0 });
-                                    }}
+                            <div className="flex items-center gap-1.5">
+                                <input
+                                    type="checkbox"
+                                    id="overall-target-on-close"
+                                    className="w-3.5 h-3.5 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                    checked={config.overall_target_on_close || false}
+                                    onChange={(e) => setConfig({ ...config, overall_target_on_close: e.target.checked })}
                                 />
+                                <Label htmlFor="overall-target-on-close" className="text-[10px] cursor-pointer text-muted-foreground">On Close</Label>
                             </div>
                         </div>
                     )}
@@ -1876,9 +1900,11 @@ export const StrategyBuilder = ({ isConnected }) => {
         overall_sl_type: 'PERCENTAGE',
         overall_sl_value: 0,
         overall_sl_enabled: false,
+        overall_sl_on_close: false,
         overall_target_type: 'PERCENTAGE',
         overall_target_value: 0,
         overall_target_enabled: false,
+        overall_target_on_close: false,
         entry_limit_offset: 0,
         entry_limit_offset_type: 'POINTS',
         chase_time_seconds: 45,
