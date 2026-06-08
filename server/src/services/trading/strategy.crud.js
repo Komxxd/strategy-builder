@@ -118,7 +118,7 @@ async function getActiveStrategies() {
             WHERE e.status IN ('WAITING', 'IN_POSITION', 'PAUSED')
                OR (
                   e.status IN ('COMPLETED', 'FAILED', 'TERMINATED', 'CANCELLED', 'STOPPED', 'SQUARED_OFF')
-                  AND (e.started_at AT TIME ZONE 'Asia/Kolkata')::date = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Kolkata')::date
+                  AND (COALESCE(e.completed_at, e.started_at) AT TIME ZONE 'Asia/Kolkata')::date = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Kolkata')::date
                   AND (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Kolkata')::time < '15:30:00'::time
                   AND (e.execution_details->>'moved_to_history' IS NULL OR e.execution_details->>'moved_to_history' != 'true')
                )
@@ -143,7 +143,7 @@ async function getExecutionHistory() {
             LEFT JOIN strategies s ON e.strategy_id = s.id
             WHERE e.status IN ('COMPLETED', 'FAILED', 'TERMINATED', 'CANCELLED', 'STOPPED', 'SQUARED_OFF')
               AND NOT (
-                  (e.started_at AT TIME ZONE 'Asia/Kolkata')::date = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Kolkata')::date
+                  (COALESCE(e.completed_at, e.started_at) AT TIME ZONE 'Asia/Kolkata')::date = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Kolkata')::date
                   AND (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Kolkata')::time < '15:30:00'::time
                   AND (e.execution_details->>'moved_to_history' IS NULL OR e.execution_details->>'moved_to_history' != 'true')
               )
