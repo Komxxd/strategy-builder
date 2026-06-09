@@ -442,7 +442,8 @@ async function monitorStrategyLoop(strategyId, strategy) {
                 if (config.variety === "STOPLOSS" && !config.is_paper_trading && leg.slOrderId) {
                     try {
                         const api = await getAuthorizedInstance(config.connectionId);
-                        const quantityInShares = (leg.leg.lots * parseInt(leg.instrument.lotsize)).toString();
+                        const multiplier = parseFloat(config.quantity_multiplier) || 1;
+                        const quantityInShares = (leg.leg.lots * parseInt(leg.instrument.lotsize) * multiplier).toString();
                         await api.modifyOrder({
                             variety: "STOPLOSS", orderid: leg.slOrderId, ordertype: "STOPLOSS_LIMIT", producttype: config.producttype || "CARRYFORWARD",
                             duration: config.duration || "DAY", price: newLimit.toString(), quantity: quantityInShares,

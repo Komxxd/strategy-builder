@@ -111,7 +111,7 @@ async function chaseOrderFill({ orderId, uniqueOrderId, instrument, config, legS
                     producttype: config.producttype || "CARRYFORWARD",
                     duration: config.duration || "DAY",
                     price: newPrice.toString(),
-                    quantity: (lots * parseInt(instrument.lotsize)).toString(),
+                    quantity: (lots * parseInt(instrument.lotsize) * (parseFloat(config.quantity_multiplier) || 1)).toString(),
                     tradingsymbol: instrument.symbol,
                     symboltoken: instrument.token,
                     exchange: instrument.exch_seg,
