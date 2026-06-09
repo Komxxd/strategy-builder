@@ -422,7 +422,7 @@ async function monitorStrategyLoop(strategyId, strategy) {
         for (const leg of strategy.legs) {
             if (leg.exited || leg.state === "WAITING_FOR_RECOST") continue;
 
-            const evalResult = evaluateLegLimits({ leg, config, strategyId, addStrategyLog });
+            const evalResult = evaluateLegLimits({ leg, config, strategyId, addStrategyLog, isMinuteClose });
             
             // Debug TSL re-entry
             if (leg.reentry_count > 0 && leg.leg.tsl_enabled) {

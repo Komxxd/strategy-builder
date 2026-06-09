@@ -61,7 +61,7 @@ function checkOverallPnlLimits({ config, totalPnlRupees, avgPnl, isMinuteClose }
     return { hit: false };
 }
 
-function evaluateLegLimits({ leg, config, strategyId, addStrategyLog }) {
+function evaluateLegLimits({ leg, config, strategyId, addStrategyLog, isMinuteClose }) {
     let result = {
         isHit: false,
         exitReason: "LEG_STOP_LOSS",
@@ -95,7 +95,13 @@ function evaluateLegLimits({ leg, config, strategyId, addStrategyLog }) {
 
     // Removed verbose TSL debug logging
 
-    if (isTslEnabled && leg.tslReferencePrice !== undefined && leg.currentLtp !== null) {
+    // On Close: If tsl_on_close is enabled, only evaluate TSL at minute close (second 59)
+    const tslOnClose = isTslOverride
+        ? (leg.leg.reentry_tsl_on_close === true)
+        : (leg.leg.tsl_on_close === true);
+    const skipTsl = tslOnClose && !isMinuteClose;
+
+    if (!skipTsl && isTslEnabled && leg.tslReferencePrice !== undefined && leg.currentLtp !== null) {
         if (!isNaN(tslMove) && !isNaN(tslTrail) && tslMove > 0 && tslTrail > 0) {
             let moveThreshold = tslMove;
             let trailAmount = tslTrail;

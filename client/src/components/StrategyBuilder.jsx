@@ -72,7 +72,9 @@ const DEFAULT_LEG = {
     tsl_enabled: false,
     tsl_type: 'PERCENTAGE',
     tsl_move: 0,
-    tsl_trail: 0
+    tsl_trail: 0,
+    tsl_on_close: false,
+    reentry_tsl_on_close: false
 };
 
 
@@ -440,6 +442,17 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
                                         }}
                                     />
                                 </div>
+
+                                <div className="flex items-center gap-1.5">
+                                    <input
+                                        type="checkbox"
+                                        id={`tsl-on-close-${idPrefix}`}
+                                        className="w-3.5 h-3.5 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                        checked={leg.tsl_on_close || false}
+                                        onChange={(e) => onChange({ ...leg, tsl_on_close: e.target.checked })}
+                                    />
+                                    <Label htmlFor={`tsl-on-close-${idPrefix}`} className="text-[10px] cursor-pointer whitespace-nowrap">On Close</Label>
+                                </div>
                             </div>
                         )}
                     </div>
@@ -802,6 +815,17 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
                                                                 }}
                                                             />
                                                         </div>
+
+                                                        <div className="flex items-center gap-1.5">
+                                                            <input
+                                                                type="checkbox"
+                                                                id={`reentry-tsl-on-close-recost-${idPrefix}`}
+                                                                className="w-3.5 h-3.5 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                                                checked={leg.reentry_tsl_on_close || false}
+                                                                onChange={(e) => onChange({ ...leg, reentry_tsl_on_close: e.target.checked })}
+                                                            />
+                                                            <Label htmlFor={`reentry-tsl-on-close-recost-${idPrefix}`} className="text-[10px] cursor-pointer whitespace-nowrap">On Close</Label>
+                                                        </div>
                                                     </div>
                                                 )}
                                             </div>
@@ -1016,6 +1040,17 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
                                                             value={leg.reentry_tsl_trail !== undefined ? leg.reentry_tsl_trail : (leg.tsl_trail || 0)}
                                                             onChange={(e) => onChange({ ...leg, reentry_tsl_trail: parseFloat(e.target.value) })}
                                                         />
+                                                    </div>
+
+                                                    <div className="flex items-center gap-1.5 pt-1">
+                                                        <input
+                                                            type="checkbox"
+                                                            id={`reentry-tsl-on-close-resl-${idPrefix}`}
+                                                            className="w-3.5 h-3.5 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                                            checked={leg.reentry_tsl_on_close || false}
+                                                            onChange={(e) => onChange({ ...leg, reentry_tsl_on_close: e.target.checked })}
+                                                        />
+                                                        <Label htmlFor={`reentry-tsl-on-close-resl-${idPrefix}`} className="text-[10px] cursor-pointer whitespace-nowrap">On Close</Label>
                                                     </div>
                                                 </div>
                                             )}
@@ -1232,6 +1267,17 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
                                                                 }}
                                                             />
                                                         </div>
+
+                                                        <div className="flex items-center gap-1.5">
+                                                            <input
+                                                                type="checkbox"
+                                                                id={`reentry-tsl-on-close-rehigh-${idPrefix}`}
+                                                                className="w-3.5 h-3.5 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                                                checked={leg.reentry_tsl_on_close || false}
+                                                                onChange={(e) => onChange({ ...leg, reentry_tsl_on_close: e.target.checked })}
+                                                            />
+                                                            <Label htmlFor={`reentry-tsl-on-close-rehigh-${idPrefix}`} className="text-[10px] cursor-pointer whitespace-nowrap">On Close</Label>
+                                                        </div>
                                                     </div>
                                                 )}
                                             </div>
@@ -1445,6 +1491,17 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
                                                                     onChange({ ...leg, reentry_tsl_trail: val === '' ? 0 : parseFloat(val) });
                                                                 }}
                                                             />
+                                                        </div>
+
+                                                        <div className="flex items-center gap-1.5">
+                                                            <input
+                                                                type="checkbox"
+                                                                id={`reentry-tsl-on-close-relow-${idPrefix}`}
+                                                                className="w-3.5 h-3.5 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                                                checked={leg.reentry_tsl_on_close || false}
+                                                                onChange={(e) => onChange({ ...leg, reentry_tsl_on_close: e.target.checked })}
+                                                            />
+                                                            <Label htmlFor={`reentry-tsl-on-close-relow-${idPrefix}`} className="text-[10px] cursor-pointer whitespace-nowrap">On Close</Label>
                                                         </div>
                                                     </div>
                                                 )}
