@@ -497,8 +497,10 @@ async function monitorStrategyLoop(strategyId, strategy) {
                         const details = await api.indOrderDetails(leg.slUniqueOrderId);
                         const orderStatus = (details?.data?.orderstatus || "").toLowerCase();
                         if (orderStatus === "complete" || orderStatus === "filled") {
+                            const exchangeFillPrice = Number(details.data.averageprice || details.data.averagePrice || 0) || null;
+                            const exchangeFillTime = details.data.exchorderupdatetime || details.data.filltime || null;
                             leg.exchangeSlProcessed = true;
-                            await handleLegStopOut(leg, "EXCHANGE_STOP_LOSS", strategy);
+                            await handleLegStopOut(leg, "EXCHANGE_STOP_LOSS", strategy, { exchangeFillPrice, exchangeFillTime });
                         }
                     } catch (err) { }
                 }

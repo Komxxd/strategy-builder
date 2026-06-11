@@ -22,11 +22,24 @@ const { placeOrder, waitForOrderFillPrice, placeStopLossWithRetry } = require(".
  * @param {String} exitType - Why the trade closed (e.g., 'STOPLOSS', 'SQUARE_OFF').
  * @param {Object} strategy - The parent strategy object.
  */
-async function handleLegStopOut(leg, exitType, strategy) {
+async function handleLegStopOut(leg, exitType, strategy, exchangeFillData = null) {
     const strategyId = strategy.id;
     const config = strategy.config;
 
-    // STEP 1: Finalize the current leg's finances
+    // STEP 1: If we have actual exchange fill data, use it for accurate PnL
+    // The exchange fill price accounts for real slippage, unlike the WebSocket LTP.
+    if (exchangeFillData?.exchangeFillPrice && leg.entryPrice) {
+        leg.currentLtp = exchangeFillData.exchangeFillPrice;
+        const pnlPoints = leg.leg.side === "BUY"
+            ? (leg.currentLtp - leg.entryPrice)
+            : (leg.entryPrice - leg.currentLtp);
+        const multiplier = parseFloat(config.quantity_multiplier) || 1;
+        const quantity = leg.leg.lots * parseInt(leg.instrument?.lotsize || 1) * multiplier;
+        leg.currentActivePnlPoints = pnlPoints;
+        leg.currentActivePnlRupees = pnlPoints * quantity;
+    }
+
+    // STEP 2: Finalize the current leg's finances
     // We move any active profit/loss into the "Booked" bucket so it's permanently saved.
     leg.state = "COMPLETED";
     leg.exited = true;
@@ -36,16 +49,17 @@ async function handleLegStopOut(leg, exitType, strategy) {
     leg.currentActivePnlPoints = 0;
     leg.currentActivePnlRupees = 0;
 
-    // STEP 2: Create a snapshot for history
+    // STEP 3: Create a snapshot for history
     // This allows the user to see exactly what happened in the past (Entry, Exit, and SL prices).
+    const exitTime = exchangeFillData?.exchangeFillTime || getISTTime();
     leg.exitSnapshot = {
         slTriggerPrice: leg.slTriggerPrice,
         initialSlTriggerPrice: leg.initialSlTriggerPrice,
         exitLtp: leg.currentLtp,
-        exitTime: getISTTime(),
+        exitTime: exitTime,
         peakPrice: leg.peakPrice
     };
-    leg.exitTime = getISTTime();
+    leg.exitTime = exitTime;
 
     // STEP 3: Clean up order IDs
     // We clear the SL order IDs because that order is now dead/executed.
