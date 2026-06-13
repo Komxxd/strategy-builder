@@ -1982,6 +1982,9 @@ class BacktestEngine {
             this.results.chartData = this.results.chartData || {};
             this.results.chartData[date] = dayChart;
             console.log(`  -> Day PnL: ${dailyPnL.toFixed(2)} | Trade Value: ${dailyTradeValue.toFixed(2)}`);
+            
+            // Yield to the event loop so BullMQ can renew the job lock
+            await new Promise(resolve => setImmediate(resolve));
         }
         
         return this.results;
