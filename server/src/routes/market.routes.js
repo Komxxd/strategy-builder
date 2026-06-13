@@ -60,10 +60,27 @@ router.get("/backtest-dates", async (req, res) => {
         const { index } = req.query; // 'NIFTY' or 'SENSEX'
         if (!index) return res.status(400).json({ success: false, message: "Index is required" });
 
+        // Ensure Redis is connected before trying to get data, otherwise it throws Stream not writeable due to lazyConnect
+        if (redis.status !== 'ready') {
+            if (redis.status === 'wait') {
+                redis.connect().catch(() => {});
+            }
+            // Wait up to 1 second for it to be ready
+            await new Promise((resolve) => {
+                const timeout = setTimeout(resolve, 1000);
+                redis.once('ready', () => {
+                    clearTimeout(timeout);
+                    resolve();
+                });
+            });
+        }
+
         // First try to get it from Redis (this is populated by the Backtest Server)
-        const cachedDates = await redis.get(`backtest:dates:${index}`);
-        if (cachedDates) {
-            return res.json({ success: true, data: JSON.parse(cachedDates) });
+        if (redis.status === 'ready') {
+            const cachedDates = await redis.get(`backtest:dates:${index}`);
+            if (cachedDates) {
+                return res.json({ success: true, data: JSON.parse(cachedDates) });
+            }
         }
 
         // Fallback: If not in Redis, try the local file system (useful for local development without the worker)
