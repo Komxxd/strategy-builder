@@ -5,6 +5,14 @@ const redis = require('../config/redis');
 async function syncMarketDates() {
     console.log("[Sync] Scanning market-data to update available dates in Redis...");
     try {
+        if (redis.status !== 'ready') {
+            if (redis.status === 'wait') {
+                redis.connect().catch(() => {});
+            }
+            await new Promise((resolve) => {
+                redis.once('ready', resolve);
+            });
+        }
         const indexBaseDir = path.join(__dirname, "../../../market-data/index");
         if (!fs.existsSync(indexBaseDir)) {
             console.log("[Sync] No market-data/index directory found.");
@@ -50,3 +58,10 @@ async function syncMarketDates() {
 }
 
 module.exports = syncMarketDates;
+
+if (require.main === module) {
+    syncMarketDates().then(() => {
+        console.log("[Sync] Finished.");
+        process.exit(0);
+    });
+}
