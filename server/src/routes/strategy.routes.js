@@ -168,4 +168,59 @@ router.get("/status/:id", async (req, res) => {
     }
 });
 
+const { addBacktestJob, backtestQueue } = require('../queue/backtestQueue');
+
+router.post("/backtest", async (req, res) => {
+    try {
+        const { strategyId, fromDate, toDate } = req.body;
+        if (!strategyId || !fromDate || !toDate) {
+            return res.status(400).json({ success: false, message: "strategyId, fromDate, toDate required" });
+        }
+
+        const jobId = await addBacktestJob({ strategyId, fromDate, toDate });
+        res.json({ success: true, jobId, message: "Backtest started" });
+    } catch (error) {
+        console.error("Error queueing backtest:", error);
+        res.status(500).json({ success: false, message: "Failed to queue backtest", details: error.message });
+    }
+});
+
+router.post("/backtest/combined", async (req, res) => {
+    try {
+        const { strategyIds, fromDate, toDate } = req.body;
+        if (!strategyIds || !Array.isArray(strategyIds) || !fromDate || !toDate) {
+            return res.status(400).json({ success: false, message: "strategyIds array, fromDate, toDate required" });
+        }
+
+        const jobId = await addBacktestJob({ strategyIds, fromDate, toDate });
+        res.json({ success: true, jobId, message: "Combined backtest started" });
+    } catch (error) {
+        console.error("Error queueing combined backtest:", error);
+        res.status(500).json({ success: false, message: "Failed to queue combined backtest", details: error.message });
+    }
+});
+
+router.get("/backtest/status/:jobId", async (req, res) => {
+    try {
+        const job = await backtestQueue.getJob(req.params.jobId);
+        if (!job) {
+            return res.status(404).json({ success: false, message: "Job not found" });
+        }
+
+        const isCompleted = await job.isCompleted();
+        const isFailed = await job.isFailed();
+
+        if (isCompleted) {
+            return res.json({ success: true, status: 'completed', data: job.returnvalue });
+        } else if (isFailed) {
+            return res.json({ success: false, status: 'failed', message: job.failedReason });
+        } else {
+            return res.json({ success: true, status: 'active' });
+        }
+    } catch (error) {
+        console.error("Error getting backtest status:", error);
+        res.status(500).json({ success: false, message: "Failed to get backtest status", details: error.message });
+    }
+});
+
 module.exports = router;

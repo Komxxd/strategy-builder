@@ -5,6 +5,7 @@
   "main": "index.js",
   "scripts": {
     "start": "node src/server.js",
+    "start:backtest": "node src/backtest-server.js",
     "dev": "nodemon --ignore src/data/ src/server.js",
     "test": "echo \"Error: no test specified\" && exit 1",
     "prisma:generate": "prisma generate",
@@ -19,6 +20,7 @@
   "dependencies": {
     "@supabase/mcp-server-supabase": "^0.7.0",
     "@supabase/supabase-js": "^2.105.1",
+    "bullmq": "^5.78.0",
     "cors": "^2.8.6",
     "dotenv": "^17.2.3",
     "express": "^5.2.1",
@@ -26,6 +28,7 @@
     "express-validator": "^7.3.1",
     "greeks": "^1.0.0",
     "helmet": "^8.1.0",
+    "hyparquet": "^1.26.0",
     "ioredis": "^5.10.1",
     "node-cache": "^5.1.2",
     "node-cron": "^4.2.1",

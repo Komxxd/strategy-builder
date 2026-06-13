@@ -99,3 +99,34 @@ export async function fetchCandles({ exchange, symboltoken, interval, fromdate, 
     return res.json();
 }
 
+export async function fetchBacktestDates(index) {
+    const res = await fetch(`${API_BASE}/market/backtest-dates?index=${index}`, {
+        headers: getHeaders(),
+    });
+    return res.json();
+}
+
+export async function runBacktest(strategyId, fromDate, toDate) {
+    const res = await fetch(`${API_BASE}/strategy/backtest`, {
+        method: "POST",
+        headers: getHeaders(),
+        body: JSON.stringify({ strategyId, fromDate, toDate }),
+    });
+    return res.json();
+}
+
+export async function runCombinedBacktest(strategyIds, fromDate, toDate) {
+    const res = await fetch(`${API_BASE}/strategy/backtest/combined`, {
+        method: "POST",
+        headers: getHeaders(),
+        body: JSON.stringify({ strategyIds, fromDate, toDate }),
+    });
+    return res.json();
+}
+
+export async function getBacktestStatus(jobId) {
+    const res = await fetch(`${API_BASE}/strategy/backtest/status/${jobId}`, {
+        headers: getHeaders(),
+    });
+    return res.json();
+}

@@ -50,4 +50,43 @@ router.post("/candles", async (req, res) => {
     }
 });
 
+const fs = require('fs');
+const path = require('path');
+
+router.get("/backtest-dates", async (req, res) => {
+    try {
+        const { index } = req.query; // 'NIFTY' or 'SENSEX'
+        if (!index) return res.status(400).json({ success: false, message: "Index is required" });
+
+        const indexDir = path.join(__dirname, "../../../market-data/index", index);
+        if (!fs.existsSync(indexDir)) {
+            return res.json({ success: true, data: [] });
+        }
+
+        const dates = new Set();
+
+        const findDates = (dir) => {
+            const files = fs.readdirSync(dir);
+            for (const file of files) {
+                const fullPath = path.join(dir, file);
+                const stat = fs.statSync(fullPath);
+                if (stat.isDirectory()) {
+                    findDates(fullPath);
+                } else if (file.endsWith('.parquet')) {
+                    const match = file.match(/^(\d{4}-\d{2}-\d{2})\.parquet$/);
+                    if (match) {
+                        dates.add(match[1]);
+                    }
+                }
+            }
+        };
+
+        findDates(indexDir);
+        const sortedDates = Array.from(dates).sort();
+        res.json({ success: true, data: sortedDates });
+    } catch (err) {
+        res.status(500).json({ success: false, message: err.message });
+    }
+});
+
 module.exports = router;

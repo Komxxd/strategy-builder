@@ -6,14 +6,14 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { StopCircle, Loader2, TrendingUp, Search, Timer, LayoutDashboard, Target, Save, Play, Plus, Trash2, ShieldCheck, Zap, Copy, MessageSquare, Ghost, X, Settings2, Clock, ChevronDown, ChevronUp, GripVertical, RefreshCw, Sliders, Eye, Database, Archive } from 'lucide-react';
+import { StopCircle, Loader2, TrendingUp, Search, Timer, LayoutDashboard, Target, Save, Play, Plus, Trash2, ShieldCheck, Zap, Copy, MessageSquare, Ghost, X, Settings2, Clock, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, GripVertical, RefreshCw, Sliders, Eye, Database, Archive } from 'lucide-react';
 import { Switch } from "@/components/ui/switch";
 import axios from 'axios';
 import { io } from 'socket.io-client';
 import { StrategyLogs } from './StrategyLogs';
 import { StrategyConfigModal } from './StrategyConfigModal';
 import { ExecutionSettingsModal } from './ExecutionSettingsModal';
-
+import { fetchBacktestDates, runBacktest, runCombinedBacktest, getBacktestStatus } from '../api';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:5001/api";
 const SOCKET_URL = API_BASE_URL.replace(/\/api\/?$/, "");
@@ -86,6 +86,89 @@ const getLegSummary = (leg) => {
         summary += ` [TSL ${leg.tsl_move || 0}${leg.tsl_type === 'POINTS' ? 'pts' : '%'} | Trl: ${leg.tsl_trail || 0}]`;
     }
     return summary;
+};
+
+const CalendarPicker = ({ availableDates, dateRange, onSelect }) => {
+    const datesSet = new Set(availableDates);
+    const initialDate = availableDates.length > 0 ? new Date(availableDates[availableDates.length - 1]) : new Date();
+    const [currentMonth, setCurrentMonth] = useState(new Date(initialDate.getFullYear(), initialDate.getMonth(), 1));
+
+    const daysInMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0).getDate();
+    const firstDayOfMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1).getDay();
+
+    const prevMonth = () => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1));
+    const nextMonth = () => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1));
+
+    const minMonthStr = availableDates.length > 0 ? availableDates[0].substring(0, 7) : "";
+    const maxMonthStr = availableDates.length > 0 ? availableDates[availableDates.length - 1].substring(0, 7) : "";
+
+    const today = new Date();
+    const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+    const currentMonthActualStr = todayStr.substring(0, 7);
+
+    const effectiveMaxMonthStr = maxMonthStr > currentMonthActualStr ? currentMonthActualStr : maxMonthStr;
+
+    const currentMonthStr = `${currentMonth.getFullYear()}-${String(currentMonth.getMonth() + 1).padStart(2, '0')}`;
+
+    const canGoPrev = currentMonthStr > minMonthStr;
+    const canGoNext = currentMonthStr < effectiveMaxMonthStr;
+
+    const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+
+    const days = [];
+    for (let i = 0; i < firstDayOfMonth; i++) {
+        days.push(<div key={`empty-start-${i}`} className="h-7 w-7"></div>);
+    }
+
+    for (let i = 1; i <= daysInMonth; i++) {
+        const d = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), i);
+        const dateString = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+        const isFrom = dateRange.from === dateString;
+        const isTo = dateRange.to === dateString;
+        const isSelected = isFrom || isTo;
+        const isInRange = dateRange.from && dateRange.to && dateString > dateRange.from && dateString < dateRange.to;
+        const isFuture = dateString > todayStr;
+
+        days.push(
+            <button
+                key={dateString}
+                disabled={isFuture}
+                onClick={() => onSelect(dateString)}
+                className={`h-7 w-7 rounded-md flex items-center justify-center text-xs font-semibold transition-colors ${isSelected ? 'bg-slate-900 text-white shadow-sm' :
+                    isInRange ? 'bg-indigo-50 text-indigo-700' :
+                        isFuture ? 'text-slate-300 cursor-not-allowed opacity-40' :
+                            'bg-slate-100 text-slate-700 hover:bg-slate-200 cursor-pointer'
+                    }`}
+                title={isFuture ? 'Future dates cannot be selected' : ''}
+            >
+                {i}
+            </button>
+        );
+    }
+
+    const totalCells = days.length;
+    for (let i = 0; i < 42 - totalCells; i++) {
+        days.push(<div key={`empty-end-${i}`} className="h-7 w-7"></div>);
+    }
+
+    return (
+        <div className="w-full">
+            <div className="flex items-center justify-between mb-3">
+                <Button variant="ghost" size="sm" className="h-6 w-6 p-0 rounded-md hover:bg-slate-100" onClick={prevMonth} disabled={!canGoPrev}><ChevronLeft className="h-3.5 w-3.5 text-slate-600" /></Button>
+                <div className="text-[10px] font-bold uppercase tracking-wider text-slate-700">
+                    {monthNames[currentMonth.getMonth()]} {currentMonth.getFullYear()}
+                </div>
+                <Button variant="ghost" size="sm" className="h-6 w-6 p-0 rounded-md hover:bg-slate-100" onClick={nextMonth} disabled={!canGoNext}><ChevronRight className="h-3.5 w-3.5 text-slate-600" /></Button>
+            </div>
+            <div className="grid grid-cols-7 gap-1 mb-1.5 text-center text-[9px] font-bold text-slate-400 uppercase tracking-widest">
+                <div>Su</div><div>Mo</div><div>Tu</div><div>We</div><div>Th</div><div>Fr</div><div>Sa</div>
+            </div>
+            <div className="grid grid-cols-7 gap-1 place-items-center">
+                {days}
+            </div>
+        </div>
+    );
 };
 
 const LazyLegModal = ({ isOpen, onClose, leg, onChange, legIndex, level }) => {
@@ -356,12 +439,12 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
                     <div className="w-full lg:flex-1 space-y-1.5">
                         <div className="flex items-center justify-between w-full lg:max-w-[280px]">
                             <Label className="text-[10px] font-medium text-gray-700">Stop Loss</Label>
-                            <Switch 
-                                checked={leg.sl_enabled !== false} 
+                            <Switch
+                                checked={leg.sl_enabled !== false}
                                 onCheckedChange={(val) => onChange({ ...leg, sl_enabled: val })}
                             />
                         </div>
-                        
+
                         {leg.sl_enabled !== false && (
                             <div className="flex flex-wrap items-center gap-2 animate-in fade-in slide-in-from-top-1">
                                 <div className="flex-1 min-w-[100px] sm:min-w-[120px]">
@@ -394,12 +477,12 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
                     <div className="w-full lg:flex-1 space-y-1.5">
                         <div className="flex items-center justify-between w-full lg:max-w-[280px]">
                             <Label className="text-[10px] font-medium text-gray-700">Trailing Stop Loss</Label>
-                            <Switch 
-                                checked={leg.tsl_enabled || false} 
+                            <Switch
+                                checked={leg.tsl_enabled || false}
                                 onCheckedChange={(val) => onChange({ ...leg, tsl_enabled: val })}
                             />
                         </div>
-                        
+
                         {leg.tsl_enabled && (
                             <div className="flex flex-wrap items-center gap-2 animate-in fade-in slide-in-from-top-1">
                                 <div className="flex-1 min-w-[100px] sm:min-w-[120px]">
@@ -464,12 +547,12 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
                     <div className="w-full lg:flex-1 space-y-1.5">
                         <div className="flex items-center justify-between w-full lg:max-w-[280px]">
                             <Label className="text-[10px] font-medium text-gray-700">Simple Momentum</Label>
-                            <Switch 
-                                checked={leg.simple_mntm_enabled || false} 
+                            <Switch
+                                checked={leg.simple_mntm_enabled || false}
                                 onCheckedChange={(val) => onChange({ ...leg, simple_mntm_enabled: val })}
                             />
                         </div>
-                        
+
                         {leg.simple_mntm_enabled && (
                             <div className="flex flex-wrap items-center gap-2 animate-in fade-in slide-in-from-top-1">
                                 <div className="flex-1 min-w-[100px] sm:min-w-[120px]">
@@ -509,8 +592,8 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
                     <div className="w-full lg:flex-1 space-y-1.5">
                         <div className="flex items-center justify-between w-full lg:max-w-[280px]">
                             <Label className="text-[10px] font-medium text-gray-700 uppercase tracking-tight">RE-Entry</Label>
-                            <Switch 
-                                checked={leg.re_asap_enabled || leg.recost_enabled || leg.resl_enabled || leg.rehigh_enabled || leg.relow_enabled || leg.lazy_leg_enabled || false} 
+                            <Switch
+                                checked={leg.re_asap_enabled || leg.recost_enabled || leg.resl_enabled || leg.rehigh_enabled || leg.relow_enabled || leg.lazy_leg_enabled || false}
                                 onCheckedChange={(val) => {
                                     if (val) {
                                         onChange({
@@ -725,8 +808,8 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
                                         <div className="w-full lg:flex-1 space-y-1.5">
                                             <div className="flex items-center justify-between w-full lg:max-w-[280px]">
                                                 <Label className="text-[10px] font-medium text-gray-700">Override SL on Re-Entry</Label>
-                                                <Switch 
-                                                    checked={leg.reentry_sl_enabled || false} 
+                                                <Switch
+                                                    checked={leg.reentry_sl_enabled || false}
                                                     onCheckedChange={(val) => {
                                                         const updatedLeg = { ...leg, reentry_sl_enabled: val };
                                                         if (!val) updatedLeg.reentry_tsl_enabled = false;
@@ -770,8 +853,8 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
                                             <div className="w-full lg:flex-1 space-y-1.5 animate-in fade-in slide-in-from-left-2">
                                                 <div className="flex items-center justify-between w-full lg:max-w-[280px]">
                                                     <Label className="text-[10px] font-medium text-gray-700">Override TSL on Re-Entry</Label>
-                                                    <Switch 
-                                                        checked={leg.reentry_tsl_enabled || false} 
+                                                    <Switch
+                                                        checked={leg.reentry_tsl_enabled || false}
                                                         onCheckedChange={(val) => onChange({ ...leg, reentry_tsl_enabled: val })}
                                                     />
                                                 </div>
@@ -1177,8 +1260,8 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
                                         <div className="w-full lg:flex-1 space-y-1.5">
                                             <div className="flex items-center justify-between w-full lg:max-w-[280px]">
                                                 <Label className="text-[10px] font-medium text-gray-700">Override SL on Re-Entry</Label>
-                                                <Switch 
-                                                    checked={leg.reentry_sl_enabled || false} 
+                                                <Switch
+                                                    checked={leg.reentry_sl_enabled || false}
                                                     onCheckedChange={(val) => {
                                                         const updatedLeg = { ...leg, reentry_sl_enabled: val };
                                                         if (!val) updatedLeg.reentry_tsl_enabled = false;
@@ -1222,8 +1305,8 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
                                             <div className="w-full lg:flex-1 space-y-1.5 animate-in fade-in slide-in-from-left-2">
                                                 <div className="flex items-center justify-between w-full lg:max-w-[280px]">
                                                     <Label className="text-[10px] font-medium text-gray-700">Override TSL on Re-Entry</Label>
-                                                    <Switch 
-                                                        checked={leg.reentry_tsl_enabled || false} 
+                                                    <Switch
+                                                        checked={leg.reentry_tsl_enabled || false}
                                                         onCheckedChange={(val) => onChange({ ...leg, reentry_tsl_enabled: val })}
                                                     />
                                                 </div>
@@ -1402,8 +1485,8 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
                                         <div className="w-full lg:flex-1 space-y-1.5">
                                             <div className="flex items-center justify-between w-full lg:max-w-[280px]">
                                                 <Label className="text-[10px] font-medium text-gray-700">Override SL on Re-Entry</Label>
-                                                <Switch 
-                                                    checked={leg.reentry_sl_enabled || false} 
+                                                <Switch
+                                                    checked={leg.reentry_sl_enabled || false}
                                                     onCheckedChange={(val) => {
                                                         const updatedLeg = { ...leg, reentry_sl_enabled: val };
                                                         if (!val) updatedLeg.reentry_tsl_enabled = false;
@@ -1447,8 +1530,8 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
                                             <div className="w-full lg:flex-1 space-y-1.5 animate-in fade-in slide-in-from-left-2">
                                                 <div className="flex items-center justify-between w-full lg:max-w-[280px]">
                                                     <Label className="text-[10px] font-medium text-gray-700">Override TSL on Re-Entry</Label>
-                                                    <Switch 
-                                                        checked={leg.reentry_tsl_enabled || false} 
+                                                    <Switch
+                                                        checked={leg.reentry_tsl_enabled || false}
                                                         onCheckedChange={(val) => onChange({ ...leg, reentry_tsl_enabled: val })}
                                                     />
                                                 </div>
@@ -1896,9 +1979,10 @@ export const StrategyFormContent = ({ config, setConfig, editingId, setEditingId
                     </div>
                 )}
 
-                <div className="flex items-end hide-on-readonly">
+
+                <div className="flex items-end hide-on-readonly w-full md:w-auto mt-4 pt-4 border-t border-slate-100 md:border-none md:mt-0 md:pt-0">
                     <Button
-                        className="w-full h-9 gap-2 rounded-lg shadow-md font-medium text-[10px]"
+                        className="w-full md:w-[150px] h-9 gap-2 rounded-lg shadow-md font-medium text-[10px]"
                         onClick={handleSave}
                         disabled={loading}
                     >
@@ -1923,7 +2007,7 @@ export const StrategyFormContent = ({ config, setConfig, editingId, setEditingId
     );
 };
 
-export const StrategyBuilder = ({ isConnected }) => {
+export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
     const [loading, setLoading] = useState(false);
     const [runningStrategies, setRunningStrategies] = useState({}); // { id: data }
     const [savedStrategies, setSavedStrategies] = useState([]);
@@ -1940,6 +2024,60 @@ export const StrategyBuilder = ({ isConnected }) => {
     const [executionModalOpen, setExecutionModalOpen] = useState(false);
     const [selectedStrategyForExecution, setSelectedStrategyForExecution] = useState(null);
 
+    const [backtestModalOpen, setBacktestModalOpen] = useState(false);
+    const [selectedStrategyForBacktest, setSelectedStrategyForBacktest] = useState(null);
+    const [selectedForCombined, setSelectedForCombined] = useState([]);
+    const [availableDates, setAvailableDates] = useState([]);
+    const [dateRange, setDateRange] = useState({ from: null, to: null });
+    const [activeDateInput, setActiveDateInput] = useState('from');
+    const [loadingDates, setLoadingDates] = useState(false);
+    const [isBacktesting, setIsBacktesting] = useState(false);
+
+    useEffect(() => {
+        if (selectedStrategyForBacktest) {
+            const stratIdKey = Array.isArray(selectedStrategyForBacktest)
+                ? selectedStrategyForBacktest.map(s => s.id).sort().join('_')
+                : selectedStrategyForBacktest.id;
+            const saved = localStorage.getItem(`backtest_dates_${stratIdKey}`);
+            if (saved) {
+                try {
+                    const parsed = JSON.parse(saved);
+                    if (parsed.from && parsed.to) {
+                        setDateRange(parsed);
+                        return;
+                    }
+                } catch (e) {
+                    // Ignore parsing error
+                }
+            }
+            setDateRange({ from: null, to: null });
+        }
+    }, [selectedStrategyForBacktest]);
+
+    const handleDateSelect = (dateString) => {
+        setDateRange(prev => {
+            if (activeDateInput === 'from') {
+                return { ...prev, from: dateString };
+            } else {
+                return { ...prev, to: dateString };
+            }
+        });
+        if (activeDateInput === 'from') setActiveDateInput('to');
+    };
+
+    const fetchDates = async (index) => {
+        setLoadingDates(true);
+        try {
+            const res = await fetchBacktestDates(index);
+            if (res.success) {
+                setAvailableDates(res.data);
+            }
+        } catch (e) {
+            console.error("Failed to fetch dates", e);
+        } finally {
+            setLoadingDates(false);
+        }
+    };
 
     const [config, setConfig] = useState({
         name: '',
@@ -2334,12 +2472,12 @@ export const StrategyBuilder = ({ isConnected }) => {
 
                         updates.forEach(u => {
                             const isTerminalState = u.data?.status && ["COMPLETED", "FAILED", "TERMINATED", "STOPPED", "CANCELLED", "SQUARED_OFF"].includes(u.data.status);
-                            
+
                             let shouldDelete = u.error;
                             if (isTerminalState) {
                                 const now = new Date();
                                 const istTime = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
-                                
+
                                 if (istTime.getHours() < 15 || (istTime.getHours() === 15 && istTime.getMinutes() < 30)) {
                                     shouldDelete = shouldDelete || false;
                                 } else {
@@ -2395,7 +2533,7 @@ export const StrategyBuilder = ({ isConnected }) => {
         const isPaper = !!strategyData.config?.is_paper_trading;
         return activeTab === 'paper' ? isPaper : !isPaper;
     });
-    
+
     const cumulativeActivePnl = filteredRunningStrategies.reduce((sum, [_, s]) => sum + (Number(s.totalPnlRupees) || 0), 0);
     const cumulativeActiveValue = filteredRunningStrategies.reduce((sum, [_, s]) => sum + (Number(s.totalOriginalValue) || 0), 0);
     const cumulativeActivePnlPercent = cumulativeActiveValue > 0 ? (cumulativeActivePnl / cumulativeActiveValue) * 100 : 0;
@@ -2465,412 +2603,412 @@ export const StrategyBuilder = ({ isConnected }) => {
                                         .map(([id, strategyData]) => {
                                             const isTerminal = ["COMPLETED", "FAILED", "TERMINATED", "STOPPED", "CANCELLED", "SQUARED_OFF"].includes(strategyData.status);
                                             return (
-                                            <Card key={id} className={`w-full border-border animate-in fade-in slide-in-from-bottom-4 duration-500 shadow-sm ${strategyData.config?.is_paper_trading ? 'bg-blue-50/50' : 'bg-orange-50/50'} ${isTerminal ? 'opacity-60 grayscale' : ''}`}>
-                                                <CardContent className="p-3 space-y-2">
-                                                     <div 
-                                                         className="flex flex-col xl:flex-row xl:items-center justify-between gap-3 cursor-pointer hover:bg-black/5 rounded-xl p-2 -m-2 transition-colors relative group"
-                                                         onClick={() => setCollapsedSections(prev => ({ ...prev, [id]: prev[id] === true ? false : true }))}
-                                                     >
-                                                         <div className="flex items-center gap-x-2.5 gap-y-1.5 flex-wrap flex-1">
-                                                             <div className="flex items-center gap-2">
-                                                                 <div className="h-6 w-6 flex items-center justify-center -ml-1">
-                                                                     {collapsedSections[id] === true ? <ChevronUp className="h-4 w-4 text-slate-400 group-hover:text-primary transition-colors" /> : <ChevronDown className="h-4 w-4 text-slate-400 group-hover:text-primary transition-colors" />}
-                                                                 </div>
-                                                             </div>
-                                                            <span className="relative flex h-2 w-2 shadow-[0_0_10px_rgba(34,197,94,0.3)] rounded-full mr-1">
-                                                                <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${strategyData.status === 'FAILED' ? 'bg-red-400' : strategyData.status === 'PAUSED' ? 'bg-amber-400' : 'bg-green-400'} opacity-75`}></span>
-                                                                <span className={`relative inline-flex rounded-full h-2 w-2 ${strategyData.status === 'FAILED' ? 'bg-red-500' : strategyData.status === 'PAUSED' ? 'bg-amber-500' : 'bg-green-500'}`}></span>
-                                                            </span>
-
-                                                            <span className="text-xs font-bold text-black">
-                                                                {strategyData.name || strategyData.config?.name || 'Strategy Execution'}
-                                                                <span className="text-[10px] font-mono text-black/60 ml-1.5">#{id.split('-')[0] || id}</span>
-                                                            </span>
-
-                                                            <span className={`text-[9px] font-black px-1.5 py-0.5 rounded shadow-sm uppercase ${strategyData.config?.is_paper_trading ? 'bg-blue-100/80 text-blue-700 border border-blue-200' : 'bg-orange-100/80 text-orange-700 border border-orange-200'}`}>
-                                                                {strategyData.status} • {strategyData.config?.is_paper_trading ? 'PAPER' : 'LIVE'} • {strategyData.config?.index}
-                                                            </span>
-                                                            {strategyData.config?.quantity_multiplier > 1 && (
-                                                                <span className="text-[9px] font-black px-1.5 py-0.5 rounded shadow-sm uppercase bg-indigo-100/80 text-indigo-700 border border-indigo-200">
-                                                                    {strategyData.config.quantity_multiplier}x QTY
-                                                                </span>
-                                                            )}
-
-                                                            {strategyData.config?.exit_time && (
-                                                                <span className="text-[9px] font-black px-1.5 py-0.5 rounded shadow-sm uppercase bg-slate-100/80 text-slate-700 border border-slate-200 flex items-center gap-1">
-                                                                    <Clock className="h-2.5 w-2.5" /> Exit: {strategyData.config.exit_time}
-                                                                </span>
-                                                            )}
-
-                                                            {strategyData.status === 'WAITING' && strategyData.config?.entry_time && (
-                                                                <EntryTimer entryTime={strategyData.config.entry_time} />
-                                                            )}
-
-                                                            {(strategyData?.status === "IN_POSITION" || strategyData?.status === "COMPLETED") && (
-                                                                <div className="flex items-center gap-1.5 ml-1">
-                                                                    <span className={`text-[11px] font-mono font-medium px-1.5 py-0.5 rounded border shadow-sm ${(strategyData.pnlPercent || 0) >= 0
-                                                                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                                                        : 'bg-red-50 text-red-700 border-red-200'
-                                                                        }`}>
-                                                                        PnL: {(Number(strategyData.pnlPercent) || 0) > 0 ? '+' : ''}{(Number(strategyData.pnlPercent) || 0).toFixed(2)}% | {(Number(strategyData.totalPnlRupees) || 0) > 0 ? '+' : ''}₹{(Number(strategyData.totalPnlRupees) || 0).toFixed(0)}
-                                                                    </span>
-                                                                    <span className="text-[10px] font-mono font-bold text-black bg-slate-50 border border-slate-200 px-1.5 py-0.5 shadow-sm rounded">
-                                                                        Trade Value: ₹{(Number(strategyData.totalOriginalValue) || 0).toFixed(0)}
-                                                                    </span>
-                                                                    {strategyData.config?.overall_sl_enabled && strategyData.totalOriginalValue > 0 && (
-                                                                        <span className="text-[10px] font-mono font-medium text-red-500 bg-red-50 border border-red-100 px-1.5 py-0.5 shadow-sm rounded">
-                                                                            SL: -₹{(() => {
-                                                                                const total = strategyData.totalOriginalValue;
-                                                                                const multiplier = strategyData.config?.quantity_multiplier || 1;
-                                                                                const val = (strategyData.config.overall_sl_value || 0) * multiplier;
-                                                                                const amt = (strategyData.config.overall_sl_type === 'PERCENTAGE' 
-                                                                                    ? total * (strategyData.config.overall_sl_value/100) 
-                                                                                    : val);
-                                                                                return amt.toFixed(2);
-                                                                            })()}
-                                                                        </span>
-                                                                    )}
-                                                                    {strategyData.config?.overall_target_enabled && strategyData.totalOriginalValue > 0 && (
-                                                                        <span className="text-[10px] font-mono font-medium text-emerald-600 bg-emerald-50 border border-emerald-100 px-1.5 py-0.5 shadow-sm rounded">
-                                                                            Tgt: +₹{(() => {
-                                                                                const total = strategyData.totalOriginalValue;
-                                                                                const multiplier = strategyData.config?.quantity_multiplier || 1;
-                                                                                const val = (strategyData.config.overall_target_value || 0) * multiplier;
-                                                                                const amt = (strategyData.config.overall_target_type === 'PERCENTAGE' 
-                                                                                    ? total * (strategyData.config.overall_target_value/100) 
-                                                                                    : val);
-                                                                                return amt.toFixed(2);
-                                                                            })()}
-                                                                        </span>
-                                                                    )}
-                                                                </div>
-                                                            )}
-                                                        </div>
-
-                                                                                                                 <div className="flex items-center gap-1.5 shrink-0 self-start xl:self-auto" onClick={e => e.stopPropagation()}>
-                                                            <Button
-                                                                size="icon"
-                                                                variant="ghost"
-                                                                className="h-8 w-8 rounded-md text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 border border-transparent hover:border-indigo-100"
-                                                                title="View Config"
-                                                                onClick={() => {
-                                                                    setViewConfig(strategyData.config);
-                                                                    setViewStrategyName(strategyData.name || strategyData.config?.name || 'Strategy');
-                                                                    setConfigWindowOpen(true);
-                                                                }}
-                                                            >
-                                                                <Settings2 className="h-4 w-4" />
-                                                            </Button>
-                                                            <Button
-                                                                size="icon"
-                                                                variant="ghost"
-                                                                className="h-8 w-8 rounded-md text-slate-500 hover:text-blue-600 hover:bg-blue-50 border border-transparent hover:border-blue-100"
-                                                                title="View Logs"
-                                                                onClick={() => {
-                                                                    setLogStrategyId(id);
-                                                                    setLogWindowOpen(true);
-                                                                }}
-                                                            >
-                                                                <MessageSquare className="h-4 w-4" />
-                                                            </Button>
-                                                            {strategyData?.status === "IN_POSITION" && (
-                                                                <Button
-                                                                    size="sm"
-                                                                    variant="outline"
-                                                                    className="h-8 px-3 gap-1 rounded-md text-[11px] font-medium border-orange-200 bg-orange-50/50 hover:bg-orange-100 text-orange-600 shadow-sm"
-                                                                    onClick={() => handleSquareOff(id)}
-                                                                >
-                                                                    Square Off
-                                                                </Button>
-                                                            )}
-                                                            {strategyData?.status === "PAUSED" && (
-                                                                <Button
-                                                                    size="sm"
-                                                                    variant="outline"
-                                                                    className="h-8 px-3 gap-1.5 rounded-md text-[11px] font-medium border-emerald-200 bg-emerald-50/50 hover:bg-emerald-100 text-emerald-600 shadow-sm"
-                                                                    onClick={() => handleResume(id)}
-                                                                >
-                                                                    <RefreshCw className="h-3.5 w-3.5" /> Resume
-                                                                </Button>
-                                                            )}
-                                                            {!isTerminal && (
-                                                                <Button
-                                                                    size="sm"
-                                                                    variant="outline"
-                                                                    className="h-8 px-3 gap-1 rounded-md text-[11px] font-medium border-red-200 bg-red-50/50 hover:bg-red-100 text-red-600 shadow-sm"
-                                                                    onClick={() => handleStop(id)}
-                                                                >
-                                                                    <StopCircle className="h-3.5 w-3.5" /> Terminate
-                                                                </Button>
-                                                            )}
-                                                            {isTerminal && (
-                                                                <Button
-                                                                    size="sm"
-                                                                    variant="outline"
-                                                                    className="h-8 px-3 gap-1 rounded-md text-[11px] font-medium border-slate-300 bg-slate-100 hover:bg-slate-200 text-slate-700 shadow-sm"
-                                                                    onClick={() => handleMoveToHistory(id)}
-                                                                >
-                                                                    <Archive className="h-3.5 w-3.5" /> Move to History
-                                                                </Button>
-                                                            )}
-                                                        </div>
-                                                    </div>
-
-                                                                                                         {collapsedSections[id] === true && (strategyData?.status === "IN_POSITION" || strategyData?.status === "PAUSED" || isTerminal) ? (
-                                                        <div className="space-y-2 pt-2 border-t border-border mt-1">
-                                                            {/* Strategy Legs */}
-
-                                                            {/* Running Legs */}
-                                                            {strategyData.legs?.filter(l => !l.exited || ["WAITING_FOR_RECOST", "WAITING_FOR_MNTM", "WAITING_FOR_RE_ASAP", "WAITING_FOR_LAZY", "WAITING_FOR_RESL_MNTM", "WAITING_FOR_RE_HIGH", "WAITING_FOR_RE_LOW"].includes(l.state)).length > 0 && (
-                                                                <div className="space-y-2">
-                                                                    <div
-                                                                        className="flex items-center justify-between cursor-pointer group"
-                                                                        onClick={() => setCollapsedSections(prev => ({ ...prev, [`${id}-running`]: prev[`${id}-running`] === true ? false : true }))}
-                                                                    >
-                                                                        <span className="text-[10px] font-medium uppercase text-muted-foreground group-hover:text-foreground transition-colors">Running Legs</span>
-                                                                        <Button variant="ghost" size="sm" className="h-4 w-4 p-0 shrink-0 text-muted-foreground group-hover:text-foreground">
-                                                                            {collapsedSections[`${id}-running`] === true ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
-                                                                        </Button>
+                                                <Card key={id} className={`w-full border-border animate-in fade-in slide-in-from-bottom-4 duration-500 shadow-sm ${strategyData.config?.is_paper_trading ? 'bg-blue-50/50' : 'bg-orange-50/50'} ${isTerminal ? 'opacity-60 grayscale' : ''}`}>
+                                                    <CardContent className="p-3 space-y-2">
+                                                        <div
+                                                            className="flex flex-col xl:flex-row xl:items-center justify-between gap-3 cursor-pointer hover:bg-black/5 rounded-xl p-2 -m-2 transition-colors relative group"
+                                                            onClick={() => setCollapsedSections(prev => ({ ...prev, [id]: prev[id] === true ? false : true }))}
+                                                        >
+                                                            <div className="flex items-center gap-x-2.5 gap-y-1.5 flex-wrap flex-1">
+                                                                <div className="flex items-center gap-2">
+                                                                    <div className="h-6 w-6 flex items-center justify-center -ml-1">
+                                                                        {collapsedSections[id] === true ? <ChevronUp className="h-4 w-4 text-slate-400 group-hover:text-primary transition-colors" /> : <ChevronDown className="h-4 w-4 text-slate-400 group-hover:text-primary transition-colors" />}
                                                                     </div>
-                                                                    {collapsedSections[`${id}-running`] === true && (
-                                                                        <div className="space-y-2 animate-in slide-in-from-top-2 duration-200">
-                                                                            {strategyData.legs.map((l, idx) => (!l.exited || ["WAITING_FOR_RECOST", "WAITING_FOR_MNTM", "WAITING_FOR_RE_ASAP", "WAITING_FOR_LAZY", "WAITING_FOR_RESL_MNTM", "WAITING_FOR_RE_HIGH", "WAITING_FOR_RE_LOW"].includes(l.state)) && (
-                                                                                <div key={idx} className="flex flex-col md:flex-row items-start md:items-center justify-between p-2.5 bg-white border border-border rounded-xl gap-3">
-                                                                                    <div className="flex flex-col">
-                                                                                        <div className="flex items-center gap-1 flex-wrap">
-                                                                                            <span className="text-[12px] font-medium">{l.instrument?.symbol || "---"} ({l.leg?.side})</span>
-                                                                                            <span className="text-[11px] font-medium text-slate-600">
-                                                                                                {l.leg?.lots * (strategyData.config?.quantity_multiplier || 1)} {(l.leg?.lots * (strategyData.config?.quantity_multiplier || 1)) > 1 ? 'Lots' : 'Lot'}
-                                                                                            </span>
-                                                                                            <span className="text-muted-foreground text-[10px] font-mono">|</span>
-                                                                                            <span className="text-primary font-medium text-[10px] font-mono">{l.entryTime || "---"}</span>
-                                                                                            <span className="text-muted-foreground text-[10px] font-mono">|</span>
-                                                                                            <span className="text-[10px] font-mono text-muted-foreground">Entry: {(l.entryPrice || 0).toFixed(2)}</span>
-                                                                                            <span className="text-muted-foreground text-[10px] font-mono">|</span>
-                                                                                            <span className="text-[10px] font-mono animate-pulse text-blue-600 font-medium">LTP: {(l.currentLtp || 0).toFixed(2)}</span>
-                                                                                            {l.initialSlTriggerPrice != null && (
-                                                                                                <>
-                                                                                                    <span className="text-muted-foreground text-[10px] font-mono">|</span>
-                                                                                                    <span className="text-slate-500 font-medium text-[10px] font-mono">Init SL: {Number(l.initialSlTriggerPrice).toFixed(1)}</span>
-                                                                                                </>
-                                                                                            )}
-                                                                                            {l.slTriggerPrice != null && (
-                                                                                                <>
-                                                                                                    <span className="text-muted-foreground text-[10px] font-mono">|</span>
-                                                                                                    <span className={`text-[10px] font-mono font-black ${Number(l.slTriggerPrice) !== Number(l.initialSlTriggerPrice) ? 'text-indigo-600 animate-pulse' : 'text-slate-800'}`}>
-                                                                                                        Now SL: {Number(l.slTriggerPrice).toFixed(1)}
-                                                                                                    </span>
-                                                                                                </>
-                                                                                            )}
-                                                                                            {/* Removed peakPrice display as per user request */}
-                                                                                            {l.rtp != null && !["WAITING_FOR_RE_HIGH", "WAITING_FOR_RE_LOW"].includes(l.state) && (
-                                                                                                <>
-                                                                                                    <span className="text-muted-foreground text-[10px] font-mono">|</span>
-                                                                                                    <span className="text-orange-500 font-medium text-[10px] font-mono">RTP: {l.rtp.toFixed(2)}</span>
-                                                                                                </>
-                                                                                            )}
-                                                                                            {l.state === "ACTIVE" && l.max_peak_price != null && l.max_peak_price > 0 && (
-                                                                                                <>
-                                                                                                    <span className="text-muted-foreground text-[10px] font-mono">|</span>
-                                                                                                    <span className="text-indigo-600 font-bold text-[10px] font-mono uppercase">Trig Peak: {l.max_peak_price.toFixed(2)}</span>
-                                                                                                </>
-                                                                                            )}
-                                                                                            {l.state === "ACTIVE" && l.max_low_price != null && l.max_low_price > 0 && (
-                                                                                                <>
-                                                                                                    <span className="text-muted-foreground text-[10px] font-mono">|</span>
-                                                                                                    <span className="text-pink-600 font-bold text-[10px] font-mono uppercase">Trig Low: {l.max_low_price.toFixed(2)}</span>
-                                                                                                </>
-                                                                                            )}
-                                                                                            {l.mtp != null && !["WAITING_FOR_RE_HIGH", "WAITING_FOR_RE_LOW"].includes(l.state) && (
-                                                                                                <>
-                                                                                                    <span className="text-muted-foreground text-[10px] font-mono">|</span>
-                                                                                                    <span className="text-purple-500 font-medium text-[10px] font-mono">MTP: {l.mtp.toFixed(2)}</span>
-                                                                                                </>
-                                                                                            )}
-                                                                                            {l.mntmTargetPrice != null && l.state === "WAITING_FOR_SIMPLE_MNTM" && (
-                                                                                                <>
-                                                                                                    <span className="text-muted-foreground text-[10px] font-mono">|</span>
-                                                                                                    <span className="text-blue-500 font-medium animate-pulse text-[10px] font-mono">Wait Target: ₹{l.mntmTargetPrice.toFixed(2)}</span>
-                                                                                                </>
-                                                                                            )}
-                                                                                            {l.state === "WAITING_FOR_RECOST" && (
-                                                                                                <span className="px-2 py-0.5 ml-2 bg-yellow-100 text-yellow-700 font-medium rounded text-[10px] font-mono">Waiting Re-Entry (Price)</span>
-                                                                                            )}
-                                                                                            {l.state === "WAITING_FOR_RE_ASAP" && (
-                                                                                                <span className="px-2 py-0.5 ml-2 bg-blue-100 text-blue-700 font-medium rounded text-[10px] font-mono">Waiting Re-Entry (ASAP)</span>
-                                                                                            )}
-                                                                                            {l.state === "WAITING_FOR_RESL_MNTM" && (
-                                                                                                <span className="px-2 py-0.5 ml-2 bg-purple-100 text-purple-700 font-medium rounded text-[10px] font-mono whitespace-nowrap">Waiting Re-Entry (SL Price Basis)</span>
-                                                                                            )}
-                                                                                            {l.state === "WAITING_FOR_RE_HIGH" && (
-                                                                                                <>
-                                                                                                    <span className="px-2 py-0.5 ml-2 bg-emerald-100 text-emerald-700 font-medium rounded text-[10px] font-mono whitespace-nowrap uppercase">Waiting (Peak Basis)</span>
-                                                                                                    <span className="text-muted-foreground text-[10px] font-mono ml-1">|</span>
-                                                                                                    <span className="text-indigo-600 font-bold text-[10px] font-mono ml-1 uppercase">Peak: ₹{(l.max_peak_price || 0).toFixed(2)}</span>
-                                                                                                    <span className="text-muted-foreground text-[10px] font-mono ml-1">|</span>
-                                                                                                    <span className="text-orange-600 font-bold text-[10px] font-mono ml-1 uppercase">RTP: ₹{(l.re_high_trigger_price || 0).toFixed(2)}</span>
-                                                                                                    {l.mtp && (
-                                                                                                        <>
-                                                                                                            <span className="text-muted-foreground text-[10px] font-mono ml-1">|</span>
-                                                                                                            <span className="text-blue-600 font-bold text-[10px] font-mono ml-1 uppercase">MTP: ₹{(l.mtp || 0).toFixed(2)}</span>
-                                                                                                        </>
-                                                                                                    )}
-                                                                                                </>
-                                                                                            )}
-                                                                                            {l.state === "WAITING_FOR_RE_LOW" && (
-                                                                                                <>
-                                                                                                    <span className="px-2 py-0.5 ml-2 bg-pink-100 text-pink-700 font-medium rounded text-[10px] font-mono whitespace-nowrap uppercase">Waiting (Low Basis)</span>
-                                                                                                    <span className="text-muted-foreground text-[10px] font-mono ml-1">|</span>
-                                                                                                    <span className="text-indigo-600 font-bold text-[10px] font-mono ml-1 uppercase">Low: ₹{(l.max_low_price || 0).toFixed(2)}</span>
-                                                                                                    <span className="text-muted-foreground text-[10px] font-mono ml-1">|</span>
-                                                                                                    <span className="text-orange-600 font-bold text-[10px] font-mono ml-1 uppercase">RTP: ₹{(l.re_low_trigger_price || 0).toFixed(2)}</span>
-                                                                                                    {l.mtp && (
-                                                                                                        <>
-                                                                                                            <span className="text-muted-foreground text-[10px] font-mono ml-1">|</span>
-                                                                                                            <span className="text-blue-600 font-bold text-[10px] font-mono ml-1 uppercase">MTP: ₹{(l.mtp || 0).toFixed(2)}</span>
-                                                                                                        </>
-                                                                                                    )}
-                                                                                                </>
-                                                                                            )}
-                                                                                            {l.state === "WAITING_FOR_LAZY" && (
-                                                                                                <span className="px-2 py-0.5 ml-2 bg-purple-100 text-purple-700 font-medium rounded text-[10px] font-mono">Initializing Lazy Leg</span>
-                                                                                            )}
-                                                                                        </div>
-                                                                                    </div>
-                                                                                    <div className="flex items-center gap-4">
-                                                                                        <div className="flex items-center gap-3">
-                                                                                            <span className={`text-[12px] font-mono font-medium ${(Number(l.currentActivePnlPercent) || 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                                                                                                {(Number(l.currentActivePnlPercent) || 0) > 0 ? '+' : ''}{(Number(l.currentActivePnlPercent) || 0).toFixed(2)}%
-                                                                                            </span>
-                                                                                            <span className={`text-[12px] font-mono font-medium ${(Number(l.currentActivePnlRupees) || 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                                                                                                {(Number(l.currentActivePnlRupees) || 0) > 0 ? '+' : ''}₹{(Number(l.currentActivePnlRupees) || 0).toFixed(2)}
-                                                                                            </span>
-                                                                                        </div>
-                                                                                        <Button
-                                                                                            size="sm"
-                                                                                            variant="outline"
-                                                                                            className="rounded-lg border-orange-500 hover:bg-orange-50 text-orange-600 text-[10px] font-medium px-3 h-8"
-                                                                                            onClick={() => handleSquareOffLeg(id, idx)}
-                                                                                            disabled={l.isExiting}
-                                                                                        >
-                                                                                            {l.isExiting ? "Exiting..." :
-                                                                                                (l.state === "WAITING_FOR_RECOST" || l.state === "WAITING_FOR_MNTM") ? "Cancel Re-Cost" :
-                                                                                                    (l.state === "WAITING_FOR_RE_ASAP" || l.state === "WAITING_FOR_RESL_MNTM" || l.state === "WAITING_FOR_RE_HIGH" || l.state === "WAITING_FOR_RE_LOW") ? "Cancel Re-Entry" :
-                                                                                                        (l.state === "WAITING_FOR_LAZY") ? "Cancel Lazy Leg" :
-                                                                                                            "Square Off"}
-                                                                                        </Button>
-                                                                                    </div>
-                                                                                </div>
-                                                                            ))}
-                                                                        </div>
-                                                                    )}
                                                                 </div>
-                                                            )}
+                                                                <span className="relative flex h-2 w-2 shadow-[0_0_10px_rgba(34,197,94,0.3)] rounded-full mr-1">
+                                                                    <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${strategyData.status === 'FAILED' ? 'bg-red-400' : strategyData.status === 'PAUSED' ? 'bg-amber-400' : 'bg-green-400'} opacity-75`}></span>
+                                                                    <span className={`relative inline-flex rounded-full h-2 w-2 ${strategyData.status === 'FAILED' ? 'bg-red-500' : strategyData.status === 'PAUSED' ? 'bg-amber-500' : 'bg-green-500'}`}></span>
+                                                                </span>
 
-                                                            {/* Closed Legs */}
-                                                            {strategyData.legs?.filter(l => l.exited).length > 0 && (
-                                                                <div className="space-y-2">
-                                                                    <div
-                                                                        className="flex items-center justify-between cursor-pointer group"
-                                                                        onClick={() => setCollapsedSections(prev => ({ ...prev, [`${id}-closed`]: prev[`${id}-closed`] === true ? false : true }))}
-                                                                    >
-                                                                        <span className="text-[10px] font-medium uppercase text-muted-foreground group-hover:text-foreground transition-colors">Closed Legs</span>
-                                                                        <Button variant="ghost" size="sm" className="h-4 w-4 p-0 shrink-0 text-muted-foreground group-hover:text-foreground">
-                                                                            {collapsedSections[`${id}-closed`] === true ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
-                                                                        </Button>
+                                                                <span className="text-xs font-bold text-black">
+                                                                    {strategyData.name || strategyData.config?.name || 'Strategy Execution'}
+                                                                    <span className="text-[10px] font-mono text-black/60 ml-1.5">#{id.split('-')[0] || id}</span>
+                                                                </span>
+
+                                                                <span className={`text-[9px] font-black px-1.5 py-0.5 rounded shadow-sm uppercase ${strategyData.config?.is_paper_trading ? 'bg-blue-100/80 text-blue-700 border border-blue-200' : 'bg-orange-100/80 text-orange-700 border border-orange-200'}`}>
+                                                                    {strategyData.status} • {strategyData.config?.is_paper_trading ? 'PAPER' : 'LIVE'} • {strategyData.config?.index}
+                                                                </span>
+                                                                {strategyData.config?.quantity_multiplier > 1 && (
+                                                                    <span className="text-[9px] font-black px-1.5 py-0.5 rounded shadow-sm uppercase bg-indigo-100/80 text-indigo-700 border border-indigo-200">
+                                                                        {strategyData.config.quantity_multiplier}x QTY
+                                                                    </span>
+                                                                )}
+
+                                                                {strategyData.config?.exit_time && (
+                                                                    <span className="text-[9px] font-black px-1.5 py-0.5 rounded shadow-sm uppercase bg-slate-100/80 text-slate-700 border border-slate-200 flex items-center gap-1">
+                                                                        <Clock className="h-2.5 w-2.5" /> Exit: {strategyData.config.exit_time}
+                                                                    </span>
+                                                                )}
+
+                                                                {strategyData.status === 'WAITING' && strategyData.config?.entry_time && (
+                                                                    <EntryTimer entryTime={strategyData.config.entry_time} />
+                                                                )}
+
+                                                                {(strategyData?.status === "IN_POSITION" || strategyData?.status === "COMPLETED") && (
+                                                                    <div className="flex items-center gap-1.5 ml-1">
+                                                                        <span className={`text-[11px] font-mono font-medium px-1.5 py-0.5 rounded border shadow-sm ${(strategyData.pnlPercent || 0) >= 0
+                                                                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                                                            : 'bg-red-50 text-red-700 border-red-200'
+                                                                            }`}>
+                                                                            PnL: {(Number(strategyData.pnlPercent) || 0) > 0 ? '+' : ''}{(Number(strategyData.pnlPercent) || 0).toFixed(2)}% | {(Number(strategyData.totalPnlRupees) || 0) > 0 ? '+' : ''}₹{(Number(strategyData.totalPnlRupees) || 0).toFixed(0)}
+                                                                        </span>
+                                                                        <span className="text-[10px] font-mono font-bold text-black bg-slate-50 border border-slate-200 px-1.5 py-0.5 shadow-sm rounded">
+                                                                            Trade Value: ₹{(Number(strategyData.totalOriginalValue) || 0).toFixed(0)}
+                                                                        </span>
+                                                                        {strategyData.config?.overall_sl_enabled && strategyData.totalOriginalValue > 0 && (
+                                                                            <span className="text-[10px] font-mono font-medium text-red-500 bg-red-50 border border-red-100 px-1.5 py-0.5 shadow-sm rounded">
+                                                                                SL: -₹{(() => {
+                                                                                    const total = strategyData.totalOriginalValue;
+                                                                                    const multiplier = strategyData.config?.quantity_multiplier || 1;
+                                                                                    const val = (strategyData.config.overall_sl_value || 0) * multiplier;
+                                                                                    const amt = (strategyData.config.overall_sl_type === 'PERCENTAGE'
+                                                                                        ? total * (strategyData.config.overall_sl_value / 100)
+                                                                                        : val);
+                                                                                    return amt.toFixed(2);
+                                                                                })()}
+                                                                            </span>
+                                                                        )}
+                                                                        {strategyData.config?.overall_target_enabled && strategyData.totalOriginalValue > 0 && (
+                                                                            <span className="text-[10px] font-mono font-medium text-emerald-600 bg-emerald-50 border border-emerald-100 px-1.5 py-0.5 shadow-sm rounded">
+                                                                                Tgt: +₹{(() => {
+                                                                                    const total = strategyData.totalOriginalValue;
+                                                                                    const multiplier = strategyData.config?.quantity_multiplier || 1;
+                                                                                    const val = (strategyData.config.overall_target_value || 0) * multiplier;
+                                                                                    const amt = (strategyData.config.overall_target_type === 'PERCENTAGE'
+                                                                                        ? total * (strategyData.config.overall_target_value / 100)
+                                                                                        : val);
+                                                                                    return amt.toFixed(2);
+                                                                                })()}
+                                                                            </span>
+                                                                        )}
                                                                     </div>
-                                                                    {collapsedSections[`${id}-closed`] === true && (
-                                                                        <div className="space-y-2 animate-in slide-in-from-top-2 duration-200">
-                                                                            {strategyData.legs.map((l, idx) => l.exited && (
-                                                                                <div key={idx} className="flex flex-col md:flex-row items-start md:items-center justify-between p-2.5 bg-muted/50 border border-border/50 rounded-xl opacity-90 gap-3">
-                                                                                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between w-full gap-y-2 gap-x-4">
-                                                                                        <div className="flex flex-1 items-center gap-1 flex-wrap">
-                                                                                            <span className="text-[12px] font-bold text-black">{l.instrument?.symbol || "---"} ({l.leg?.side})</span>
-                                                                                            <span className="text-[11px] font-bold text-black/40">
-                                                                                                {l.leg?.lots * (strategyData.config?.quantity_multiplier || 1)} {(l.leg?.lots * (strategyData.config?.quantity_multiplier || 1)) > 1 ? 'Lots' : 'Lot'}
-                                                                                            </span>
-                                                                                            <span className="text-black/30 text-[10px] font-mono">|</span>
-                                                                                            <span className="text-black font-bold text-[10px] font-mono">{l.entryTime || "---"}</span>
-                                                                                            <span className="text-black/30 text-[10px] font-mono">|</span>
-                                                                                            <span className="text-[10px] font-mono text-black">Entry: {(l.entryPrice || 0).toFixed(2)}</span>
-                                                                                            <span className="text-black/30 text-[10px] font-mono">|</span>
-                                                                                            <span className="text-black font-bold text-[10px] font-mono">Exit: {l.exitTime || l.exitSnapshot?.exitTime || "---"}</span>
-                                                                                            <span className="text-black/30 text-[10px] font-mono">|</span>
-                                                                                            <span className="text-black text-[10px] font-mono">Price: {(l.exitSnapshot?.exitLtp || l.currentLtp || 0).toFixed(2)}</span>
-                                                                                            <span className="text-black/30 text-[10px] font-mono">|</span>
-                                                                                            <span className="text-black text-[10px] font-mono font-bold">Type: {l.exitType}</span>
-                                                                                            {l.initialSlTriggerPrice != null && (
-                                                                                                <>
-                                                                                                    <span className="text-muted-foreground text-[10px] font-mono">|</span>
-                                                                                                    <span className="text-red-400 font-medium text-[10px] font-mono">Init SL: {Number(l.initialSlTriggerPrice).toFixed(1)}</span>
-                                                                                                </>
-                                                                                            )}
-                                                                                            {l.exitSnapshot?.slTriggerPrice != null && (
-                                                                                                <>
-                                                                                                    <span className="text-muted-foreground text-[10px] font-mono">|</span>
-                                                                                                    <span className="text-red-600 font-bold text-[10px] font-mono">Exit SL: {Number(l.exitSnapshot.slTriggerPrice).toFixed(1)}</span>
-                                                                                                </>
-                                                                                            )}
-                                                                                            {l.rtp != null && (
-                                                                                                <>
-                                                                                                    <span className="text-black/30 text-[10px] font-mono">|</span>
-                                                                                                    <span className="text-orange-600 font-bold text-[10px] font-mono">RTP: {l.rtp.toFixed(2)}</span>
-                                                                                                </>
-                                                                                            )}
-                                                                                            {l.mtp != null && (
-                                                                                                <>
-                                                                                                    <span className="text-black/30 text-[10px] font-mono">|</span>
-                                                                                                    <span className="text-purple-600 font-bold text-[10px] font-mono">MTP: {l.mtp.toFixed(2)}</span>
-                                                                                                </>
-                                                                                            )}
-                                                                                            {l.max_peak_price != null && l.max_peak_price > 0 && (
-                                                                                                <>
-                                                                                                    <span className="text-black/30 text-[10px] font-mono">|</span>
-                                                                                                    <span className="text-indigo-600 font-bold text-[10px] font-mono uppercase">Trig Peak: {l.max_peak_price.toFixed(2)}</span>
-                                                                                                </>
-                                                                                            )}
-                                                                                            {l.max_low_price != null && l.max_low_price > 0 && (
-                                                                                                <>
-                                                                                                    <span className="text-black/30 text-[10px] font-mono">|</span>
-                                                                                                    <span className="text-pink-600 font-bold text-[10px] font-mono uppercase">Trig Low: {l.max_low_price.toFixed(2)}</span>
-                                                                                                </>
-                                                                                            )}
-                                                                                            {/* Removed exitSnapshot peakPrice display */}
+                                                                )}
+                                                            </div>
+
+                                                            <div className="flex items-center gap-1.5 shrink-0 self-start xl:self-auto" onClick={e => e.stopPropagation()}>
+                                                                <Button
+                                                                    size="icon"
+                                                                    variant="ghost"
+                                                                    className="h-8 w-8 rounded-md text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 border border-transparent hover:border-indigo-100"
+                                                                    title="View Config"
+                                                                    onClick={() => {
+                                                                        setViewConfig(strategyData.config);
+                                                                        setViewStrategyName(strategyData.name || strategyData.config?.name || 'Strategy');
+                                                                        setConfigWindowOpen(true);
+                                                                    }}
+                                                                >
+                                                                    <Settings2 className="h-4 w-4" />
+                                                                </Button>
+                                                                <Button
+                                                                    size="icon"
+                                                                    variant="ghost"
+                                                                    className="h-8 w-8 rounded-md text-slate-500 hover:text-blue-600 hover:bg-blue-50 border border-transparent hover:border-blue-100"
+                                                                    title="View Logs"
+                                                                    onClick={() => {
+                                                                        setLogStrategyId(id);
+                                                                        setLogWindowOpen(true);
+                                                                    }}
+                                                                >
+                                                                    <MessageSquare className="h-4 w-4" />
+                                                                </Button>
+                                                                {strategyData?.status === "IN_POSITION" && (
+                                                                    <Button
+                                                                        size="sm"
+                                                                        variant="outline"
+                                                                        className="h-8 px-3 gap-1 rounded-md text-[11px] font-medium border-orange-200 bg-orange-50/50 hover:bg-orange-100 text-orange-600 shadow-sm"
+                                                                        onClick={() => handleSquareOff(id)}
+                                                                    >
+                                                                        Square Off
+                                                                    </Button>
+                                                                )}
+                                                                {strategyData?.status === "PAUSED" && (
+                                                                    <Button
+                                                                        size="sm"
+                                                                        variant="outline"
+                                                                        className="h-8 px-3 gap-1.5 rounded-md text-[11px] font-medium border-emerald-200 bg-emerald-50/50 hover:bg-emerald-100 text-emerald-600 shadow-sm"
+                                                                        onClick={() => handleResume(id)}
+                                                                    >
+                                                                        <RefreshCw className="h-3.5 w-3.5" /> Resume
+                                                                    </Button>
+                                                                )}
+                                                                {!isTerminal && (
+                                                                    <Button
+                                                                        size="sm"
+                                                                        variant="outline"
+                                                                        className="h-8 px-3 gap-1 rounded-md text-[11px] font-medium border-red-200 bg-red-50/50 hover:bg-red-100 text-red-600 shadow-sm"
+                                                                        onClick={() => handleStop(id)}
+                                                                    >
+                                                                        <StopCircle className="h-3.5 w-3.5" /> Terminate
+                                                                    </Button>
+                                                                )}
+                                                                {isTerminal && (
+                                                                    <Button
+                                                                        size="sm"
+                                                                        variant="outline"
+                                                                        className="h-8 px-3 gap-1 rounded-md text-[11px] font-medium border-slate-300 bg-slate-100 hover:bg-slate-200 text-slate-700 shadow-sm"
+                                                                        onClick={() => handleMoveToHistory(id)}
+                                                                    >
+                                                                        <Archive className="h-3.5 w-3.5" /> Move to History
+                                                                    </Button>
+                                                                )}
+                                                            </div>
+                                                        </div>
+
+                                                        {collapsedSections[id] === true && (strategyData?.status === "IN_POSITION" || strategyData?.status === "PAUSED" || isTerminal) ? (
+                                                            <div className="space-y-2 pt-2 border-t border-border mt-1">
+                                                                {/* Strategy Legs */}
+
+                                                                {/* Running Legs */}
+                                                                {strategyData.legs?.filter(l => !l.exited || ["WAITING_FOR_RECOST", "WAITING_FOR_MNTM", "WAITING_FOR_RE_ASAP", "WAITING_FOR_LAZY", "WAITING_FOR_RESL_MNTM", "WAITING_FOR_RE_HIGH", "WAITING_FOR_RE_LOW"].includes(l.state)).length > 0 && (
+                                                                    <div className="space-y-2">
+                                                                        <div
+                                                                            className="flex items-center justify-between cursor-pointer group"
+                                                                            onClick={() => setCollapsedSections(prev => ({ ...prev, [`${id}-running`]: prev[`${id}-running`] === true ? false : true }))}
+                                                                        >
+                                                                            <span className="text-[10px] font-medium uppercase text-muted-foreground group-hover:text-foreground transition-colors">Running Legs</span>
+                                                                            <Button variant="ghost" size="sm" className="h-4 w-4 p-0 shrink-0 text-muted-foreground group-hover:text-foreground">
+                                                                                {collapsedSections[`${id}-running`] === true ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                                                                            </Button>
+                                                                        </div>
+                                                                        {collapsedSections[`${id}-running`] === true && (
+                                                                            <div className="space-y-2 animate-in slide-in-from-top-2 duration-200">
+                                                                                {strategyData.legs.map((l, idx) => (!l.exited || ["WAITING_FOR_RECOST", "WAITING_FOR_MNTM", "WAITING_FOR_RE_ASAP", "WAITING_FOR_LAZY", "WAITING_FOR_RESL_MNTM", "WAITING_FOR_RE_HIGH", "WAITING_FOR_RE_LOW"].includes(l.state)) && (
+                                                                                    <div key={idx} className="flex flex-col md:flex-row items-start md:items-center justify-between p-2.5 bg-white border border-border rounded-xl gap-3">
+                                                                                        <div className="flex flex-col">
+                                                                                            <div className="flex items-center gap-1 flex-wrap">
+                                                                                                <span className="text-[12px] font-medium">{l.instrument?.symbol || "---"} ({l.leg?.side})</span>
+                                                                                                <span className="text-[11px] font-medium text-slate-600">
+                                                                                                    {l.leg?.lots * (strategyData.config?.quantity_multiplier || 1)} {(l.leg?.lots * (strategyData.config?.quantity_multiplier || 1)) > 1 ? 'Lots' : 'Lot'}
+                                                                                                </span>
+                                                                                                <span className="text-muted-foreground text-[10px] font-mono">|</span>
+                                                                                                <span className="text-primary font-medium text-[10px] font-mono">{l.entryTime || "---"}</span>
+                                                                                                <span className="text-muted-foreground text-[10px] font-mono">|</span>
+                                                                                                <span className="text-[10px] font-mono text-muted-foreground">Entry: {(l.entryPrice || 0).toFixed(2)}</span>
+                                                                                                <span className="text-muted-foreground text-[10px] font-mono">|</span>
+                                                                                                <span className="text-[10px] font-mono animate-pulse text-blue-600 font-medium">LTP: {(l.currentLtp || 0).toFixed(2)}</span>
+                                                                                                {l.initialSlTriggerPrice != null && (
+                                                                                                    <>
+                                                                                                        <span className="text-muted-foreground text-[10px] font-mono">|</span>
+                                                                                                        <span className="text-slate-500 font-medium text-[10px] font-mono">Init SL: {Number(l.initialSlTriggerPrice).toFixed(1)}</span>
+                                                                                                    </>
+                                                                                                )}
+                                                                                                {l.slTriggerPrice != null && (
+                                                                                                    <>
+                                                                                                        <span className="text-muted-foreground text-[10px] font-mono">|</span>
+                                                                                                        <span className={`text-[10px] font-mono font-black ${Number(l.slTriggerPrice) !== Number(l.initialSlTriggerPrice) ? 'text-indigo-600 animate-pulse' : 'text-slate-800'}`}>
+                                                                                                            Now SL: {Number(l.slTriggerPrice).toFixed(1)}
+                                                                                                        </span>
+                                                                                                    </>
+                                                                                                )}
+                                                                                                {/* Removed peakPrice display as per user request */}
+                                                                                                {l.rtp != null && !["WAITING_FOR_RE_HIGH", "WAITING_FOR_RE_LOW"].includes(l.state) && (
+                                                                                                    <>
+                                                                                                        <span className="text-muted-foreground text-[10px] font-mono">|</span>
+                                                                                                        <span className="text-orange-500 font-medium text-[10px] font-mono">RTP: {l.rtp.toFixed(2)}</span>
+                                                                                                    </>
+                                                                                                )}
+                                                                                                {l.state === "ACTIVE" && l.max_peak_price != null && l.max_peak_price > 0 && (
+                                                                                                    <>
+                                                                                                        <span className="text-muted-foreground text-[10px] font-mono">|</span>
+                                                                                                        <span className="text-indigo-600 font-bold text-[10px] font-mono uppercase">Trig Peak: {l.max_peak_price.toFixed(2)}</span>
+                                                                                                    </>
+                                                                                                )}
+                                                                                                {l.state === "ACTIVE" && l.max_low_price != null && l.max_low_price > 0 && (
+                                                                                                    <>
+                                                                                                        <span className="text-muted-foreground text-[10px] font-mono">|</span>
+                                                                                                        <span className="text-pink-600 font-bold text-[10px] font-mono uppercase">Trig Low: {l.max_low_price.toFixed(2)}</span>
+                                                                                                    </>
+                                                                                                )}
+                                                                                                {l.mtp != null && !["WAITING_FOR_RE_HIGH", "WAITING_FOR_RE_LOW"].includes(l.state) && (
+                                                                                                    <>
+                                                                                                        <span className="text-muted-foreground text-[10px] font-mono">|</span>
+                                                                                                        <span className="text-purple-500 font-medium text-[10px] font-mono">MTP: {l.mtp.toFixed(2)}</span>
+                                                                                                    </>
+                                                                                                )}
+                                                                                                {l.mntmTargetPrice != null && l.state === "WAITING_FOR_SIMPLE_MNTM" && (
+                                                                                                    <>
+                                                                                                        <span className="text-muted-foreground text-[10px] font-mono">|</span>
+                                                                                                        <span className="text-blue-500 font-medium animate-pulse text-[10px] font-mono">Wait Target: ₹{l.mntmTargetPrice.toFixed(2)}</span>
+                                                                                                    </>
+                                                                                                )}
+                                                                                                {l.state === "WAITING_FOR_RECOST" && (
+                                                                                                    <span className="px-2 py-0.5 ml-2 bg-yellow-100 text-yellow-700 font-medium rounded text-[10px] font-mono">Waiting Re-Entry (Price)</span>
+                                                                                                )}
+                                                                                                {l.state === "WAITING_FOR_RE_ASAP" && (
+                                                                                                    <span className="px-2 py-0.5 ml-2 bg-blue-100 text-blue-700 font-medium rounded text-[10px] font-mono">Waiting Re-Entry (ASAP)</span>
+                                                                                                )}
+                                                                                                {l.state === "WAITING_FOR_RESL_MNTM" && (
+                                                                                                    <span className="px-2 py-0.5 ml-2 bg-purple-100 text-purple-700 font-medium rounded text-[10px] font-mono whitespace-nowrap">Waiting Re-Entry (SL Price Basis)</span>
+                                                                                                )}
+                                                                                                {l.state === "WAITING_FOR_RE_HIGH" && (
+                                                                                                    <>
+                                                                                                        <span className="px-2 py-0.5 ml-2 bg-emerald-100 text-emerald-700 font-medium rounded text-[10px] font-mono whitespace-nowrap uppercase">Waiting (Peak Basis)</span>
+                                                                                                        <span className="text-muted-foreground text-[10px] font-mono ml-1">|</span>
+                                                                                                        <span className="text-indigo-600 font-bold text-[10px] font-mono ml-1 uppercase">Peak: ₹{(l.max_peak_price || 0).toFixed(2)}</span>
+                                                                                                        <span className="text-muted-foreground text-[10px] font-mono ml-1">|</span>
+                                                                                                        <span className="text-orange-600 font-bold text-[10px] font-mono ml-1 uppercase">RTP: ₹{(l.re_high_trigger_price || 0).toFixed(2)}</span>
+                                                                                                        {l.mtp && (
+                                                                                                            <>
+                                                                                                                <span className="text-muted-foreground text-[10px] font-mono ml-1">|</span>
+                                                                                                                <span className="text-blue-600 font-bold text-[10px] font-mono ml-1 uppercase">MTP: ₹{(l.mtp || 0).toFixed(2)}</span>
+                                                                                                            </>
+                                                                                                        )}
+                                                                                                    </>
+                                                                                                )}
+                                                                                                {l.state === "WAITING_FOR_RE_LOW" && (
+                                                                                                    <>
+                                                                                                        <span className="px-2 py-0.5 ml-2 bg-pink-100 text-pink-700 font-medium rounded text-[10px] font-mono whitespace-nowrap uppercase">Waiting (Low Basis)</span>
+                                                                                                        <span className="text-muted-foreground text-[10px] font-mono ml-1">|</span>
+                                                                                                        <span className="text-indigo-600 font-bold text-[10px] font-mono ml-1 uppercase">Low: ₹{(l.max_low_price || 0).toFixed(2)}</span>
+                                                                                                        <span className="text-muted-foreground text-[10px] font-mono ml-1">|</span>
+                                                                                                        <span className="text-orange-600 font-bold text-[10px] font-mono ml-1 uppercase">RTP: ₹{(l.re_low_trigger_price || 0).toFixed(2)}</span>
+                                                                                                        {l.mtp && (
+                                                                                                            <>
+                                                                                                                <span className="text-muted-foreground text-[10px] font-mono ml-1">|</span>
+                                                                                                                <span className="text-blue-600 font-bold text-[10px] font-mono ml-1 uppercase">MTP: ₹{(l.mtp || 0).toFixed(2)}</span>
+                                                                                                            </>
+                                                                                                        )}
+                                                                                                    </>
+                                                                                                )}
+                                                                                                {l.state === "WAITING_FOR_LAZY" && (
+                                                                                                    <span className="px-2 py-0.5 ml-2 bg-purple-100 text-purple-700 font-medium rounded text-[10px] font-mono">Initializing Lazy Leg</span>
+                                                                                                )}
+                                                                                            </div>
                                                                                         </div>
-                                                                                        <div className="flex items-center gap-3 shrink-0">
-                                                                                            <span className={`text-[12px] font-mono font-medium ${(Number(l.pnlPercent) || 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                                                                                                {(Number(l.pnlPercent) || 0) > 0 ? '+' : ''}{(Number(l.pnlPercent) || 0).toFixed(2)}%
-                                                                                            </span>
-                                                                                            <span className={`text-[12px] font-mono font-medium ${(Number(l.pnlRupees) || 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                                                                                                {(Number(l.pnlRupees) || 0) > 0 ? '+' : ''}₹{(Number(l.pnlRupees) || 0).toFixed(2)}
-                                                                                            </span>
-                                                                                            <span className="px-2 py-0.5 text-[10px] font-bold bg-slate-200 text-black rounded uppercase">Closed</span>
+                                                                                        <div className="flex items-center gap-4">
+                                                                                            <div className="flex items-center gap-3">
+                                                                                                <span className={`text-[12px] font-mono font-medium ${(Number(l.currentActivePnlPercent) || 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                                                                                                    {(Number(l.currentActivePnlPercent) || 0) > 0 ? '+' : ''}{(Number(l.currentActivePnlPercent) || 0).toFixed(2)}%
+                                                                                                </span>
+                                                                                                <span className={`text-[12px] font-mono font-medium ${(Number(l.currentActivePnlRupees) || 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                                                                                                    {(Number(l.currentActivePnlRupees) || 0) > 0 ? '+' : ''}₹{(Number(l.currentActivePnlRupees) || 0).toFixed(2)}
+                                                                                                </span>
+                                                                                            </div>
+                                                                                            <Button
+                                                                                                size="sm"
+                                                                                                variant="outline"
+                                                                                                className="rounded-lg border-orange-500 hover:bg-orange-50 text-orange-600 text-[10px] font-medium px-3 h-8"
+                                                                                                onClick={() => handleSquareOffLeg(id, idx)}
+                                                                                                disabled={l.isExiting}
+                                                                                            >
+                                                                                                {l.isExiting ? "Exiting..." :
+                                                                                                    (l.state === "WAITING_FOR_RECOST" || l.state === "WAITING_FOR_MNTM") ? "Cancel Re-Cost" :
+                                                                                                        (l.state === "WAITING_FOR_RE_ASAP" || l.state === "WAITING_FOR_RESL_MNTM" || l.state === "WAITING_FOR_RE_HIGH" || l.state === "WAITING_FOR_RE_LOW") ? "Cancel Re-Entry" :
+                                                                                                            (l.state === "WAITING_FOR_LAZY") ? "Cancel Lazy Leg" :
+                                                                                                                "Square Off"}
+                                                                                            </Button>
                                                                                         </div>
                                                                                     </div>
-                                                                                </div>
-                                                                            ))}
+                                                                                ))}
+                                                                            </div>
+                                                                        )}
+                                                                    </div>
+                                                                )}
+
+                                                                {/* Closed Legs */}
+                                                                {strategyData.legs?.filter(l => l.exited).length > 0 && (
+                                                                    <div className="space-y-2">
+                                                                        <div
+                                                                            className="flex items-center justify-between cursor-pointer group"
+                                                                            onClick={() => setCollapsedSections(prev => ({ ...prev, [`${id}-closed`]: prev[`${id}-closed`] === true ? false : true }))}
+                                                                        >
+                                                                            <span className="text-[10px] font-medium uppercase text-muted-foreground group-hover:text-foreground transition-colors">Closed Legs</span>
+                                                                            <Button variant="ghost" size="sm" className="h-4 w-4 p-0 shrink-0 text-muted-foreground group-hover:text-foreground">
+                                                                                {collapsedSections[`${id}-closed`] === true ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                                                                            </Button>
                                                                         </div>
-                                                                    )}
-                                                                </div>
-                                                            )}
-                                                        </div>
-                                                    ) : null}
-                                                </CardContent>
-                                            </Card>
+                                                                        {collapsedSections[`${id}-closed`] === true && (
+                                                                            <div className="space-y-2 animate-in slide-in-from-top-2 duration-200">
+                                                                                {strategyData.legs.map((l, idx) => l.exited && (
+                                                                                    <div key={idx} className="flex flex-col md:flex-row items-start md:items-center justify-between p-2.5 bg-muted/50 border border-border/50 rounded-xl opacity-90 gap-3">
+                                                                                        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between w-full gap-y-2 gap-x-4">
+                                                                                            <div className="flex flex-1 items-center gap-1 flex-wrap">
+                                                                                                <span className="text-[12px] font-bold text-black">{l.instrument?.symbol || "---"} ({l.leg?.side})</span>
+                                                                                                <span className="text-[11px] font-bold text-black/40">
+                                                                                                    {l.leg?.lots * (strategyData.config?.quantity_multiplier || 1)} {(l.leg?.lots * (strategyData.config?.quantity_multiplier || 1)) > 1 ? 'Lots' : 'Lot'}
+                                                                                                </span>
+                                                                                                <span className="text-black/30 text-[10px] font-mono">|</span>
+                                                                                                <span className="text-black font-bold text-[10px] font-mono">{l.entryTime || "---"}</span>
+                                                                                                <span className="text-black/30 text-[10px] font-mono">|</span>
+                                                                                                <span className="text-[10px] font-mono text-black">Entry: {(l.entryPrice || 0).toFixed(2)}</span>
+                                                                                                <span className="text-black/30 text-[10px] font-mono">|</span>
+                                                                                                <span className="text-black font-bold text-[10px] font-mono">Exit: {l.exitTime || l.exitSnapshot?.exitTime || "---"}</span>
+                                                                                                <span className="text-black/30 text-[10px] font-mono">|</span>
+                                                                                                <span className="text-black text-[10px] font-mono">Price: {(l.exitSnapshot?.exitLtp || l.currentLtp || 0).toFixed(2)}</span>
+                                                                                                <span className="text-black/30 text-[10px] font-mono">|</span>
+                                                                                                <span className="text-black text-[10px] font-mono font-bold">Type: {l.exitType}</span>
+                                                                                                {l.initialSlTriggerPrice != null && (
+                                                                                                    <>
+                                                                                                        <span className="text-muted-foreground text-[10px] font-mono">|</span>
+                                                                                                        <span className="text-red-400 font-medium text-[10px] font-mono">Init SL: {Number(l.initialSlTriggerPrice).toFixed(1)}</span>
+                                                                                                    </>
+                                                                                                )}
+                                                                                                {l.exitSnapshot?.slTriggerPrice != null && (
+                                                                                                    <>
+                                                                                                        <span className="text-muted-foreground text-[10px] font-mono">|</span>
+                                                                                                        <span className="text-red-600 font-bold text-[10px] font-mono">Exit SL: {Number(l.exitSnapshot.slTriggerPrice).toFixed(1)}</span>
+                                                                                                    </>
+                                                                                                )}
+                                                                                                {l.rtp != null && (
+                                                                                                    <>
+                                                                                                        <span className="text-black/30 text-[10px] font-mono">|</span>
+                                                                                                        <span className="text-orange-600 font-bold text-[10px] font-mono">RTP: {l.rtp.toFixed(2)}</span>
+                                                                                                    </>
+                                                                                                )}
+                                                                                                {l.mtp != null && (
+                                                                                                    <>
+                                                                                                        <span className="text-black/30 text-[10px] font-mono">|</span>
+                                                                                                        <span className="text-purple-600 font-bold text-[10px] font-mono">MTP: {l.mtp.toFixed(2)}</span>
+                                                                                                    </>
+                                                                                                )}
+                                                                                                {l.max_peak_price != null && l.max_peak_price > 0 && (
+                                                                                                    <>
+                                                                                                        <span className="text-black/30 text-[10px] font-mono">|</span>
+                                                                                                        <span className="text-indigo-600 font-bold text-[10px] font-mono uppercase">Trig Peak: {l.max_peak_price.toFixed(2)}</span>
+                                                                                                    </>
+                                                                                                )}
+                                                                                                {l.max_low_price != null && l.max_low_price > 0 && (
+                                                                                                    <>
+                                                                                                        <span className="text-black/30 text-[10px] font-mono">|</span>
+                                                                                                        <span className="text-pink-600 font-bold text-[10px] font-mono uppercase">Trig Low: {l.max_low_price.toFixed(2)}</span>
+                                                                                                    </>
+                                                                                                )}
+                                                                                                {/* Removed exitSnapshot peakPrice display */}
+                                                                                            </div>
+                                                                                            <div className="flex items-center gap-3 shrink-0">
+                                                                                                <span className={`text-[12px] font-mono font-medium ${(Number(l.pnlPercent) || 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                                                                                                    {(Number(l.pnlPercent) || 0) > 0 ? '+' : ''}{(Number(l.pnlPercent) || 0).toFixed(2)}%
+                                                                                                </span>
+                                                                                                <span className={`text-[12px] font-mono font-medium ${(Number(l.pnlRupees) || 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                                                                                                    {(Number(l.pnlRupees) || 0) > 0 ? '+' : ''}₹{(Number(l.pnlRupees) || 0).toFixed(2)}
+                                                                                                </span>
+                                                                                                <span className="px-2 py-0.5 text-[10px] font-bold bg-slate-200 text-black rounded uppercase">Closed</span>
+                                                                                            </div>
+                                                                                        </div>
+                                                                                    </div>
+                                                                                ))}
+                                                                            </div>
+                                                                        )}
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        ) : null}
+                                                    </CardContent>
+                                                </Card>
                                             );
                                         })}
                                     {Object.entries(runningStrategies).filter(([_, strategyData]) => {
                                         const isPaper = !!strategyData.config?.is_paper_trading;
                                         return activeTab === 'paper' ? isPaper : !isPaper;
                                     }).length === 0 && (
-                                        <div className="flex flex-col items-center justify-center p-12 bg-white border-2 border-dashed border-slate-200 rounded-[2rem] text-center">
-                                            <div className="h-16 w-16 bg-slate-50 text-slate-300 rounded-2xl flex items-center justify-center mb-4">
-                                                <Play className="h-8 w-8" />
+                                            <div className="flex flex-col items-center justify-center p-12 bg-white border-2 border-dashed border-slate-200 rounded-[2rem] text-center">
+                                                <div className="h-16 w-16 bg-slate-50 text-slate-300 rounded-2xl flex items-center justify-center mb-4">
+                                                    <Play className="h-8 w-8" />
+                                                </div>
+                                                <h3 className="text-sm font-medium text-slate-900">No {activeTab === 'paper' ? 'Paper' : 'Live'} Strategies Active</h3>
+                                                <p className="text-xs text-slate-500 mt-1">Deploy a strategy from your templates to see it here.</p>
                                             </div>
-                                            <h3 className="text-sm font-medium text-slate-900">No {activeTab === 'paper' ? 'Paper' : 'Live'} Strategies Active</h3>
-                                            <p className="text-xs text-slate-500 mt-1">Deploy a strategy from your templates to see it here.</p>
-                                        </div>
-                                    )}
+                                        )}
                                 </div>
                             )}
                         </div>
@@ -2900,6 +3038,22 @@ export const StrategyBuilder = ({ isConnected }) => {
                                     <Save className="h-4 w-4 text-primary" /> Saved Strategies
                                 </CardTitle>
                                 <div className="flex items-center gap-3 w-full md:w-auto">
+                                    {selectedForCombined.length > 1 && (
+                                        <Button
+                                            size="sm"
+                                            className="h-8 text-[10px] uppercase font-black bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm transition-all animate-in zoom-in-95"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                const selectedStrats = savedStrategies.filter(s => selectedForCombined.includes(s.id));
+                                                setSelectedStrategyForBacktest(selectedStrats);
+                                                setBacktestModalOpen(true);
+                                                fetchDates(selectedStrats[0]?.config?.index || 'NIFTY');
+                                            }}
+                                        >
+                                            <Play className="h-3 w-3 mr-1 fill-current" />
+                                            Simulate Portfolio ({selectedForCombined.length})
+                                        </Button>
+                                    )}
                                     <div className="relative w-full md:w-64" onClick={e => e.stopPropagation()}>
                                         <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
                                         <Input
@@ -2927,185 +3081,218 @@ export const StrategyBuilder = ({ isConnected }) => {
                                             <div className="col-span-3 text-right">Actions</div>
                                         </div>
                                         <div className="divide-y border-t flex flex-col">
-                                                {savedStrategies
-                                                    .filter(s => {
-                                                        const name = (s.name || s.config?.name || '').toLowerCase();
-                                                        const id = (s.id || '').toLowerCase();
-                                                        const search = searchTerm.toLowerCase();
-                                                        return name.includes(search) || id.includes(search);
-                                                    })
-                                                    .map((s) => (
-                                                        <div
-                                                            key={s.id}
-                                                            className="grid grid-cols-1 xl:grid-cols-12 gap-2 xl:gap-4 px-4 py-3 xl:items-center hover:bg-muted/50 transition-colors cursor-grab active:cursor-grabbing bg-card mobile-strategy-row"
-                                                            draggable
-                                                            onDragStart={(e) => {
-                                                                e.dataTransfer.effectAllowed = 'move';
-                                                                e.dataTransfer.setData('text/plain', s.id);
-                                                                setTimeout(() => { if (e.target && e.target.classList) e.target.classList.add('opacity-40'); }, 0);
-                                                            }}
-                                                            onDragEnd={(e) => {
-                                                                if (e.target && e.target.classList) {
-                                                                    e.target.classList.remove('opacity-40');
-                                                                    e.target.classList.remove('border-t-2', 'border-b-2', 'border-primary', 'bg-muted/30');
-                                                                }
-                                                            }}
-                                                            onDragOver={(e) => {
-                                                                e.preventDefault();
-                                                                e.dataTransfer.dropEffect = 'move';
-                                                                if (e.currentTarget) {
-                                                                    const rect = e.currentTarget.getBoundingClientRect();
-                                                                    const isTopHalf = e.clientY < rect.top + rect.height / 2;
-                                                                    e.currentTarget.classList.remove('border-t-2', 'border-b-2', 'border-primary');
-                                                                    e.currentTarget.classList.add(isTopHalf ? 'border-t-2' : 'border-b-2', 'border-primary');
-                                                                }
-                                                            }}
-                                                            onDragEnter={(e) => {
-                                                                e.preventDefault();
-                                                                if (e.currentTarget && e.currentTarget.classList) e.currentTarget.classList.add('bg-muted/30');
-                                                            }}
-                                                            onDragLeave={(e) => {
-                                                                if (e.currentTarget && e.currentTarget.classList) {
-                                                                    e.currentTarget.classList.remove('bg-muted/30', 'border-t-2', 'border-b-2', 'border-primary');
-                                                                }
-                                                            }}
-                                                            onDrop={(e) => {
-                                                                e.preventDefault();
-                                                                if (e.currentTarget && e.currentTarget.classList) {
-                                                                    e.currentTarget.classList.remove('bg-muted/30', 'border-t-2', 'border-b-2', 'border-primary');
-                                                                }
-                                                                const sourceId = e.dataTransfer.getData('text/plain');
-                                                                if (!sourceId || sourceId === s.id) return;
-
-                                                                // Determine precise drop location
+                                            {savedStrategies
+                                                .filter(s => {
+                                                    const name = (s.name || s.config?.name || '').toLowerCase();
+                                                    const id = (s.id || '').toLowerCase();
+                                                    const search = searchTerm.toLowerCase();
+                                                    return name.includes(search) || id.includes(search);
+                                                })
+                                                .map((s) => (
+                                                    <div
+                                                        key={s.id}
+                                                        className="grid grid-cols-1 xl:grid-cols-12 gap-2 xl:gap-4 px-4 py-3 xl:items-center hover:bg-muted/50 transition-colors cursor-grab active:cursor-grabbing bg-card mobile-strategy-row"
+                                                        draggable
+                                                        onDragStart={(e) => {
+                                                            e.dataTransfer.effectAllowed = 'move';
+                                                            e.dataTransfer.setData('text/plain', s.id);
+                                                            setTimeout(() => { if (e.target && e.target.classList) e.target.classList.add('opacity-40'); }, 0);
+                                                        }}
+                                                        onDragEnd={(e) => {
+                                                            if (e.target && e.target.classList) {
+                                                                e.target.classList.remove('opacity-40');
+                                                                e.target.classList.remove('border-t-2', 'border-b-2', 'border-primary', 'bg-muted/30');
+                                                            }
+                                                        }}
+                                                        onDragOver={(e) => {
+                                                            e.preventDefault();
+                                                            e.dataTransfer.dropEffect = 'move';
+                                                            if (e.currentTarget) {
                                                                 const rect = e.currentTarget.getBoundingClientRect();
                                                                 const isTopHalf = e.clientY < rect.top + rect.height / 2;
+                                                                e.currentTarget.classList.remove('border-t-2', 'border-b-2', 'border-primary');
+                                                                e.currentTarget.classList.add(isTopHalf ? 'border-t-2' : 'border-b-2', 'border-primary');
+                                                            }
+                                                        }}
+                                                        onDragEnter={(e) => {
+                                                            e.preventDefault();
+                                                            if (e.currentTarget && e.currentTarget.classList) e.currentTarget.classList.add('bg-muted/30');
+                                                        }}
+                                                        onDragLeave={(e) => {
+                                                            if (e.currentTarget && e.currentTarget.classList) {
+                                                                e.currentTarget.classList.remove('bg-muted/30', 'border-t-2', 'border-b-2', 'border-primary');
+                                                            }
+                                                        }}
+                                                        onDrop={(e) => {
+                                                            e.preventDefault();
+                                                            if (e.currentTarget && e.currentTarget.classList) {
+                                                                e.currentTarget.classList.remove('bg-muted/30', 'border-t-2', 'border-b-2', 'border-primary');
+                                                            }
+                                                            const sourceId = e.dataTransfer.getData('text/plain');
+                                                            if (!sourceId || sourceId === s.id) return;
 
-                                                                setSavedStrategies(prev => {
-                                                                    const sourceIndex = prev.findIndex(item => item.id === sourceId);
-                                                                    if (sourceIndex === -1) return prev;
+                                                            // Determine precise drop location
+                                                            const rect = e.currentTarget.getBoundingClientRect();
+                                                            const isTopHalf = e.clientY < rect.top + rect.height / 2;
 
-                                                                    const next = [...prev];
-                                                                    const [movedItem] = next.splice(sourceIndex, 1);
+                                                            setSavedStrategies(prev => {
+                                                                const sourceIndex = prev.findIndex(item => item.id === sourceId);
+                                                                if (sourceIndex === -1) return prev;
 
-                                                                    // adjusted index after moving the item out
-                                                                    let adjustedTargetIndex = next.findIndex(item => item.id === s.id);
-                                                                    if (adjustedTargetIndex === -1) return prev; // Fallback
+                                                                const next = [...prev];
+                                                                const [movedItem] = next.splice(sourceIndex, 1);
 
-                                                                    // Insert before or after
-                                                                    const insertIndex = isTopHalf ? adjustedTargetIndex : adjustedTargetIndex + 1;
-                                                                    next.splice(insertIndex, 0, movedItem);
+                                                                // adjusted index after moving the item out
+                                                                let adjustedTargetIndex = next.findIndex(item => item.id === s.id);
+                                                                if (adjustedTargetIndex === -1) return prev; // Fallback
 
-                                                                    localStorage.setItem('custom_strategy_order', JSON.stringify(next.map(item => item.id)));
-                                                                    return next;
-                                                                });
-                                                            }}
-                                                        >
-                                                            <div className="col-span-1 xl:col-span-3 font-medium text-[12px] flex items-start xl:items-center gap-2">
-                                                                <div className="p-1 rounded text-black hover:text-black transition-colors mt-0.5 xl:mt-0">
-                                                                    <GripVertical className="h-4 w-4 shrink-0" />
-                                                                </div>
-                                                                <div>
-                                                                    {s.name || s.config?.name || 'Unnamed Strategy'}
-                                                                    <div className="text-[9px] font-mono text-black font-normal mt-0.5">ID: {s.id.split('-')[0] || s.id}</div>
-                                                                </div>
+                                                                // Insert before or after
+                                                                const insertIndex = isTopHalf ? adjustedTargetIndex : adjustedTargetIndex + 1;
+                                                                next.splice(insertIndex, 0, movedItem);
+
+                                                                localStorage.setItem('custom_strategy_order', JSON.stringify(next.map(item => item.id)));
+                                                                return next;
+                                                            });
+                                                        }}
+                                                    >
+                                                        <div className="col-span-1 xl:col-span-1 flex items-center justify-between xl:justify-center" onClick={(e) => e.stopPropagation()}>
+                                                            <span className="xl:hidden text-[10px] uppercase font-medium text-black tracking-wider">Combine</span>
+                                                            <input
+                                                                type="checkbox"
+                                                                className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                                                                checked={selectedForCombined.includes(s.id)}
+                                                                onChange={(e) => {
+                                                                    if (e.target.checked) {
+                                                                        setSelectedForCombined(prev => [...prev, s.id]);
+                                                                    } else {
+                                                                        setSelectedForCombined(prev => prev.filter(id => id !== s.id));
+                                                                    }
+                                                                }}
+                                                            />
+                                                        </div>
+                                                        <div className="col-span-1 xl:col-span-2 font-medium text-[12px] flex items-start xl:items-center gap-2">
+                                                            <div className="p-1 rounded text-black hover:text-black transition-colors mt-0.5 xl:mt-0">
+                                                                <GripVertical className="h-4 w-4 shrink-0" />
                                                             </div>
-                                                            <div className="col-span-1 xl:col-span-2 font-mono text-[11px] xl:text-[10px] text-black xl:text-black flex xl:block items-center justify-between">
-                                                                <span className="xl:hidden text-[10px] uppercase font-medium text-black tracking-wider">Created</span>
-                                                                <span>{new Date(s.created_at).toLocaleDateString()} {new Date(s.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                                                            </div>
-                                                            <div className="col-span-1 xl:col-span-1 font-medium text-[12px] xl:text-[10px] flex xl:block items-center justify-between">
-                                                                <span className="xl:hidden text-[10px] uppercase font-medium text-black tracking-wider">Index</span>
-                                                                <span>{s.config?.index}</span>
-                                                            </div>
-                                                            <div className="col-span-1 xl:col-span-3 flex xl:block items-center justify-between">
-                                                                <span className="xl:hidden text-[10px] uppercase font-medium text-black tracking-wider pr-4">Type</span>
-                                                                <div className="flex flex-wrap items-center gap-1">
-                                                                    <span className="px-1.5 py-0.5 rounded text-[10px] xl:text-[9px] font-medium bg-slate-100 text-black text-right xl:text-left line-clamp-2">
-                                                                        {s.config?.legs?.map((l) => `${l.side} ${l.option_type} (${l.lots * (s.config?.quantity_multiplier || 1)}L)`).join(' | ') || '---'}
-                                                                    </span>
-                                                                    {s.config?.quantity_multiplier > 1 && (
-                                                                        <span className="px-1.5 py-0.5 rounded text-[10px] xl:text-[9px] font-black bg-indigo-100 text-indigo-700 border border-indigo-200">
-                                                                            x{s.config.quantity_multiplier}
-                                                                        </span>
-                                                                    )}
-                                                                    {(() => {
-                                                                        const activeExecs = Object.values(runningStrategies).filter(exec => exec.strategy_id === s.id && exec.status !== 'TERMINATED' && exec.status !== 'FAILED');
-                                                                        const paperCount = activeExecs.filter(e => e.config?.is_paper_trading).length;
-                                                                        const liveCount = activeExecs.filter(e => !e.config?.is_paper_trading).length;
-                                                                        
-                                                                        return (
-                                                                            <>
-                                                                                {paperCount > 0 && (
-                                                                                    <span className="px-1.5 py-0.5 rounded text-[10px] xl:text-[9px] font-black bg-blue-100 text-blue-700 border border-blue-200">
-                                                                                        {paperCount} Paper
-                                                                                    </span>
-                                                                                )}
-                                                                                {liveCount > 0 && (
-                                                                                    <span className="px-1.5 py-0.5 rounded text-[10px] xl:text-[9px] font-black bg-orange-100 text-orange-700 border border-orange-200">
-                                                                                        {liveCount} Live
-                                                                                    </span>
-                                                                                )}
-                                                                            </>
-                                                                        );
-                                                                    })()}
-                                                                </div>
-                                                            </div>
-                                                            <div className="col-span-1 xl:col-span-3 text-right mt-2 xl:mt-0 pt-3 xl:pt-0 border-t border-dashed border-gray-100 xl:border-none">
-                                                                <div className="flex flex-wrap items-center justify-start xl:justify-end gap-1.5 w-full">
-                                                                    <Button
-                                                                        size="sm"
-                                                                        variant="outline"
-                                                                        className="h-8 xl:h-7 px-2.5 rounded-md text-[11px] xl:text-[10px] flex-1 xl:flex-none border-indigo-200 bg-indigo-50/50 text-indigo-700 hover:bg-indigo-100 gap-1 shadow-sm font-bold"
-                                                                        onClick={() => {
-                                                                            setSelectedStrategyForExecution(s);
-                                                                            setExecutionModalOpen(true);
-                                                                        }}
-                                                                        title="Execution Settings"
-                                                                    >
-                                                                        <Sliders className="h-3 w-3" /> Settings
-                                                                    </Button>
-                                                                    <Button
-                                                                        size="sm"
-                                                                        className={`h-8 xl:h-7 px-3 gap-1 rounded-md text-[11px] xl:text-[10px] font-medium shadow-sm flex-1 xl:flex-none ${!isConnected ? 'opacity-50 grayscale cursor-not-allowed' : ''}`}
-                                                                        onClick={() => handleExecute(s.id)}
-                                                                        disabled={!isConnected}
-                                                                        title={!isConnected ? "Please connect to Angel One to execute strategies" : ""}
-                                                                    >
-                                                                        <Play className="h-3 w-3 fill-current" /> Deploy
-                                                                    </Button>
-                                                                    <Button
-                                                                        size="sm"
-                                                                        variant="outline"
-                                                                        className="h-8 xl:h-7 px-3 gap-1 rounded-md text-[11px] xl:text-[10px] font-medium border-slate-200 hover:bg-slate-50 text-slate-600 shadow-sm flex-1 xl:flex-none"
-                                                                        onClick={() => {
-                                                                            setViewConfig(s.config);
-                                                                            setViewStrategyName(s.name || s.config?.name || 'Strategy');
-                                                                            setConfigWindowOpen(true);
-                                                                        }}
-                                                                    >
-                                                                        <Eye className="h-3 w-3" /> View
-                                                                    </Button>
-                                                                    <Button
-                                                                        size="sm"
-                                                                        variant="outline"
-                                                                        className="h-8 xl:h-7 px-2.5 rounded-md text-[11px] xl:text-[10px] flex-1 xl:flex-none"
-                                                                        onClick={() => handleEdit(s)}
-                                                                    >
-                                                                        Edit
-                                                                    </Button>
-                                                                    <Button
-                                                                        size="sm"
-                                                                        variant="ghost"
-                                                                        className="h-8 xl:h-7 px-3 rounded-md text-[11px] xl:text-[10px] text-destructive hover:text-destructive hover:bg-red-50 flex-none"
-                                                                        onClick={() => handleDelete(s.id)}
-                                                                    >
-                                                                        <Trash2 className="h-4 w-4 xl:h-3 xl:w-3" />
-                                                                    </Button>
-                                                                </div>
+                                                            <div>
+                                                                {s.name || s.config?.name || 'Unnamed Strategy'}
+                                                                <div className="text-[9px] font-mono text-black font-normal mt-0.5">ID: {s.id.split('-')[0] || s.id}</div>
                                                             </div>
                                                         </div>
-                                                    ))}
+                                                        <div className="col-span-1 xl:col-span-2 font-mono text-[11px] xl:text-[10px] text-black xl:text-black flex xl:block items-center justify-between">
+                                                            <span className="xl:hidden text-[10px] uppercase font-medium text-black tracking-wider">Created</span>
+                                                            <span>{new Date(s.created_at).toLocaleDateString()} {new Date(s.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                                        </div>
+                                                        <div className="col-span-1 xl:col-span-1 font-medium text-[12px] xl:text-[10px] flex xl:block items-center justify-between">
+                                                            <span className="xl:hidden text-[10px] uppercase font-medium text-black tracking-wider">Index</span>
+                                                            <span>{s.config?.index}</span>
+                                                        </div>
+                                                        <div className="col-span-1 xl:col-span-3 flex xl:block items-center justify-between">
+                                                            <span className="xl:hidden text-[10px] uppercase font-medium text-black tracking-wider pr-4">Type</span>
+                                                            <div className="flex flex-wrap items-center gap-1">
+                                                                <span className="px-1.5 py-0.5 rounded text-[10px] xl:text-[9px] font-medium bg-slate-100 text-black text-right xl:text-left line-clamp-2">
+                                                                    {s.config?.legs?.map((l) => `${l.side} ${l.option_type} (${l.lots * (s.config?.quantity_multiplier || 1)}L)`).join(' | ') || '---'}
+                                                                </span>
+                                                                {s.config?.quantity_multiplier > 1 && (
+                                                                    <span className="px-1.5 py-0.5 rounded text-[10px] xl:text-[9px] font-black bg-indigo-100 text-indigo-700 border border-indigo-200">
+                                                                        x{s.config.quantity_multiplier}
+                                                                    </span>
+                                                                )}
+                                                                {(() => {
+                                                                    const activeExecs = Object.values(runningStrategies).filter(exec => exec.strategy_id === s.id && exec.status !== 'TERMINATED' && exec.status !== 'FAILED');
+                                                                    const paperCount = activeExecs.filter(e => e.config?.is_paper_trading).length;
+                                                                    const liveCount = activeExecs.filter(e => !e.config?.is_paper_trading).length;
+
+                                                                    return (
+                                                                        <>
+                                                                            {paperCount > 0 && (
+                                                                                <span className="px-1.5 py-0.5 rounded text-[10px] xl:text-[9px] font-black bg-blue-100 text-blue-700 border border-blue-200">
+                                                                                    {paperCount} Paper
+                                                                                </span>
+                                                                            )}
+                                                                            {liveCount > 0 && (
+                                                                                <span className="px-1.5 py-0.5 rounded text-[10px] xl:text-[9px] font-black bg-orange-100 text-orange-700 border border-orange-200">
+                                                                                    {liveCount} Live
+                                                                                </span>
+                                                                            )}
+                                                                        </>
+                                                                    );
+                                                                })()}
+                                                            </div>
+                                                        </div>
+                                                        <div className="col-span-1 xl:col-span-3 text-right mt-2 xl:mt-0 pt-3 xl:pt-0 border-t border-dashed border-gray-100 xl:border-none">
+                                                            <div className="flex flex-wrap items-center justify-start xl:justify-end gap-1.5 w-full">
+                                                                <Button
+                                                                    size="sm"
+                                                                    variant="outline"
+                                                                    className="h-8 xl:h-7 px-2.5 rounded-md text-[11px] xl:text-[10px] flex-1 xl:flex-none border-indigo-200 bg-indigo-50/50 text-indigo-700 hover:bg-indigo-100 gap-1 shadow-sm font-bold"
+                                                                    onClick={() => {
+                                                                        setSelectedStrategyForExecution(s);
+                                                                        setExecutionModalOpen(true);
+                                                                    }}
+                                                                    title="Execution Settings"
+                                                                >
+                                                                    <Sliders className="h-3 w-3" /> Settings
+                                                                </Button>
+                                                                <Button
+                                                                    size="sm"
+                                                                    variant="outline"
+                                                                    className="h-8 xl:h-7 px-2.5 rounded-md text-[11px] xl:text-[10px] flex-1 xl:flex-none border-cyan-200 bg-cyan-50/50 text-cyan-700 hover:bg-cyan-100 gap-1 shadow-sm font-bold"
+                                                                    onClick={() => {
+                                                                        setSelectedStrategyForBacktest(s);
+                                                                        setBacktestModalOpen(true);
+                                                                        if (s.config?.backtest_from_date && s.config?.backtest_to_date) {
+                                                                            setDateRange({ from: s.config.backtest_from_date, to: s.config.backtest_to_date });
+                                                                        } else {
+                                                                            setDateRange({ from: null, to: null });
+                                                                        }
+                                                                        fetchDates(s.config?.index || 'NIFTY');
+                                                                    }}
+                                                                    title="Run Backtest"
+                                                                >
+                                                                    <Database className="h-3 w-3" /> Backtest
+                                                                </Button>
+                                                                <Button
+                                                                    size="sm"
+                                                                    className={`h-8 xl:h-7 px-3 gap-1 rounded-md text-[11px] xl:text-[10px] font-medium shadow-sm flex-1 xl:flex-none ${!isConnected ? 'opacity-50 grayscale cursor-not-allowed' : ''}`}
+                                                                    onClick={() => handleExecute(s.id)}
+                                                                    disabled={!isConnected}
+                                                                    title={!isConnected ? "Please connect to Angel One to execute strategies" : ""}
+                                                                >
+                                                                    <Play className="h-3 w-3 fill-current" /> Deploy
+                                                                </Button>
+                                                                <Button
+                                                                    size="sm"
+                                                                    variant="outline"
+                                                                    className="h-8 xl:h-7 px-3 gap-1 rounded-md text-[11px] xl:text-[10px] font-medium border-slate-200 hover:bg-slate-50 text-slate-600 shadow-sm flex-1 xl:flex-none"
+                                                                    onClick={() => {
+                                                                        setViewConfig(s.config);
+                                                                        setViewStrategyName(s.name || s.config?.name || 'Strategy');
+                                                                        setConfigWindowOpen(true);
+                                                                    }}
+                                                                >
+                                                                    <Eye className="h-3 w-3" /> View
+                                                                </Button>
+                                                                <Button
+                                                                    size="sm"
+                                                                    variant="outline"
+                                                                    className="h-8 xl:h-7 px-2.5 rounded-md text-[11px] xl:text-[10px] flex-1 xl:flex-none"
+                                                                    onClick={() => handleEdit(s)}
+                                                                >
+                                                                    Edit
+                                                                </Button>
+                                                                <Button
+                                                                    size="sm"
+                                                                    variant="ghost"
+                                                                    className="h-8 xl:h-7 px-3 rounded-md text-[11px] xl:text-[10px] text-destructive hover:text-destructive hover:bg-red-50 flex-none"
+                                                                    onClick={() => handleDelete(s.id)}
+                                                                >
+                                                                    <Trash2 className="h-4 w-4 xl:h-3 xl:w-3" />
+                                                                </Button>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                ))}
                                         </div>
                                     </div>
                                 </CardContent>
@@ -3130,6 +3317,162 @@ export const StrategyBuilder = ({ isConnected }) => {
                     strategy={selectedStrategyForExecution}
                     onSave={handleExecutionSettingsSave}
                 />
+
+                {backtestModalOpen && selectedStrategyForBacktest && (
+                    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-in fade-in duration-200" onClick={(e) => { if (e.target === e.currentTarget) setBacktestModalOpen(false); }}>
+                        <Card className="w-full max-w-sm border-none shadow-2xl bg-white overflow-hidden transform transition-all animate-in zoom-in-95 duration-200">
+                            <CardHeader className="bg-slate-50/80 border-b border-slate-100 py-3 px-4">
+                                <div className="flex items-center justify-between">
+                                    <CardTitle className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-700">
+                                        <Database className="h-3.5 w-3.5 text-indigo-500" />
+                                        Run Backtest
+                                    </CardTitle>
+                                    <Button variant="ghost" size="icon" className="h-6 w-6 rounded-full hover:bg-slate-200/50" onClick={() => setBacktestModalOpen(false)}>
+                                        <X className="h-3.5 w-3.5 text-slate-500" />
+                                    </Button>
+                                </div>
+                            </CardHeader>
+                            <CardContent className="p-4 space-y-4">
+                                <div className="space-y-1.5">
+                                    <Label className="text-[10px] font-bold uppercase tracking-tight text-slate-500">Strategy</Label>
+                                    <div className="flex items-center gap-2 text-xs font-semibold text-slate-700 bg-slate-50 px-3 py-2 rounded-lg border border-slate-100">
+                                        <div className="h-1.5 w-1.5 rounded-full bg-indigo-500"></div>
+                                        {Array.isArray(selectedStrategyForBacktest)
+                                            ? `Portfolio (${selectedStrategyForBacktest.length} strategies)`
+                                            : (selectedStrategyForBacktest.name || selectedStrategyForBacktest.config?.name || 'Unnamed Strategy')}
+                                    </div>
+                                </div>
+
+                                <div className="space-y-1.5">
+                                    <div className="grid grid-cols-2 gap-3 mb-2">
+                                        <div className="space-y-1">
+                                            <Label className="text-[10px] font-bold uppercase tracking-tight text-slate-500">From Date</Label>
+                                            <Input
+                                                value={dateRange.from || ''}
+                                                onChange={(e) => {
+                                                    let val = e.target.value.replace(/\D/g, '');
+                                                    if (val.length > 8) val = val.slice(0, 8);
+                                                    let formatted = val;
+                                                    if (val.length > 4) formatted = val.slice(0, 4) + '-' + val.slice(4);
+                                                    if (val.length > 6) formatted = formatted.slice(0, 7) + '-' + formatted.slice(7);
+                                                    setDateRange(prev => ({ ...prev, from: formatted }));
+                                                }}
+                                                onFocus={() => setActiveDateInput('from')}
+                                                placeholder="YYYY-MM-DD"
+                                                maxLength={10}
+                                                className={`h-9 rounded-lg text-xs font-mono font-medium transition-all ${activeDateInput === 'from' ? 'border-indigo-500 ring-2 ring-indigo-500/20' : 'border-slate-200'}`}
+                                            />
+                                        </div>
+                                        <div className="space-y-1">
+                                            <Label className="text-[10px] font-bold uppercase tracking-tight text-slate-500">To Date</Label>
+                                            <Input
+                                                value={dateRange.to || ''}
+                                                onChange={(e) => {
+                                                    let val = e.target.value.replace(/\D/g, '');
+                                                    if (val.length > 8) val = val.slice(0, 8);
+                                                    let formatted = val;
+                                                    if (val.length > 4) formatted = val.slice(0, 4) + '-' + val.slice(4);
+                                                    if (val.length > 6) formatted = formatted.slice(0, 7) + '-' + formatted.slice(7);
+                                                    setDateRange(prev => ({ ...prev, to: formatted }));
+                                                }}
+                                                onFocus={() => setActiveDateInput('to')}
+                                                placeholder="YYYY-MM-DD"
+                                                maxLength={10}
+                                                className={`h-9 rounded-lg text-xs font-mono font-medium transition-all ${activeDateInput === 'to' ? 'border-indigo-500 ring-2 ring-indigo-500/20' : 'border-slate-200'}`}
+                                            />
+                                        </div>
+                                    </div>
+                                    <div className="border border-slate-200 rounded-lg p-3 bg-white">
+                                        {loadingDates ? (
+                                            <div className="flex items-center justify-center gap-2 text-xs font-medium text-slate-500 py-6">
+                                                <Loader2 className="h-4 w-4 animate-spin text-indigo-500" /> Scanning market data...
+                                            </div>
+                                        ) : availableDates.length === 0 ? (
+                                            <div className="text-xs font-medium text-red-500 text-center py-6">
+                                                No market data found for {Array.isArray(selectedStrategyForBacktest) ? selectedStrategyForBacktest[0].config?.index : selectedStrategyForBacktest.config?.index}.
+                                            </div>
+                                        ) : (
+                                            <CalendarPicker
+                                                availableDates={availableDates}
+                                                dateRange={dateRange}
+                                                onSelect={handleDateSelect}
+                                            />
+                                        )}
+                                    </div>
+                                </div>
+
+                                <Button
+                                    className="w-full h-9 rounded-lg text-xs font-bold gap-2 bg-slate-900 hover:bg-slate-800 text-white shadow-lg shadow-slate-900/10 transition-all active:scale-[0.98]"
+                                    disabled={!dateRange.from || !dateRange.to || loadingDates || isBacktesting}
+                                    onClick={async () => {
+                                        const stratIdKey = Array.isArray(selectedStrategyForBacktest)
+                                            ? selectedStrategyForBacktest.map(s => s.id).sort().join('_')
+                                            : selectedStrategyForBacktest.id;
+                                        localStorage.setItem(`backtest_dates_${stratIdKey}`, JSON.stringify(dateRange));
+
+                                        setIsBacktesting(true);
+                                        try {
+                                            let response;
+                                            if (Array.isArray(selectedStrategyForBacktest)) {
+                                                const ids = selectedStrategyForBacktest.map(s => s.id);
+                                                response = await runCombinedBacktest(ids, dateRange.from, dateRange.to);
+                                            } else {
+                                                response = await runBacktest(selectedStrategyForBacktest.id, dateRange.from, dateRange.to);
+                                            }
+
+                                            if (response.success && response.jobId) {
+                                                const pollInterval = setInterval(async () => {
+                                                    try {
+                                                        const statusRes = await getBacktestStatus(response.jobId);
+                                                        if (statusRes.success) {
+                                                            if (statusRes.status === 'completed') {
+                                                                clearInterval(pollInterval);
+                                                                if (onBacktestComplete) {
+                                                                    const strategyArg = Array.isArray(selectedStrategyForBacktest)
+                                                                        ? { name: "Portfolio Simulation", id: "portfolio", isCombined: true, strategies: selectedStrategyForBacktest }
+                                                                        : selectedStrategyForBacktest;
+                                                                    onBacktestComplete(statusRes.data, strategyArg);
+                                                                }
+                                                                setIsBacktesting(false);
+                                                                setBacktestModalOpen(false);
+                                                            } else if (statusRes.status === 'failed') {
+                                                                clearInterval(pollInterval);
+                                                                alert("Backtest failed: " + statusRes.message);
+                                                                setIsBacktesting(false);
+                                                                setBacktestModalOpen(false);
+                                                            }
+                                                        } else {
+                                                            clearInterval(pollInterval);
+                                                            alert("Failed to get status: " + statusRes.message);
+                                                            setIsBacktesting(false);
+                                                            setBacktestModalOpen(false);
+                                                        }
+                                                    } catch (e) {
+                                                        clearInterval(pollInterval);
+                                                        alert("Error checking status: " + e.message);
+                                                        setIsBacktesting(false);
+                                                        setBacktestModalOpen(false);
+                                                    }
+                                                }, 2000);
+                                            } else {
+                                                alert("Backtest failed: " + response.message);
+                                                setIsBacktesting(false);
+                                                setBacktestModalOpen(false);
+                                            }
+                                        } catch (e) {
+                                            alert("Error during backtest: " + e.message);
+                                            setIsBacktesting(false);
+                                            setBacktestModalOpen(false);
+                                        }
+                                    }}
+                                >
+                                    {isBacktesting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5 fill-current" />}
+                                    {isBacktesting ? 'Running Simulation...' : 'Start Backtest'}
+                                </Button>
+                            </CardContent>
+                        </Card>
+                    </div>
+                )}
 
             </Tabs>
         </div >

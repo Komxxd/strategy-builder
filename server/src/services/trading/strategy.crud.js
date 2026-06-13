@@ -109,6 +109,17 @@ async function getUserStrategies() {
     }));
 }
 
+async function getStrategyById(strategyId) {
+    const data = await withDbRetry(() =>
+        sql`SELECT * FROM strategies WHERE id = ${strategyId}`
+    );
+    return data.map(s => ({
+        ...s,
+        created_at: fixTimezone(s.created_at),
+        updated_at: fixTimezone(s.updated_at)
+    }));
+}
+
 async function getActiveStrategies() {
     const executions = await withDbRetry(() =>
         sql`
@@ -214,6 +225,7 @@ module.exports = {
    updateStrategy,
    deleteStrategy,
    getUserStrategies,
+   getStrategyById,
    getActiveStrategies,
    getExecutionHistory,
    patchExecutionSettings,

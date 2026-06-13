@@ -11,6 +11,8 @@ import {
 } from 'lucide-react';
 import { logoutBackend, loginBackend, connectSocket, disconnectSocket, getBrokerStatus, getConnectionStatus } from './api';
 import { StrategyHistory } from './components/StrategyHistory';
+import { BacktestResultsView } from './components/BacktestResultsView';
+
 import axios from 'axios';
 
 // Globally attach backend secret if already in session
@@ -30,6 +32,9 @@ function App() {
   const [socketLoading, setSocketLoading] = useState(false);
   const [activeTab, setActiveTab] = useState('strategies');
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(true);
+
+  const [globalBacktestResults, setGlobalBacktestResults] = useState(null);
+  const [globalBacktestStrategy, setGlobalBacktestStrategy] = useState(null);
 
   const handleAuthenticated = () => {
     const newKey = sessionStorage.getItem('app_api_key');
@@ -122,7 +127,7 @@ function App() {
     // Ensure axios remains synced if someone refreshes while authenticated
     if (isAuthenticated) {
       axios.defaults.headers.common['x-api-key'] = sessionStorage.getItem('app_api_key');
-      
+
       // Auto-sync status with backend on mount/refresh
       const syncStatus = async () => {
         try {
@@ -135,7 +140,7 @@ function App() {
           console.error("Failed to sync initial status:", err);
         }
       };
-      
+
       syncStatus();
     }
   }, [isAuthenticated]);
@@ -185,7 +190,7 @@ function App() {
 
 
   const SidebarItem = ({ icon: Icon, label, active, onClick, badge, isCollapsed }) => (
-    <button 
+    <button
       onClick={onClick}
       className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${active ? 'bg-secondary text-foreground' : 'text-muted-foreground hover:bg-secondary/50 hover:text-foreground'} ${isCollapsed ? 'justify-center' : ''}`}
       title={isCollapsed ? label : ''}
@@ -222,10 +227,10 @@ function App() {
               </div>
             </div>
           )}
-          <Button 
-            variant="ghost" 
-            size="icon" 
-            className="h-8 w-8 flex text-muted-foreground hover:bg-slate-100 hover:text-foreground shrink-0" 
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 flex text-muted-foreground hover:bg-slate-100 hover:text-foreground shrink-0"
             onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
           >
             <Menu className="h-5 w-5" />
@@ -237,18 +242,25 @@ function App() {
           <div className="space-y-1">
             {!isSidebarCollapsed && <p className="px-3 text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2 whitespace-nowrap">Main Menu</p>}
             {isSidebarCollapsed && <div className="h-4"></div>}
-            <SidebarItem 
-              icon={LayoutDashboard} 
-              label="Strategies" 
-              active={activeTab === 'strategies'} 
+            <SidebarItem
+              icon={LayoutDashboard}
+              label="Strategies"
+              active={activeTab === 'strategies'}
               onClick={() => setActiveTab('strategies')}
               isCollapsed={isSidebarCollapsed}
             />
-            <SidebarItem 
-              icon={History} 
-              label="History" 
-              active={activeTab === 'history'} 
+            <SidebarItem
+              icon={History}
+              label="History"
+              active={activeTab === 'history'}
               onClick={() => setActiveTab('history')}
+              isCollapsed={isSidebarCollapsed}
+            />
+            <SidebarItem
+              icon={BarChart2}
+              label="Backtest Results"
+              active={activeTab === 'backtest'}
+              onClick={() => setActiveTab('backtest')}
               isCollapsed={isSidebarCollapsed}
             />
           </div>
@@ -279,7 +291,7 @@ function App() {
               </Button>
             </div>
             <h1 className="text-[15px] sm:text-2xl font-bold tracking-tight text-foreground whitespace-nowrap">
-              {activeTab === 'strategies' ? 'Strategies' : 'Execution History'}
+              {activeTab === 'strategies' ? 'Strategies' : activeTab === 'history' ? 'Execution History' : 'Backtest Results'}
             </h1>
           </div>
 
@@ -292,11 +304,10 @@ function App() {
               onClick={handleToggleApi}
               disabled={apiLoading}
               title={isApiConnected ? "Angel One session active. Click to logout." : "Click to login to Angel One"}
-              className={`flex items-center gap-1.5 px-2 py-1 sm:px-3 sm:py-2 rounded-full text-[10px] sm:text-xs font-bold border transition-all cursor-pointer shadow-sm shrink-0 ${
-                isApiConnected
-                  ? "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-red-50 hover:text-red-700 hover:border-red-200"
-                  : "bg-red-50 text-red-600 border-red-200 hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-200"
-              } disabled:opacity-50 disabled:cursor-not-allowed`}
+              className={`flex items-center gap-1.5 px-2 py-1 sm:px-3 sm:py-2 rounded-full text-[10px] sm:text-xs font-bold border transition-all cursor-pointer shadow-sm shrink-0 ${isApiConnected
+                ? "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-red-50 hover:text-red-700 hover:border-red-200"
+                : "bg-red-50 text-red-600 border-red-200 hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-200"
+                } disabled:opacity-50 disabled:cursor-not-allowed`}
             >
               {apiLoading ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" />
@@ -317,16 +328,15 @@ function App() {
                 !isApiConnected
                   ? "Login to Angel One first"
                   : isSocketConnected
-                  ? "WebSocket streaming. Click to disconnect."
-                  : "Click to connect WebSocket data stream"
+                    ? "WebSocket streaming. Click to disconnect."
+                    : "Click to connect WebSocket data stream"
               }
-              className={`flex items-center gap-1.5 px-2 py-1 sm:px-3 sm:py-2 rounded-full text-[10px] sm:text-xs font-bold border transition-all shadow-sm shrink-0 ${
-                !isApiConnected
-                  ? "bg-slate-50 text-slate-400 border-slate-200 cursor-not-allowed"
-                  : isSocketConnected
+              className={`flex items-center gap-1.5 px-2 py-1 sm:px-3 sm:py-2 rounded-full text-[10px] sm:text-xs font-bold border transition-all shadow-sm shrink-0 ${!isApiConnected
+                ? "bg-slate-50 text-slate-400 border-slate-200 cursor-not-allowed"
+                : isSocketConnected
                   ? "bg-blue-50 text-blue-700 border-blue-200 hover:bg-red-50 hover:text-red-700 hover:border-red-200 cursor-pointer"
                   : "bg-slate-50 text-slate-500 border-slate-200 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-200 cursor-pointer"
-              } disabled:opacity-50 disabled:cursor-not-allowed`}
+                } disabled:opacity-50 disabled:cursor-not-allowed`}
             >
               {socketLoading ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" />
@@ -342,9 +352,9 @@ function App() {
         </header>
 
         {/* Content Area */}
-        <div className="flex-1 overflow-y-auto p-4 sm:p-8 custom-scrollbar relative">
+        <div className={`flex-1 overflow-y-auto custom-scrollbar relative ${activeTab === 'backtest' ? 'p-0' : 'p-4 sm:p-8'}`}>
 
-          <div className="max-w-[1400px] mx-auto space-y-6">
+          <div className={`${activeTab === 'backtest' ? 'w-full h-full flex flex-col' : 'max-w-[1400px] mx-auto space-y-6'}`}>
             {error && (
               <div className="p-4 bg-red-50 border border-red-100 text-red-700 rounded-lg flex items-center gap-3 animate-in slide-in-from-top-2">
                 <AlertCircle className="h-5 w-5" />
@@ -361,11 +371,23 @@ function App() {
               </div>
             )}
 
-            <div className="w-full animate-in fade-in duration-500 pb-20">
+            <div className={`w-full flex-1 animate-in fade-in duration-500 ${activeTab === 'backtest' ? 'h-full' : 'pb-20'}`}>
               {activeTab === 'strategies' ? (
-                <StrategyBuilder isConnected={isApiConnected && isSocketConnected} />
-              ) : (
+                <StrategyBuilder
+                  isConnected={isApiConnected && isSocketConnected}
+                  onBacktestComplete={(results, strategy) => {
+                    setGlobalBacktestResults(results);
+                    setGlobalBacktestStrategy(strategy);
+                    setActiveTab('backtest');
+                  }}
+                />
+              ) : activeTab === 'history' ? (
                 <StrategyHistory />
+              ) : (
+                <BacktestResultsView
+                  results={globalBacktestResults}
+                  strategy={globalBacktestStrategy}
+                />
               )}
             </div>
           </div>
@@ -377,3 +399,4 @@ function App() {
 }
 
 export default App;
+
