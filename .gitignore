@@ -6,6 +6,7 @@ node_modules/
 
 market-data/
 market-data-1-sec/
+market-data-bundle.tar.gz
 
 # Build outputs
 dist/

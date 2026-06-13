@@ -53,18 +53,26 @@ router.post("/candles", async (req, res) => {
 const fs = require('fs');
 const path = require('path');
 
+const redis = require('../config/redis');
+
 router.get("/backtest-dates", async (req, res) => {
     try {
         const { index } = req.query; // 'NIFTY' or 'SENSEX'
         if (!index) return res.status(400).json({ success: false, message: "Index is required" });
 
+        // First try to get it from Redis (this is populated by the Backtest Server)
+        const cachedDates = await redis.get(`backtest:dates:${index}`);
+        if (cachedDates) {
+            return res.json({ success: true, data: JSON.parse(cachedDates) });
+        }
+
+        // Fallback: If not in Redis, try the local file system (useful for local development without the worker)
         const indexDir = path.join(__dirname, "../../../market-data/index", index);
         if (!fs.existsSync(indexDir)) {
             return res.json({ success: true, data: [] });
         }
 
         const dates = new Set();
-
         const findDates = (dir) => {
             const files = fs.readdirSync(dir);
             for (const file of files) {

@@ -10,6 +10,10 @@ const worker = require('./queue/backtestWorker');
 
 console.log("Backtest Worker started and listening for jobs on Redis:", process.env.REDIS_URL || 'redis://127.0.0.1:6379');
 
+// Sync market dates into Redis so the Main Server API knows what's available
+const syncMarketDates = require('./utils/syncMarketDates');
+syncMarketDates();
+
 // Optional: Set up a CRON job to download data daily after market hours (e.g. 16:00 IST)
 // const cron = require('node-cron');
 // cron.schedule('0 16 * * 1-5', async () => {
