@@ -9,6 +9,19 @@ const connection = new IORedis(process.env.REDIS_URL || 'redis://127.0.0.1:6379'
 });
 
 const worker = new Worker('backtest-jobs', async (job) => {
+    const sanitizeBigInt = (obj) => {
+        if (obj === null || obj === undefined) return obj;
+        if (typeof obj === 'bigint') return Number(obj);
+        if (Array.isArray(obj)) return obj.map(sanitizeBigInt);
+        if (typeof obj === 'object') {
+            const result = {};
+            for (const [key, value] of Object.entries(obj)) {
+                result[key] = sanitizeBigInt(value);
+            }
+            return result;
+        }
+        return obj;
+    };
     try {
         console.log(`[Worker] Started job ${job.id} of type ${job.name}`);
         const startCpu = process.cpuUsage();
@@ -23,7 +36,7 @@ const worker = new Worker('backtest-jobs', async (job) => {
             const endMem = process.memoryUsage();
             console.log(`[Worker] Single Backtest CPU: User ${Math.round(endCpu.user / 1000)}ms, System ${Math.round(endCpu.system / 1000)}ms`);
             
-            return results; // BullMQ stores this returned value in job.returnvalue
+            return sanitizeBigInt(results); // BullMQ stores this returned value in job.returnvalue
         } else if (job.name === 'combined') {
             const { strategyIds, fromDate, toDate } = job.data;
             
@@ -112,7 +125,7 @@ const worker = new Worker('backtest-jobs', async (job) => {
             const endCpu = process.cpuUsage(startCpu);
             console.log(`[Worker] Combined Backtest CPU: User ${Math.round(endCpu.user / 1000)}ms, System ${Math.round(endCpu.system / 1000)}ms`);
             
-            return combined;
+            return sanitizeBigInt(combined);
         } else {
             throw new Error(`Unknown job type: ${job.name}`);
         }
