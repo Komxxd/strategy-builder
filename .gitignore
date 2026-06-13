@@ -4,6 +4,9 @@
 node_modules/
 **/node_modules/
 
+market-data/
+market-data-1-sec/
+
 # Build outputs
 dist/
 **/dist/
