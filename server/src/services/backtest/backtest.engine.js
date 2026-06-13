@@ -105,11 +105,9 @@ class BacktestEngine {
 
         if (!secData || secData.length === 0) {
             console.log(`[DEBUG] No 1s data found for ${type} at ${secFilePath}`);
-            require('fs').appendFileSync('/Users/komalkumari/Developer/backtesting-engine/server/debug.log', `[DEBUG] No 1s data found for ${type} at ${secFilePath}\n`);
             return minData;
         }
         console.log(`[DEBUG] Loaded 1s data for ${type} from ${secFilePath}. Length: ${secData.length}`);
-        require('fs').appendFileSync('/Users/komalkumari/Developer/backtesting-engine/server/debug.log', `[DEBUG] Loaded 1s data for ${type} from ${secFilePath}. Length: ${secData.length}\n`);
 
         const extract = type === 'index' ? this.extractTime.bind(this) : this.extractTimeOption.bind(this);
         
