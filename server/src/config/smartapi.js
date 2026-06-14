@@ -33,7 +33,19 @@ function createSecureSmartApi(instance) {
                     try {
                         const result = origMethod.apply(target, args);
                         if (result && typeof result.then === 'function') {
-                            return result.then(resolved => {
+                            const timeoutPromise = new Promise((_, reject) => {
+                                setTimeout(() => {
+                                    const errMsg = `[SmartAPI Timeout] Method ${propKey} did not respond within 5000ms.`;
+                                    console.error(errMsg);
+                                    try {
+                                        const socketService = require("../services/marketSocket.service");
+                                        socketService.sendAlert(`API Timeout: Action ${propKey} took too long and was dropped.`, "error");
+                                    } catch(e) {}
+                                    reject(new Error(errMsg));
+                                }, 5000);
+                            });
+
+                            return Promise.race([result, timeoutPromise]).then(resolved => {
                                 handlePossibleAuthError(resolved);
                                 return resolved;
                             }).catch(err => {
