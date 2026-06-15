@@ -397,10 +397,20 @@ async function monitorStrategyLoop(strategyId, strategy) {
             }
 
             try {
-                const exitOrders = await Promise.all(strategy.legs.map(async (leg) => {
+                const exitResults = await Promise.allSettled(strategy.legs.map(async (leg) => {
                     if (leg.exited) return leg.exitOrderId;
                     return await placeExitOrder({ config, leg, instrument: leg.instrument, exitType: limitCheck.exitType });
                 }));
+                const chaseErrors = exitResults.filter(r => r.status === 'rejected' && r.reason?.message?.startsWith("EXIT_CHASE_EXHAUSTED"));
+                if (chaseErrors.length > 0) {
+                    pauseStrategy(strategyId, `Exit Chase failed during Overall Limit hit: ${chaseErrors[0].reason.message}`);
+                    return "TERMINATE";
+                }
+                const otherErrors = exitResults.filter(r => r.status === 'rejected');
+                if (otherErrors.length > 0) {
+                    throw otherErrors[0].reason;
+                }
+                const exitOrders = exitResults.map(r => r.value);
                 strategy.status = "COMPLETED";
                 strategy.exitOrderId = exitOrders;
                 strategy.exitType = limitCheck.exitType;
@@ -410,10 +420,6 @@ async function monitorStrategyLoop(strategyId, strategy) {
                 });
                 return "TERMINATE";
             } catch (exitErr) {
-                if (exitErr.message?.startsWith("EXIT_CHASE_EXHAUSTED")) {
-                    pauseStrategy(strategyId, `Exit Chase failed during Overall Limit hit: ${exitErr.message}`);
-                    return "TERMINATE";
-                }
                 throw exitErr;
             }
         }
@@ -531,10 +537,23 @@ async function monitorStrategyLoop(strategyId, strategy) {
             }
 
             try {
-                const exitOrders = await Promise.all(strategy.legs.map(async (leg) => {
+                const exitResults = await Promise.allSettled(strategy.legs.map(async (leg) => {
                     if (leg.exited) return leg.exitOrderId;
                     return await placeExitOrder({ config, leg, instrument: leg.instrument, exitType: "EXIT_TIME" });
                 }));
+
+                const chaseErrors = exitResults.filter(r => r.status === 'rejected' && r.reason?.message?.startsWith("EXIT_CHASE_EXHAUSTED"));
+                if (chaseErrors.length > 0) {
+                    pauseStrategy(strategyId, `Square-off chase failed at Exit Time: ${chaseErrors[0].reason.message}`);
+                    return "TERMINATE";
+                }
+                
+                const otherErrors = exitResults.filter(r => r.status === 'rejected');
+                if (otherErrors.length > 0) {
+                    throw otherErrors[0].reason;
+                }
+
+                const exitOrders = exitResults.map(r => r.value);
 
                 strategy.status = "COMPLETED";
                 updateStrategyInMemory(strategyId, {
@@ -543,10 +562,6 @@ async function monitorStrategyLoop(strategyId, strategy) {
                 });
                 return "TERMINATE";
             } catch (exitErr) {
-                if (exitErr.message?.startsWith("EXIT_CHASE_EXHAUSTED")) {
-                    pauseStrategy(strategyId, `Square-off chase failed at Exit Time: ${exitErr.message}`);
-                    return "TERMINATE";
-                }
                 throw exitErr;
             }
         }

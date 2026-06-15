@@ -525,27 +525,37 @@ async function squareOffStrategy(strategyId) {
     }
 
     try {
-        const exitOrders = await Promise.all(strategy.legs.map(async (leg) => {
+        const exitResults = await Promise.allSettled(strategy.legs.map(async (leg) => {
             if (leg.exited) return leg.exitOrderId;
             return await placeExitOrder({ config, leg, instrument: leg.instrument, exitType: "MANUAL_SQUARE_OFF" });
         }));
 
-        strategy.status = "COMPLETED";
-        updateStrategyInMemory(strategyId, {
-            status: "COMPLETED",
-            exit_type: "MANUAL_SQUARE_OFF",
-            final_pnl_percent: strategy.pnlPercent || 0,
-            totalPnlRupees: strategy.totalPnlRupees || 0,
-            totalOriginalValue: strategy.totalOriginalValue || 0,
-            legs: strategy.legs
-        });
-
-        if (strategy.interval) clearInterval(strategy.interval);
-    } catch (exitErr) {
-        if (exitErr.message?.startsWith("EXIT_CHASE_EXHAUSTED")) {
+        const chaseErrors = exitResults.filter(r => r.status === 'rejected' && r.reason?.message?.startsWith("EXIT_CHASE_EXHAUSTED"));
+        if (chaseErrors.length > 0) {
             strategy.exitAttempted = false; // Allow re-attempt if user resumes
-            pauseStrategy(strategyId, `Manual Square Off chase failed: ${exitErr.message}`);
-        } else throw exitErr;
+            pauseStrategy(strategyId, `Manual Square Off chase failed: ${chaseErrors[0].reason.message}`);
+        } else {
+            const otherErrors = exitResults.filter(r => r.status === 'rejected');
+            if (otherErrors.length > 0) {
+                throw otherErrors[0].reason;
+            }
+
+            const exitOrders = exitResults.map(r => r.value);
+
+            strategy.status = "COMPLETED";
+            updateStrategyInMemory(strategyId, {
+                status: "COMPLETED",
+                exit_type: "MANUAL_SQUARE_OFF",
+                final_pnl_percent: strategy.pnlPercent || 0,
+                totalPnlRupees: strategy.totalPnlRupees || 0,
+                totalOriginalValue: strategy.totalOriginalValue || 0,
+                legs: strategy.legs
+            });
+
+            if (strategy.interval) clearInterval(strategy.interval);
+        }
+    } catch (exitErr) {
+        throw exitErr;
     }
     return true;
 }
