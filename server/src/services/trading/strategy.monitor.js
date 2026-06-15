@@ -408,7 +408,8 @@ async function monitorStrategyLoop(strategyId, strategy) {
                 }
                 const otherErrors = exitResults.filter(r => r.status === 'rejected');
                 if (otherErrors.length > 0) {
-                    throw otherErrors[0].reason;
+                    pauseStrategy(strategyId, `Exit placement failed: ${otherErrors[0].reason.message}`);
+                    return "TERMINATE";
                 }
                 const exitOrders = exitResults.map(r => r.value);
                 strategy.status = "COMPLETED";
@@ -550,7 +551,8 @@ async function monitorStrategyLoop(strategyId, strategy) {
                 
                 const otherErrors = exitResults.filter(r => r.status === 'rejected');
                 if (otherErrors.length > 0) {
-                    throw otherErrors[0].reason;
+                    pauseStrategy(strategyId, `Exit placement failed: ${otherErrors[0].reason.message}`);
+                    return "TERMINATE";
                 }
 
                 const exitOrders = exitResults.map(r => r.value);

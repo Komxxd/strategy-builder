@@ -537,7 +537,9 @@ async function squareOffStrategy(strategyId) {
         } else {
             const otherErrors = exitResults.filter(r => r.status === 'rejected');
             if (otherErrors.length > 0) {
-                throw otherErrors[0].reason;
+                strategy.exitAttempted = false;
+                pauseStrategy(strategyId, `Manual Square Off failed: ${otherErrors[0].reason.message}`);
+                return true;
             }
 
             const exitOrders = exitResults.map(r => r.value);

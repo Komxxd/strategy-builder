@@ -373,14 +373,10 @@ async function placeExitOrder({ config, leg, instrument, exitType }) {
 
         return orderData.orderid;
     } catch (error) {
-        if (error.message.startsWith("EXIT_CHASE_EXHAUSTED")) {
-            throw error; // Re-throw for caller to handle (PAUSE)
-        }
         console.error(`[Exit] Failed to place exit order for ${instrument.symbol}:`, error.message);
-        addStrategyLog(config.id || "system", `CRITICAL: Exit placement FAILED for ${instrument.symbol}: ${error.message}. Re-attempting...`, "ERROR");
-
+        addStrategyLog(config.id || "system", `CRITICAL: Exit placement FAILED for ${instrument.symbol}: ${error.message}.`, "ERROR");
         leg.isExiting = false;
-        return null;
+        throw error;
     }
 }
 
