@@ -687,6 +687,8 @@ class BacktestEngine {
                             currentTrade.exitPrice = exitPrice;
                             currentTrade.exitReason = exitReason;
                             currentTrade.tradePnL = tradePnL;
+                            
+                            active.slHitMinute = t;
 
                             active.lockedPnL += tradePnL;
                             currentOpenPnL += active.lockedPnL;
@@ -736,7 +738,7 @@ class BacktestEngine {
                                     if (closePrice >= active.rtp) rtpCrossed = true;
                                 }
 
-                                if (rtpCrossed) {
+                                if (rtpCrossed && !(active.leg.no_reentry_on_sl_candle && active.slHitMinute === t)) {
                                     if (active.mtp !== null && active.mtp !== active.rtp) {
                                         active.state = 'WAITING_FOR_RECOST_MTP';
                                         if (node.time) {
@@ -820,7 +822,7 @@ class BacktestEngine {
                                     if (closePrice >= active.rtp) rtpCrossed = true;
                                 }
 
-                                if (rtpCrossed) {
+                                if (rtpCrossed && !(active.leg.no_reentry_on_sl_candle && active.slHitMinute === t)) {
                                     if (active.mtp) {
                                         active.state = 'WAITING_FOR_RESL_MTP';
                                         if (node.time) {
@@ -900,7 +902,7 @@ class BacktestEngine {
                                     rtpCrossed = true;
                                 }
 
-                                if (rtpCrossed) {
+                                if (rtpCrossed && !(active.leg.no_reentry_on_sl_candle && active.slHitMinute === t)) {
                                     if (active.mtp) {
                                         active.state = 'WAITING_FOR_REHIGH_MTP';
                                         if (node.time) {
@@ -980,7 +982,7 @@ class BacktestEngine {
                                     rtpCrossed = true;
                                 }
 
-                                if (rtpCrossed) {
+                                if (rtpCrossed && !(active.leg.no_reentry_on_sl_candle && active.slHitMinute === t)) {
                                     if (active.mtp) {
                                         active.state = 'WAITING_FOR_RELOW_MTP';
                                         if (node.time) {
@@ -1105,7 +1107,7 @@ class BacktestEngine {
                             if (high >= active.rtp) rtpCrossed = true;
                         }
 
-                        if (rtpCrossed) {
+                        if (rtpCrossed && !(active.leg.no_reentry_on_sl_candle && active.slHitMinute === t)) {
                             if (active.mtp !== null && active.mtp !== active.rtp) {
                                 active.state = 'WAITING_FOR_RECOST_MTP';
                                 if (node.time) {
@@ -1166,7 +1168,7 @@ class BacktestEngine {
                             if (low <= active.mtp) mtpCrossed = true;
                         }
 
-                        if (mtpCrossed) {
+                        if (mtpCrossed && !(active.leg.no_reentry_on_sl_candle && active.slHitMinute === t)) {
                             active.state = 'ACTIVE';
                             active.reentryCount++;
                             active.entryTime = t;
@@ -1215,7 +1217,7 @@ class BacktestEngine {
                             if (high >= active.rtp) rtpCrossed = true;
                         }
 
-                        if (rtpCrossed) {
+                        if (rtpCrossed && !(active.leg.no_reentry_on_sl_candle && active.slHitMinute === t)) {
                             if (active.mtp) {
                                 active.state = 'WAITING_FOR_RESL_MTP';
                                 if (node.time) {
@@ -1278,7 +1280,7 @@ class BacktestEngine {
                             if (low <= active.mtp) mtpCrossed = true;
                         }
 
-                        if (mtpCrossed) {
+                        if (mtpCrossed && !(active.leg.no_reentry_on_sl_candle && active.slHitMinute === t)) {
                             active.state = 'ACTIVE';
                             active.reentryCount++;
                             active.entryTime = t;
@@ -1367,7 +1369,7 @@ class BacktestEngine {
                             }
                         }
 
-                        if (rtpCrossed) {
+                        if (rtpCrossed && !(active.leg.no_reentry_on_sl_candle && active.slHitMinute === t)) {
                             if (active.mtp) {
                                 active.state = 'WAITING_FOR_REHIGH_MTP';
                                 if (node.time) {
@@ -1425,7 +1427,7 @@ class BacktestEngine {
                             if (node.low <= active.mtp) mtpCrossed = true;
                         }
 
-                        if (mtpCrossed) {
+                        if (mtpCrossed && !(active.leg.no_reentry_on_sl_candle && active.slHitMinute === t)) {
                             active.state = 'ACTIVE';
                             active.reentryCount++;
                             active.entryTime = t;
@@ -1507,7 +1509,7 @@ class BacktestEngine {
                             }
                         }
 
-                        if (rtpCrossed) {
+                        if (rtpCrossed && !(active.leg.no_reentry_on_sl_candle && active.slHitMinute === t)) {
                             if (active.mtp) {
                                 active.state = 'WAITING_FOR_RELOW_MTP';
                                 if (node.time) {
@@ -1565,7 +1567,7 @@ class BacktestEngine {
                             if (node.high >= active.mtp) mtpCrossed = true;
                         }
 
-                        if (mtpCrossed) {
+                        if (mtpCrossed && !(active.leg.no_reentry_on_sl_candle && active.slHitMinute === t)) {
                             active.state = 'ACTIVE';
                             active.reentryCount++;
                             active.entryTime = t;
@@ -1604,7 +1606,7 @@ class BacktestEngine {
                         continue;
                     }
 
-                    if (active.state === 'WAITING_FOR_RE_ASAP') {
+                    if (active.state === 'WAITING_FOR_RE_ASAP' && !(active.leg.no_reentry_on_sl_candle && active.slHitMinute === t)) {
                         const newTargetStrike = active.asapNextStrike || active.targetStrike;
                         
                         if (newTargetStrike !== active.targetStrike) {
@@ -1732,7 +1734,7 @@ class BacktestEngine {
                         continue;
                     }
 
-                    if (active.state === 'WAITING_FOR_LAZY') {
+                    if (active.state === 'WAITING_FOR_LAZY' && !(active.leg.no_reentry_on_sl_candle && active.slHitMinute === t)) {
                         const newTargetStrike = active.lazyNextStrike || active.targetStrike;
 
                         const strikeStr = active.lazyLegConfig.strike || active.lazyLegConfig.strike_selection || "ATM";

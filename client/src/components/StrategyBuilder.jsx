@@ -62,6 +62,7 @@ const DEFAULT_LEG = {
     relow_mntm_mode: 'RELOW_PLUS_PTS',
     relow_mntm_value: 0,
     max_reentry: 1,
+    no_reentry_on_sl_candle: false,
     reentry_sl_enabled: false,
     reentry_sl_type: 'PERCENTAGE',
     reentry_sl_value: 10,
@@ -673,6 +674,16 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
                 {/* Re-Entry Configurations */}
                 {(leg.re_asap_enabled || leg.recost_enabled || leg.resl_enabled || leg.rehigh_enabled || leg.relow_enabled || leg.lazy_leg_enabled) && (
                     <div className="w-full pt-2 border-t border-dashed border-gray-100 mt-2 animate-in fade-in slide-in-from-top-2">
+                        <div className="flex items-center gap-1.5 mb-3">
+                            <input
+                                type="checkbox"
+                                id={`no-reentry-sl-candle-${idPrefix}`}
+                                className="w-3.5 h-3.5 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                checked={leg.no_reentry_on_sl_candle || false}
+                                onChange={(e) => onChange({ ...leg, no_reentry_on_sl_candle: e.target.checked })}
+                            />
+                            <Label htmlFor={`no-reentry-sl-candle-${idPrefix}`} className="text-[10px] cursor-pointer whitespace-nowrap text-gray-700 font-medium">No Re-Entry on SL Candle</Label>
+                        </div>
                         {leg.re_asap_enabled && (
                             <div className="space-y-1.5">
                                 <div className="w-full max-w-[150px]">
@@ -2105,7 +2116,7 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
         chase_time_seconds: 45,
         quantity_multiplier: 1,
         legs: [
-            { strike_criteria: 'STRIKE_TYPE', option_type: 'CE', strike: 'ATM', premium: 0, side: 'BUY', lots: 1, sl_type: 'PERCENTAGE', stop_loss: 10, simple_mntm_enabled: false, simple_mntm_mode: 'SIMPLE_PLUS_PCT', simple_mntm_value: 0, recost_enabled: false, recost_mode: 'RECOST_PLUS_PCT', recost_value: 0, max_reentry: 1, reentry_sl_enabled: false, reentry_sl_type: 'PERCENTAGE', reentry_sl_value: 10, reentry_tsl_enabled: false, reentry_tsl_type: 'PERCENTAGE', reentry_tsl_move: 0, reentry_tsl_trail: 0, re_asap_enabled: false, re_asap_max_entries: 1, lazy_leg_enabled: false, lazy_leg: null, tsl_enabled: false, tsl_type: 'PERCENTAGE', tsl_move: 0 }
+            { strike_criteria: 'STRIKE_TYPE', option_type: 'CE', strike: 'ATM', premium: 0, side: 'BUY', lots: 1, sl_type: 'PERCENTAGE', stop_loss: 10, simple_mntm_enabled: false, simple_mntm_mode: 'SIMPLE_PLUS_PCT', simple_mntm_value: 0, recost_enabled: false, recost_mode: 'RECOST_PLUS_PCT', recost_value: 0, max_reentry: 1, no_reentry_on_sl_candle: false, reentry_sl_enabled: false, reentry_sl_type: 'PERCENTAGE', reentry_sl_value: 10, reentry_tsl_enabled: false, reentry_tsl_type: 'PERCENTAGE', reentry_tsl_move: 0, reentry_tsl_trail: 0, re_asap_enabled: false, re_asap_max_entries: 1, lazy_leg_enabled: false, lazy_leg: null, tsl_enabled: false, tsl_type: 'PERCENTAGE', tsl_move: 0 }
         ]
     });
 
@@ -2319,8 +2330,8 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
             producttype: 'CARRYFORWARD',
             ordertype: 'LIMIT',
             duration: 'DAY',
-            overall_sl_enabled: conf.overall_sl_enabled || (conf.overall_sl_value > 0),
-            overall_target_enabled: conf.overall_target_enabled || (conf.overall_target_value > 0)
+            overall_sl_enabled: conf.overall_sl_enabled ?? (conf.overall_sl_value > 0),
+            overall_target_enabled: conf.overall_target_enabled ?? (conf.overall_target_value > 0)
         });
         setEditingId(strategy.id);
         setIsConfigExpanded(true);
