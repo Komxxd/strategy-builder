@@ -41,29 +41,6 @@ The platform allows traders to:
 
 ---
 
-## System Diagram
-
-```mermaid
-flowchart TD
-    Client[Client <br> React] -->|REST / Socket.IO| API[API Server <br> Express]
-    
-    API --> Engine[Trading Engine]
-    API --> DB[(PostgreSQL <br> Supabase)]
-    
-    Engine --> BrokerSvc[Broker Service <br> execution]
-    BrokerSvc --> AngelOne[Angel One API]
-    
-    AngelOneWS[Market WebSocket <br> Angel One] -->|Tick Data| LTPMap[globalLtpMap <br> In-Memory]
-    LTPMap --> Engine
-    
-    API -.-> BacktestAPI[Backtest API]
-    BacktestAPI --> BullMQ[BullMQ]
-    BullMQ --> Worker[Backtest Worker]
-    Worker <--> Redis[(Redis)]
-```
-
----
-
 ## 1. What Services Exist?
 
 The backend is composed of several independent but cooperating services:
