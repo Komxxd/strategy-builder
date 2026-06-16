@@ -47,13 +47,20 @@ async function monitorStrategyLoop(strategyId, strategy) {
         const ltpMap = globalLtpMap;
 
         for (const leg of activeLegs) {
+            const currentMinute = currentTime.substring(0, 5);
+            const isReentryBlockedThisMinute = leg.leg.no_reentry_on_sl_candle && leg.slHitMinute === currentMinute;
+
             // PHASE 1: Immediate Action States
             if (leg.state === "WAITING_FOR_RE_ASAP") {
-                await handleReentryAsap({ leg, config, strategyId, addStrategyLog });
+                if (!isReentryBlockedThisMinute) {
+                    await handleReentryAsap({ leg, config, strategyId, addStrategyLog });
+                }
                 continue;
             }
             if (leg.state === "WAITING_FOR_LAZY") {
-                await handleLazyLeg({ leg, config, strategyId, addStrategyLog });
+                if (!isReentryBlockedThisMinute) {
+                    await handleLazyLeg({ leg, config, strategyId, addStrategyLog });
+                }
                 continue;
             }
 
@@ -192,7 +199,7 @@ async function monitorStrategyLoop(strategyId, strategy) {
                             addStrategyLog(strategyId, `[RE-HIGH] PEAK: ₹${peak} | RTP: ₹${rtp} | MTP: ₹${leg.mtp}`, "INFO");
                         }
 
-                        if (tickPrice <= rtp) {
+                        if (tickPrice <= rtp && !isReentryBlockedThisMinute) {
                             await handleReentryHigh({ leg, config, strategyId, addStrategyLog, currentTick: tickPrice, isMtpPlacement: true });
                         }
                     }
@@ -203,7 +210,7 @@ async function monitorStrategyLoop(strategyId, strategy) {
                             addStrategyLog(strategyId, `[RE-HIGH] PEAK: ₹${peak} | RTP: ₹${rtp}`, "INFO");
                         }
 
-                        if (tickPrice <= rtp) {
+                        if (tickPrice <= rtp && !isReentryBlockedThisMinute) {
                             await handleReentryHigh({ leg, config, strategyId, addStrategyLog, currentTick: tickPrice, isMtpPlacement: false });
                         }
                     }
@@ -244,7 +251,7 @@ async function monitorStrategyLoop(strategyId, strategy) {
                             addStrategyLog(strategyId, `[RE-LOW] LOW: ₹${low} | RTP: ₹${rtp} | MTP: ₹${leg.mtp}`, "INFO");
                         }
 
-                        if (tickPrice >= rtp) {
+                        if (tickPrice >= rtp && !isReentryBlockedThisMinute) {
                             await handleReentryLow({ leg, config, strategyId, addStrategyLog, currentTick: tickPrice, isMtpPlacement: true });
                         }
                     }
@@ -255,7 +262,7 @@ async function monitorStrategyLoop(strategyId, strategy) {
                             addStrategyLog(strategyId, `[RE-LOW] LOW: ₹${low} | RTP: ₹${rtp}`, "INFO");
                         }
 
-                        if (tickPrice >= rtp) {
+                        if (tickPrice >= rtp && !isReentryBlockedThisMinute) {
                             await handleReentryLow({ leg, config, strategyId, addStrategyLog, currentTick: tickPrice, isMtpPlacement: false });
                         }
                     }
@@ -307,7 +314,7 @@ async function monitorStrategyLoop(strategyId, strategy) {
                         if (prevTick >= rtp && currentTick <= rtp) triggerReEntry = true;
                     }
 
-                    if (triggerReEntry) {
+                    if (triggerReEntry && !isReentryBlockedThisMinute) {
                         await handleReentryCost({ leg, config, strategyId, addStrategyLog, currentTick });
                     }
                 }
@@ -326,7 +333,7 @@ async function monitorStrategyLoop(strategyId, strategy) {
                         if (prevTick >= rtp && currentTick <= rtp) triggerReEntry = true;
                     }
 
-                    if (triggerReEntry) {
+                    if (triggerReEntry && !isReentryBlockedThisMinute) {
                         await handleReentryReSL({ leg, config, strategyId, addStrategyLog, currentTick });
                     }
                 }

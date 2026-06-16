@@ -105,6 +105,7 @@ async function handleLegStopOut(leg, exitType, strategy, exchangeFillData = null
             slUniqueOrderId: null,
             slTriggerPrice: null,
             slLimitPrice: null,
+            slHitMinute: exitTime.substring(0, 5),
             exchangeSlProcessed: false
         };
         strategy.legs.push(newLeg);
@@ -175,6 +176,7 @@ async function handleLegStopOut(leg, exitType, strategy, exchangeFillData = null
             slLimitPrice: null,
             rtp: newRtp,
             mtp: leg.leg.recost_mntm_enabled ? finalMtp : null,
+            slHitMinute: exitTime.substring(0, 5),
             exchangeSlProcessed: false
         };
         strategy.legs.push(newLeg);
@@ -245,7 +247,7 @@ async function handleLegStopOut(leg, exitType, strategy, exchangeFillData = null
             last_tick_price: currentLtp,
             reentry_count: leg.reentry_count,
             original_traded_price: 0,
-            base_otp: leg.base_otp || leg.original_traded_price,
+            base_otp: leg.base_otp || leg.original_traded_price, slHitMinute: exitTime.substring(0, 5),
             base_resl_rtp: newRtp,
             base_resl_mtp: finalMtp,
             base_resl_sl_hit: slPrice,
@@ -304,7 +306,7 @@ async function handleLegStopOut(leg, exitType, strategy, exchangeFillData = null
             last_tick_price: currentLtp,
             reentry_count: leg.reentry_count,
             original_traded_price: 0,
-            base_otp: leg.base_otp || leg.original_traded_price,
+            base_otp: leg.base_otp || leg.original_traded_price, slHitMinute: exitTime.substring(0, 5),
             re_high_trigger_price: triggerPrice,
             max_peak_price: peakPrice,
             final_peak_reached: leg.final_peak_reached || 0, // Carry over if exists
@@ -363,7 +365,7 @@ async function handleLegStopOut(leg, exitType, strategy, exchangeFillData = null
             last_tick_price: currentLtp,
             reentry_count: leg.reentry_count,
             original_traded_price: 0,
-            base_otp: leg.base_otp || leg.original_traded_price,
+            base_otp: leg.base_otp || leg.original_traded_price, slHitMinute: exitTime.substring(0, 5),
             re_low_trigger_price: triggerPrice,
             max_low_price: lowPrice,
             final_low_reached: leg.final_low_reached || 0, // Carry over if exists
@@ -416,6 +418,7 @@ async function handleLegStopOut(leg, exitType, strategy, exchangeFillData = null
             slUniqueOrderId: null,
             slTriggerPrice: null,
             slLimitPrice: null,
+            slHitMinute: exitTime.substring(0, 5),
             exchangeSlProcessed: false
         };
         strategy.legs.push(newLeg);
