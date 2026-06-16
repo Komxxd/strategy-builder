@@ -507,75 +507,164 @@ class BacktestEngine {
                         let isEntryMinute = (t === active.entryTime);
                         let isReentered = active.reentryCount > 0;
 
+                        // Determine if tsl_on_close mode is active for this leg
+                        const tslOnClose = isReentered
+                            ? (active.leg.reentry_tsl_on_close === true || (!active.leg.reentry_tsl_on_close && active.leg.tsl_on_close === true))
+                            : (active.leg.tsl_on_close === true);
+
+                        if (tslOnClose && t === active.entryTime) {
+                            console.log(`  [TSL OnClose] Leg ${active.targetStrike}_${active.leg.option_type}: tsl_on_close mode ACTIVE. Trail will use close only.`);
+                        }
+
                         let checkSL = true;
                         let trailReference = node.close;
 
-                        if (!isReentered) {
-                            checkSL = true;
-                            trailReference = active.leg.side === 'SELL' ? node.low : node.high;
-                        } else {
-                            if (isEntryMinute) {
+                        if (tslOnClose) {
+                            // On Close mode: always use close for both SL check and trail reference
+                            trailReference = node.close;
+                            if (isReentered && isEntryMinute) {
                                 checkSL = false;
-                                trailReference = node.close;
-                            } else {
+                            }
+                        } else {
+                            // Default mode: use high/low
+                            if (!isReentered) {
                                 checkSL = true;
                                 trailReference = active.leg.side === 'SELL' ? node.low : node.high;
+                            } else {
+                                if (isEntryMinute) {
+                                    checkSL = false;
+                                    trailReference = node.close;
+                                } else {
+                                    checkSL = true;
+                                    trailReference = active.leg.side === 'SELL' ? node.low : node.high;
+                                }
                             }
                         }
 
-                        // 1. Evaluate Trailing Stop Loss FIRST (trail before checking SL hit)
+                        // --- TSL On Close mode: Check SL FIRST, then trail ---
+                        // --- Default mode: Trail FIRST, then check SL ---
                         const isTslEnabled = isReentered ? (active.leg.reentry_tsl_enabled === true) : active.leg.tsl_enabled;
                         let trailedInThisMinute = false;
 
-                        if (isTslEnabled && active.tslReferencePrice !== undefined) {
-                            const tslType = isReentered ? (active.leg.reentry_tsl_type || "PERCENTAGE") : (active.leg.tsl_type || "PERCENTAGE");
-                            let tslMove = isReentered ? parseFloat(active.leg.reentry_tsl_move || 0) : parseFloat(active.leg.tsl_move || 0);
-                            let tslTrail = isReentered ? parseFloat(active.leg.reentry_tsl_trail || 0) : parseFloat(active.leg.tsl_trail || 0);
-                            
-                            // fallback
-                            if (isReentered && (isNaN(tslMove) || tslMove <= 0)) tslMove = parseFloat(active.leg.tsl_move || 0);
-                            if (isReentered && (isNaN(tslTrail) || tslTrail <= 0)) tslTrail = parseFloat(active.leg.tsl_trail || 0);
+                        if (tslOnClose) {
+                            // 1. Check SL hit FIRST on high/low (before trailing)
+                            let hitSL = false;
+                            if (checkSL && active.slPrice !== null) {
+                                if (active.leg.side === 'SELL' && node.high >= active.slPrice) hitSL = true;
+                                if (active.leg.side === 'BUY' && node.low <= active.slPrice) hitSL = true;
+                            }
 
-                            if (!isNaN(tslMove) && !isNaN(tslTrail) && tslMove > 0 && tslTrail > 0) {
-                                let moveThreshold = tslMove;
-                                let trailAmount = tslTrail;
+                            if (hitSL) {
+                                // SL hit on close — skip trailing, exit immediately
+                                trailedInThisMinute = false;
+                            } else {
+                                // 2. SL not hit — now trail using close
+                                if (isTslEnabled && active.tslReferencePrice !== undefined) {
+                                    const tslType = isReentered ? (active.leg.reentry_tsl_type || "PERCENTAGE") : (active.leg.tsl_type || "PERCENTAGE");
+                                    let tslMove = isReentered ? parseFloat(active.leg.reentry_tsl_move || 0) : parseFloat(active.leg.tsl_move || 0);
+                                    let tslTrail = isReentered ? parseFloat(active.leg.reentry_tsl_trail || 0) : parseFloat(active.leg.tsl_trail || 0);
+                                    
+                                    if (isReentered && (isNaN(tslMove) || tslMove <= 0)) tslMove = parseFloat(active.leg.tsl_move || 0);
+                                    if (isReentered && (isNaN(tslTrail) || tslTrail <= 0)) tslTrail = parseFloat(active.leg.tsl_trail || 0);
 
-                                if (tslType === "PERCENTAGE") {
-                                    moveThreshold = active.entryPrice * (tslMove / 100);
-                                    trailAmount = active.entryPrice * (tslTrail / 100);
-                                }
+                                    if (!isNaN(tslMove) && !isNaN(tslTrail) && tslMove > 0 && tslTrail > 0) {
+                                        let moveThreshold = tslMove;
+                                        let trailAmount = tslTrail;
 
-                                let peakPrice = trailReference;
-                                let favorableMove = active.leg.side === "BUY" ? (peakPrice - active.tslReferencePrice) : (active.tslReferencePrice - peakPrice);
-
-                                if (favorableMove >= moveThreshold) {
-                                    const steps = Math.floor(favorableMove / moveThreshold);
-                                    if (steps > 0) {
-                                        if (active.leg.side === "BUY") {
-                                            active.slPrice = active.slPrice + (steps * trailAmount);
-                                            active.tslReferencePrice = active.tslReferencePrice + (steps * moveThreshold);
-                                        } else {
-                                            active.slPrice = active.slPrice - (steps * trailAmount);
-                                            active.tslReferencePrice = active.tslReferencePrice - (steps * moveThreshold);
+                                        if (tslType === "PERCENTAGE") {
+                                            moveThreshold = active.entryPrice * (tslMove / 100);
+                                            trailAmount = active.entryPrice * (tslTrail / 100);
                                         }
-                                        active.slPrice = roundToTick(active.slPrice);
-                                        trailedInThisMinute = true;
-                                        
-                                        // Log TSL Trailed action
-                                        const idx = active.optionDayChart.findIndex(c => c.time === t);
-                                        if (idx !== -1) {
-                                            const tslActionStr = `[TSL Trailed] New SL: ₹${active.slPrice.toFixed(2)}`;
-                                            active.optionDayChart[idx].action = active.optionDayChart[idx].action ? active.optionDayChart[idx].action + ' | ' + tslActionStr : tslActionStr;
+
+                                        let peakPrice = trailReference; // always close in this mode
+                                        let favorableMove = active.leg.side === "BUY" ? (peakPrice - active.tslReferencePrice) : (active.tslReferencePrice - peakPrice);
+
+                                        if (favorableMove >= moveThreshold) {
+                                            const steps = Math.floor(favorableMove / moveThreshold);
+                                            if (steps > 0) {
+                                                if (active.leg.side === "BUY") {
+                                                    active.slPrice = active.slPrice + (steps * trailAmount);
+                                                    active.tslReferencePrice = active.tslReferencePrice + (steps * moveThreshold);
+                                                } else {
+                                                    active.slPrice = active.slPrice - (steps * trailAmount);
+                                                    active.tslReferencePrice = active.tslReferencePrice - (steps * moveThreshold);
+                                                }
+                                                active.slPrice = roundToTick(active.slPrice);
+                                                trailedInThisMinute = true;
+                                                
+                                                const idx = active.optionDayChart.findIndex(c => c.time === t);
+                                                if (idx !== -1) {
+                                                    const tslActionStr = `[TSL Trailed OnClose] New SL: ₹${active.slPrice.toFixed(2)}`;
+                                                    active.optionDayChart[idx].action = active.optionDayChart[idx].action ? active.optionDayChart[idx].action + ' | ' + tslActionStr : tslActionStr;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Re-evaluate SL after trailing (in case trail moved SL into the close price)
+                            // But since we already checked SL before trailing, hitSL stays as-is
+                            // The hitSL variable from above is used below
+
+                        } else {
+                            // Default mode: Trail FIRST, then check SL
+
+                            // 1. Evaluate Trailing Stop Loss FIRST (trail before checking SL hit)
+                            if (isTslEnabled && active.tslReferencePrice !== undefined) {
+                                const tslType = isReentered ? (active.leg.reentry_tsl_type || "PERCENTAGE") : (active.leg.tsl_type || "PERCENTAGE");
+                                let tslMove = isReentered ? parseFloat(active.leg.reentry_tsl_move || 0) : parseFloat(active.leg.tsl_move || 0);
+                                let tslTrail = isReentered ? parseFloat(active.leg.reentry_tsl_trail || 0) : parseFloat(active.leg.tsl_trail || 0);
+                                
+                                // fallback
+                                if (isReentered && (isNaN(tslMove) || tslMove <= 0)) tslMove = parseFloat(active.leg.tsl_move || 0);
+                                if (isReentered && (isNaN(tslTrail) || tslTrail <= 0)) tslTrail = parseFloat(active.leg.tsl_trail || 0);
+
+                                if (!isNaN(tslMove) && !isNaN(tslTrail) && tslMove > 0 && tslTrail > 0) {
+                                    let moveThreshold = tslMove;
+                                    let trailAmount = tslTrail;
+
+                                    if (tslType === "PERCENTAGE") {
+                                        moveThreshold = active.entryPrice * (tslMove / 100);
+                                        trailAmount = active.entryPrice * (tslTrail / 100);
+                                    }
+
+                                    let peakPrice = trailReference;
+                                    let favorableMove = active.leg.side === "BUY" ? (peakPrice - active.tslReferencePrice) : (active.tslReferencePrice - peakPrice);
+
+                                    if (favorableMove >= moveThreshold) {
+                                        const steps = Math.floor(favorableMove / moveThreshold);
+                                        if (steps > 0) {
+                                            if (active.leg.side === "BUY") {
+                                                active.slPrice = active.slPrice + (steps * trailAmount);
+                                                active.tslReferencePrice = active.tslReferencePrice + (steps * moveThreshold);
+                                            } else {
+                                                active.slPrice = active.slPrice - (steps * trailAmount);
+                                                active.tslReferencePrice = active.tslReferencePrice - (steps * moveThreshold);
+                                            }
+                                            active.slPrice = roundToTick(active.slPrice);
+                                            trailedInThisMinute = true;
+                                            
+                                            // Log TSL Trailed action
+                                            const idx = active.optionDayChart.findIndex(c => c.time === t);
+                                            if (idx !== -1) {
+                                                const tslActionStr = `[TSL Trailed] New SL: ₹${active.slPrice.toFixed(2)}`;
+                                                active.optionDayChart[idx].action = active.optionDayChart[idx].action ? active.optionDayChart[idx].action + ' | ' + tslActionStr : tslActionStr;
+                                            }
                                         }
                                     }
                                 }
                             }
                         }
 
-                        // 2. Check SL hit on close price AFTER trailing
+                        // Final SL check (for default mode, or re-check for onClose mode)
                         let hitSL = false;
                         if (checkSL && active.slPrice !== null) {
-                            if (trailedInThisMinute) {
+                            if (tslOnClose) {
+                                // On Close mode: SL check still on high/low
+                                if (active.leg.side === 'SELL' && node.high >= active.slPrice) hitSL = true;
+                                if (active.leg.side === 'BUY' && node.low <= active.slPrice) hitSL = true;
+                            } else if (trailedInThisMinute) {
                                 if (active.leg.side === 'SELL' && node.close >= active.slPrice) hitSL = true;
                                 if (active.leg.side === 'BUY' && node.close <= active.slPrice) hitSL = true;
                             } else {

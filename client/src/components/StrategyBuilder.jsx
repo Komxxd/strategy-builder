@@ -3308,8 +3308,7 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
                 <StrategyConfigModal
                     isOpen={configWindowOpen}
                     onClose={() => setConfigWindowOpen(false)}
-                    config={viewConfig}
-                    strategyName={viewStrategyName}
+                    strategy={{ config: viewConfig, name: viewStrategyName }}
                 />
                 <ExecutionSettingsModal
                     isOpen={executionModalOpen}
