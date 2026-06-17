@@ -101,8 +101,8 @@ function evaluateLegLimits({ leg, config, strategyId, addStrategyLog, isMinuteCl
         : (leg.leg.tsl_on_close === true);
     const skipTsl = tslOnClose && !isMinuteClose;
 
-    if (!skipTsl && isTslEnabled && leg.tslReferencePrice !== undefined && leg.currentLtp !== null) {
-        if (!isNaN(tslMove) && !isNaN(tslTrail) && tslMove > 0 && tslTrail > 0) {
+    if (isTslEnabled && leg.tslReferencePrice !== undefined && leg.currentLtp !== null) {
+        if (!skipTsl && !isNaN(tslMove) && !isNaN(tslTrail) && tslMove > 0 && tslTrail > 0) {
             let moveThreshold = tslMove;
             let trailAmount = tslTrail;
 
