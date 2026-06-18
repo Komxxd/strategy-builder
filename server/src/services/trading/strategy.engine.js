@@ -128,6 +128,14 @@ async function initializeActiveStrategies() {
         );
 
         for (const exec of activeExecutions) {
+            // FIX: If strategy is already actively running in memory, skip it.
+            // This prevents duplicate setInterval leaks if initializeActiveStrategies 
+            // is called again (e.g., during a re-login) while the server is still running.
+            if (activeStrategies.has(exec.id)) {
+                console.log(`[Auto-Resume] Strategy ${exec.id} is already running in memory. Skipping restore from DB to prevent duplicate intervals.`);
+                continue;
+            }
+
             // FIX: Reconstruct config with guaranteed is_paper_trading from the 
             // dedicated column. This prevents paper strategies from going live 
             // after a server restart when execution_details was not yet persisted.
