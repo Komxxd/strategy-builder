@@ -467,6 +467,40 @@ async function monitorStrategyLoop(strategyId, strategy) {
                         addStrategyLog(strategyId, `TSL Step: Moved SL for ${leg.instrument.symbol} to ₹${newTrigger}`, "INFO");
                     } catch (e) {
                         console.error(`[TSL] Failed to modify order ${leg.slOrderId} for ${leg.instrument.symbol}:`, e.message);
+                        
+                        // FIX: If modification fails, check if the original order was manually cancelled or rejected.
+                        // If it is dead, deploy a new SL order to restore protection.
+                        try {
+                            const api = await getAuthorizedInstance(config.connectionId);
+                            const details = await api.indOrderDetails(leg.slUniqueOrderId);
+                            const orderStatus = (details?.data?.orderstatus || "").toLowerCase();
+                            
+                            if (orderStatus === "cancelled" || orderStatus === "rejected") {
+                                addStrategyLog(strategyId, `[TSL RECOVERY] Original SL order was ${orderStatus}. Placing a new SL order at ₹${newTrigger} to restore protection.`, "WARNING");
+                                
+                                const { placeOrder } = require("./strategy.execution");
+                                const slConfig = {
+                                    ...config,
+                                    lots: leg.leg.lots,
+                                    variety: "STOPLOSS",
+                                    ordertype: "STOPLOSS_LIMIT",
+                                    side: leg.leg.side === "BUY" ? "SELL" : "BUY",
+                                    price: newLimit.toString(),
+                                    triggerprice: newTrigger.toString(),
+                                };
+                                
+                                const newSlOrder = await placeOrder(slConfig, leg.instrument, config.connectionId);
+                                if (newSlOrder && newSlOrder.orderid) {
+                                    leg.slOrderId = newSlOrder.orderid;
+                                    leg.slUniqueOrderId = newSlOrder.uniqueorderid;
+                                    addStrategyLog(strategyId, `[TSL RECOVERY] Successfully deployed replacement SL order ${newSlOrder.orderid}.`, "INFO");
+                                }
+                            } else {
+                                addStrategyLog(strategyId, `[TSL] SL Modification failed, but order status is '${orderStatus}'. Keeping existing order.`, "WARNING");
+                            }
+                        } catch (statusErr) {
+                            console.error(`[TSL RECOVERY] Failed to check status of ${leg.slOrderId}:`, statusErr.message);
+                        }
                     }
                 } else {
                     addStrategyLog(strategyId, `[PAPER TSL] Virtual SL moved to ₹${newTrigger}`, "INFO");
