@@ -170,23 +170,25 @@ function evaluateLegLimits({ leg, config, strategyId, addStrategyLog, isMinuteCl
         const activeTrigger = result.tslStepped ? result.tslUpdates.newTrigger : leg.slTriggerPrice;
         if (activeTrigger) {
             if (leg.leg.side === "BUY" && leg.currentLtp <= activeTrigger) {
-                if (config.variety !== "STOPLOSS" || config.is_paper_trading === true || !leg.slOrderId) {
-                    result.isHit = true;
-                    result.exitReason = "TRAILING_STOP_LOSS";
-                    return result;
+                result.isHit = true;
+                result.exitReason = "TRAILING_STOP_LOSS";
+                if (config.variety === "STOPLOSS" && config.is_paper_trading !== true && leg.slOrderId) {
+                    result.requiresExchangeValidation = true;
                 }
+                return result;
             } else if (leg.leg.side === "SELL" && leg.currentLtp >= activeTrigger) {
-                if (config.variety !== "STOPLOSS" || config.is_paper_trading === true || !leg.slOrderId) {
-                    result.isHit = true;
-                    result.exitReason = "TRAILING_STOP_LOSS";
-                    return result;
+                result.isHit = true;
+                result.exitReason = "TRAILING_STOP_LOSS";
+                if (config.variety === "STOPLOSS" && config.is_paper_trading !== true && leg.slOrderId) {
+                    result.requiresExchangeValidation = true;
                 }
+                return result;
             }
         }
     }
 
     // 2. Evaluate Static Stop Loss (if not already hit by TSL)
-    if (!result.isHit && (config.variety !== "STOPLOSS" || config.is_paper_trading === true || !leg.slOrderId)) {
+    if (!result.isHit) {
         const isReentered = leg.reentry_count > 0;
         const activeSlValue = isReentered && leg.leg.reentry_sl_enabled ? parseFloat(leg.leg.reentry_sl_value || 0) : parseFloat(leg.leg.stop_loss || 0);
         const isSlEnabled = isReentered && leg.leg.reentry_sl_enabled ? true : leg.leg.sl_enabled !== false;
@@ -202,6 +204,9 @@ function evaluateLegLimits({ leg, config, strategyId, addStrategyLog, isMinuteCl
 
             if (result.isHit) {
                 result.exitReason = "LEG_STOP_LOSS";
+                if (config.variety === "STOPLOSS" && config.is_paper_trading !== true && leg.slOrderId) {
+                    result.requiresExchangeValidation = true;
+                }
             }
 
             if (leg.initialSlTriggerPrice === undefined || leg.initialSlTriggerPrice === null) {

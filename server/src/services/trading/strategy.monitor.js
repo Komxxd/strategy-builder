@@ -512,6 +512,26 @@ async function monitorStrategyLoop(strategyId, strategy) {
 
             // If the PnL evaluation says "IsHit", it means either your Target or SL was reached.
             if (evalResult.isHit) {
+                if (evalResult.requiresExchangeValidation) {
+                    try {
+                        const api = await getAuthorizedInstance(config.connectionId);
+                        const details = await api.indOrderDetails(leg.slUniqueOrderId);
+                        const orderStatus = (details?.data?.orderstatus || "").toLowerCase();
+                        
+                        if (orderStatus === "cancelled" || orderStatus === "rejected") {
+                            addStrategyLog(strategyId, `[FALLBACK] Internal Monitor detected SL breach. Exchange SL order was ${orderStatus}. Forcing manual Market Exit to protect position!`, "CRITICAL");
+                            // Fall through to manual exit
+                        } else {
+                            // Order is pending, open, complete, or filled. Let the exchange/Phase 6 handle it securely.
+                            continue;
+                        }
+                    } catch (e) {
+                        // If we can't ping the broker, it's safer to defer to the exchange to avoid double exits.
+                        console.error(`[FALLBACK] Failed to verify SL status for ${leg.instrument.symbol}:`, e.message);
+                        continue;
+                    }
+                }
+
                 try {
                     // 1. Place the order to close the position at the exchange.
                     await placeExitOrder({ config, leg, instrument: leg.instrument, exitType: evalResult.exitReason });
