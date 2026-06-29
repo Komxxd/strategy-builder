@@ -362,6 +362,9 @@ async function placeExitOrder({ config, leg, instrument, exitType }) {
         });
 
         if (fillPrice) {
+            // FIX: Update leg with the actual execution price so PnL calculation is accurate
+            leg.currentLtp = fillPrice;
+            
             leg.exited = true;
             leg.isExiting = false;
             addStrategyLog(strategyId, `Exit confirmed for ${instrument.symbol} at ₹${fillPrice}.`, "INFO");

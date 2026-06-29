@@ -49,6 +49,13 @@ async function handleLegStopOut(leg, exitType, strategy, exchangeFillData = null
     leg.currentActivePnlPoints = 0;
     leg.currentActivePnlRupees = 0;
 
+    // FIX: Update the display PnL properties to reflect the final booked amounts
+    leg.pnlPoints = leg.bookedPnlPoints;
+    leg.pnlRupees = leg.bookedPnlRupees;
+    if (leg.original_traded_price) {
+        leg.pnlPercent = (leg.pnlPoints / leg.original_traded_price) * 100;
+    }
+
     // STEP 3: Create a snapshot for history
     // This allows the user to see exactly what happened in the past (Entry, Exit, and SL prices).
     const exitTime = exchangeFillData?.exchangeFillTime || getISTTime();

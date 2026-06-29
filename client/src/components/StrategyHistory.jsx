@@ -255,7 +255,7 @@ export const StrategyHistory = () => {
                                                         </div>
                                                         <div className="flex justify-between items-center text-[9px]">
                                                             <span className="text-black font-bold">Final SL</span>
-                                                            <span className="font-mono font-bold text-red-600 ml-2">₹{Number(leg.slTriggerPrice || 0).toFixed(1)}</span>
+                                                            <span className="font-mono font-bold text-red-600 ml-2">₹{Number(leg.exitSnapshot?.slTriggerPrice || leg.slTriggerPrice || 0).toFixed(1)}</span>
                                                         </div>
                                                     </div>
 
