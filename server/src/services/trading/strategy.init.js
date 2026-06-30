@@ -1,7 +1,7 @@
 const { getLtpSecure, getLtpWithRetry, addStrategyLog, updateStrategyInMemory } = require("./strategy.state");
 const { getLegStrikeSelection, findClosestPremiumInstrument, findOptionInstrument } = require("./strategy.instruments");
 const { calculateMomentumTarget, checkMomentumHit } = require("./strategy.momentum");
-const { getISTTime } = require("./strategy.time");
+const { getISTTime, getISTExchangeFormat } = require("./strategy.time");
 const { getLimitOffsetAmt, roundToTick, computeStopLossExitPrices, resolveUniversalOrderParams } = require("./strategy.offset");
 const { placeOrder, chaseOrderFill, waitForOrderFillPrice, placeStopLossWithRetry } = require("./strategy.execution");
 const marketSocketService = require("../marketSocket.service");
@@ -215,7 +215,7 @@ async function handleInitialEntry(strategyId, strategy) {
                 }
                 if (fillPrice) {
                     leg.entryPrice = fillPrice;
-                    leg.entryTime = getISTTime();
+                    leg.entryTime = getISTExchangeFormat();
                     leg.original_traded_price = fillPrice;
                     leg.base_otp = fillPrice;
                     leg.peakPrice = fillPrice;

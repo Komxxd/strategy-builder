@@ -1,6 +1,6 @@
 const { roundToTick, getLimitOffsetAmt, computeStopLossExitPrices } = require("./strategy.offset");
 const { placeOrder, waitForOrderFillPrice, placeStopLossWithRetry } = require("./strategy.execution");
-const { getISTTime } = require("./strategy.time");
+const { getISTTime, getISTExchangeFormat } = require("./strategy.time");
 
 async function handleReentryReSL({ leg, config, strategyId, addStrategyLog, currentTick }) {
     const rtp = leg.resl_trigger_price;
@@ -110,7 +110,7 @@ async function handleReentryReSL({ leg, config, strategyId, addStrategyLog, curr
                 );
                 if (fill) {
                     leg.entryPrice = fill;
-                    leg.entryTime = getISTTime();
+                    leg.entryTime = getISTExchangeFormat();
                     leg.original_traded_price = leg.entryPrice;
                     leg.peakPrice = leg.entryPrice;
                     leg.tslReferencePrice = leg.entryPrice;

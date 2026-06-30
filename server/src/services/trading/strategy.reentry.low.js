@@ -1,6 +1,6 @@
 const { placeOrder, waitForOrderFillPrice, placeStopLossWithRetry } = require("./strategy.execution");
 const { roundToTick, computeStopLossExitPrices, getLimitOffsetAmt } = require("./strategy.offset");
-const { getISTTime } = require("./strategy.time");
+const { getISTTime, getISTExchangeFormat } = require("./strategy.time");
 const { getAuthorizedInstance } = require("../../config/smartapi");
 
 /**
@@ -185,7 +185,7 @@ async function monitorReentryFill(leg, config, strategyId, addStrategyLog, order
             
             leg.state = "ACTIVE";
             leg.entryPrice = fill;
-            leg.entryTime = getISTTime();
+            leg.entryTime = getISTExchangeFormat();
             leg.original_traded_price = fill;
             leg.tslReferencePrice = fill;
             leg.reentry_count = (leg.reentry_count || 0) + 1;

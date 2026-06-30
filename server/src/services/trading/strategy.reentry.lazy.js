@@ -1,6 +1,6 @@
 const { findClosestPremiumInstrument, getLegStrikeSelection, findOptionInstrument } = require("./strategy.instruments");
 const { calculateMomentumTarget } = require("./strategy.momentum");
-const { getISTTime } = require("./strategy.time");
+const { getISTTime, getISTExchangeFormat } = require("./strategy.time");
 const { computeStopLossExitPrices, getLimitOffsetAmt, resolveUniversalOrderParams } = require("./strategy.offset");
 const { placeOrder } = require("./strategy.execution");
 const marketService = require("../market.service");
@@ -42,7 +42,7 @@ async function handleLazyLeg({ leg, config, strategyId, addStrategyLog }) {
         } else {
             if (config.is_paper_trading) {
                 leg.entryPrice = instLtp;
-                leg.entryTime = getISTTime();
+                leg.entryTime = getISTExchangeFormat();
                 leg.original_traded_price = instLtp;
                 leg.state = "ACTIVE";
                 leg.peakPrice = instLtp; 
@@ -80,7 +80,7 @@ async function handleLazyLeg({ leg, config, strategyId, addStrategyLog }) {
                         if (fill) {
                             const fillPrice = fill;
                             leg.entryPrice = fillPrice;
-                            leg.entryTime = getISTTime();
+                            leg.entryTime = getISTExchangeFormat();
                             leg.original_traded_price = fillPrice;
                             leg.peakPrice = fillPrice;
                             leg.tslReferencePrice = fillPrice;

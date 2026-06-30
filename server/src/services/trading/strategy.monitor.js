@@ -21,7 +21,7 @@ const { handleReentryReSL } = require("./strategy.reentry.resl");
 const { handleReentryHigh, modifyReentryOrder } = require("./strategy.reentry.high");
 const { handleReentryLow, modifyReentryLowOrder } = require("./strategy.reentry.low");
 const { checkMomentumHit } = require("./strategy.momentum");
-const { getISTTime } = require("./strategy.time");
+const { getISTTime, getISTExchangeFormat } = require("./strategy.time");
 const { roundToTick, computeStopLossExitPrices, getLimitOffsetAmt } = require("./strategy.offset");
 const { placeStopLossWithRetry, placeExitOrder } = require("./strategy.execution");
 const { checkOverallPnlLimits, evaluateLegLimits } = require("./strategy.pnl");
@@ -110,7 +110,7 @@ async function monitorStrategyLoop(strategyId, strategy) {
                                     const fill = await waitForOrderFillPrice(leg.uniqueOrderId, config.connectionId, config.is_paper_trading === true, leg.instrument, 28800000, 1000);
                                     if (fill) {
                                         leg.entryPrice = fill;
-                                        leg.entryTime = getISTTime();
+                                        leg.entryTime = getISTExchangeFormat();
                                         leg.original_traded_price = fill;
 
                                         // Deploy SL if enabled
@@ -275,7 +275,7 @@ async function monitorStrategyLoop(strategyId, strategy) {
 
                     if (mntmHit) {
                         leg.entryPrice = target;
-                        leg.entryTime = getISTTime();
+                        leg.entryTime = getISTExchangeFormat();
                         leg.original_traded_price = target;
                         leg.state = "ACTIVE";
                         leg.peakPrice = target;

@@ -17,7 +17,7 @@ const { getAuthorizedInstance } = require("../../config/smartapi");
 const marketService = require("../market.service");
 const marketSocketService = require("../marketSocket.service");
 const { getLtpSecure, getLtpWithRetry, addStrategyLog } = require("./strategy.state");
-const { getISTTime } = require("./strategy.time");
+const { getISTTime, getISTExchangeFormat } = require("./strategy.time");
 const { roundToTick, getLimitOffsetAmt, computeStopLossExitPrices, resolveUniversalOrderParams } = require("./strategy.offset");
 const { checkOrderFillOnce, chaseOrderFill } = require("./strategy.chase");
 
@@ -236,7 +236,7 @@ async function placeExitOrder({ config, leg, instrument, exitType }) {
         leg.exited = true;
         leg.isExiting = false;
         leg.exitType = exitType || "SKIPPED_NO_INSTRUMENT";
-        leg.exitTime = getISTTime();
+        leg.exitTime = getISTExchangeFormat();
         return null;
     }
 
@@ -260,7 +260,7 @@ async function placeExitOrder({ config, leg, instrument, exitType }) {
                 leg.exited = true;
                 leg.isExiting = false;
                 leg.exitType = exitType || "CANCELLED_NO_ENTRY";
-                leg.exitTime = getISTTime();
+                leg.exitTime = getISTExchangeFormat();
                 return null;
             } catch (e) {
                 const errMsg = e.message || "";
@@ -279,7 +279,7 @@ async function placeExitOrder({ config, leg, instrument, exitType }) {
             leg.exited = true;
             leg.isExiting = false;
             leg.exitType = exitType || "SKIPPED_NO_ENTRY";
-            leg.exitTime = getISTTime();
+            leg.exitTime = getISTExchangeFormat();
             return null;
         }
     }
@@ -337,7 +337,7 @@ async function placeExitOrder({ config, leg, instrument, exitType }) {
         leg.exitOrderId = orderData.orderid;
         leg.exitUniqueOrderId = orderData.uniqueorderid;
         leg.exitType = exitType;
-        leg.exitTime = getISTTime();
+        leg.exitTime = getISTExchangeFormat();
 
         if (config.is_paper_trading) {
             leg.exited = true;

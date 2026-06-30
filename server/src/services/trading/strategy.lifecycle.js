@@ -11,7 +11,7 @@
  * 4. It decides which Re-Entry logic to trigger (RE-COST, RE-SL, RE-HIGH, etc.).
  */
 
-const { getISTTime } = require("./strategy.time");
+const { getISTTime, getISTExchangeFormat } = require("./strategy.time");
 const { addStrategyLog, activeStrategies, updateStrategyInMemory } = require("./strategy.state");
 const { roundToTick, getLimitOffsetAmt, computeStopLossExitPrices } = require("./strategy.offset");
 const { placeOrder, waitForOrderFillPrice, placeStopLossWithRetry } = require("./strategy.execution");
@@ -28,8 +28,11 @@ async function handleLegStopOut(leg, exitType, strategy, exchangeFillData = null
 
     // STEP 1: If we have actual exchange fill data, use it for accurate PnL
     // The exchange fill price accounts for real slippage, unlike the WebSocket LTP.
-    if (exchangeFillData?.exchangeFillPrice && leg.entryPrice) {
+    if (exchangeFillData?.exchangeFillPrice) {
         leg.currentLtp = exchangeFillData.exchangeFillPrice;
+    }
+
+    if (leg.entryPrice && leg.currentLtp) {
         const pnlPoints = leg.leg.side === "BUY"
             ? (leg.currentLtp - leg.entryPrice)
             : (leg.entryPrice - leg.currentLtp);
@@ -58,8 +61,10 @@ async function handleLegStopOut(leg, exitType, strategy, exchangeFillData = null
 
     // STEP 3: Create a snapshot for history
     // This allows the user to see exactly what happened in the past (Entry, Exit, and SL prices).
-    const exitTime = exchangeFillData?.exchangeFillTime || getISTTime();
-    const slHitMinute = exitTime.match(/(\d{2}:\d{2})/)?.[1] || getISTTime().substring(0, 5);
+    let exitTime = exchangeFillData?.exchangeFillTime || getISTExchangeFormat();
+    
+    // We still need the HH:mm format for slHitMinute (used for SL re-entry block)
+    const slHitMinute = getISTTime().substring(0, 5);
 
     leg.exitSnapshot = {
         slTriggerPrice: leg.slTriggerPrice,
