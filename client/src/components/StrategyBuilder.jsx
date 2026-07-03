@@ -2482,16 +2482,19 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
                         let hasChanges = false;
 
                         updates.forEach(u => {
+                            if (u.error) {
+                                // Skip on error, don't automatically delete or move to history
+                                return;
+                            }
+
                             const isTerminalState = u.data?.status && ["COMPLETED", "FAILED", "TERMINATED", "STOPPED", "CANCELLED", "SQUARED_OFF"].includes(u.data.status);
 
-                            let shouldDelete = u.error;
+                            let shouldDelete = false;
                             if (isTerminalState) {
                                 const now = new Date();
                                 const istTime = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
 
-                                if (istTime.getHours() < 15 || (istTime.getHours() === 15 && istTime.getMinutes() < 30)) {
-                                    shouldDelete = shouldDelete || false;
-                                } else {
+                                if (istTime.getHours() > 15 || (istTime.getHours() === 15 && istTime.getMinutes() >= 30)) {
                                     shouldDelete = true;
                                 }
                             }
@@ -2500,6 +2503,9 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
                                 if (next[u.id]) {
                                     delete next[u.id];
                                     hasChanges = true;
+                                    
+                                    axios.post(`${API_BASE_URL}/strategy/movetohistory/${u.id}`)
+                                         .catch(err => console.error("Auto move to history failed:", err));
                                 }
                             } else {
                                 const existing = next[u.id];
