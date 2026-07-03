@@ -2023,7 +2023,7 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
     const [runningStrategies, setRunningStrategies] = useState({}); // { id: data }
     const [savedStrategies, setSavedStrategies] = useState([]);
     const [editingId, setEditingId] = useState(null);
-    const [activeTab, setActiveTab] = useState('paper');
+    const [activeTab, setActiveTab] = useState('live');
     const [logWindowOpen, setLogWindowOpen] = useState(false);
     const [logStrategyId, setLogStrategyId] = useState(null);
     const [configWindowOpen, setConfigWindowOpen] = useState(false);
@@ -2038,6 +2038,8 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
     const [backtestModalOpen, setBacktestModalOpen] = useState(false);
     const [selectedStrategyForBacktest, setSelectedStrategyForBacktest] = useState(null);
     const [selectedForCombined, setSelectedForCombined] = useState([]);
+    const [deployModalOpen, setDeployModalOpen] = useState(false);
+    const [selectedStrategyForDeploy, setSelectedStrategyForDeploy] = useState(null);
     const [availableDates, setAvailableDates] = useState([]);
     const [dateRange, setDateRange] = useState({ from: null, to: null });
     const [activeDateInput, setActiveDateInput] = useState('from');
@@ -2223,13 +2225,13 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
         }
     };
 
-    const handleExecute = async (id) => {
+    const handleExecute = async (id, isPaper) => {
         if (!isConnected) {
             alert("Please connect to Angel One to execute strategies.");
             return;
         }
         try {
-            const res = await axios.post(`${API_BASE_URL}/strategy/execute/${id}`, { is_paper_trading: activeTab === 'paper' });
+            const res = await axios.post(`${API_BASE_URL}/strategy/execute/${id}`, { is_paper_trading: isPaper });
             const newId = res.data.strategy_id || res.data.execution_id;
             // Fetch initial status
             const statusRes = await axios.get(`${API_BASE_URL}/strategy/status/${newId}`);
@@ -3033,11 +3035,11 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
                 }
 
                 <TabsList className="grid w-full grid-cols-2 mb-4 mt-8 h-10 bg-muted/50 p-1 rounded-lg shadow-sm">
-                    <TabsTrigger value="paper" className="rounded-md font-medium text-[11px] data-[state=active]:bg-blue-600 data-[state=active]:text-white flex items-center gap-2 transition-all">
-                        <ShieldCheck className="h-4 w-4" /> Paper Trading
-                    </TabsTrigger>
                     <TabsTrigger value="live" className="rounded-md font-medium text-[11px] data-[state=active]:bg-orange-600 data-[state=active]:text-white flex items-center gap-2 transition-all">
                         <Zap className="h-4 w-4" /> Live Market
+                    </TabsTrigger>
+                    <TabsTrigger value="paper" className="rounded-md font-medium text-[11px] data-[state=active]:bg-blue-600 data-[state=active]:text-white flex items-center gap-2 transition-all">
+                        <ShieldCheck className="h-4 w-4" /> Paper Trading
                     </TabsTrigger>
                 </TabsList>
 
@@ -3272,7 +3274,10 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
                                                                 <Button
                                                                     size="sm"
                                                                     className={`h-8 xl:h-7 px-3 gap-1 rounded-md text-[11px] xl:text-[10px] font-medium shadow-sm flex-1 xl:flex-none ${!isConnected ? 'opacity-50 grayscale cursor-not-allowed' : ''}`}
-                                                                    onClick={() => handleExecute(s.id)}
+                                                                    onClick={() => {
+                                                                        setSelectedStrategyForDeploy(s);
+                                                                        setDeployModalOpen(true);
+                                                                    }}
                                                                     disabled={!isConnected}
                                                                     title={!isConnected ? "Please connect to Angel One to execute strategies" : ""}
                                                                 >
@@ -3485,6 +3490,51 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
                                     {isBacktesting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5 fill-current" />}
                                     {isBacktesting ? 'Running Simulation...' : 'Start Backtest'}
                                 </Button>
+                            </CardContent>
+                        </Card>
+                    </div>
+                )}
+
+                {deployModalOpen && selectedStrategyForDeploy && (
+                    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-in fade-in duration-200" onClick={(e) => { if (e.target === e.currentTarget) setDeployModalOpen(false); }}>
+                        <Card className="w-full max-w-sm border-none shadow-2xl bg-white overflow-hidden transform transition-all animate-in zoom-in-95 duration-200">
+                            <CardHeader className="bg-slate-50/80 border-b border-slate-100 py-3 px-4">
+                                <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-2">
+                                        <div className="h-6 w-6 rounded bg-indigo-100 flex items-center justify-center text-indigo-600">
+                                            <Play className="h-3 w-3" />
+                                        </div>
+                                        <CardTitle className="text-sm font-bold text-slate-800">Deploy Strategy</CardTitle>
+                                    </div>
+                                    <Button variant="ghost" size="icon" className="h-6 w-6 rounded-full hover:bg-slate-200" onClick={() => setDeployModalOpen(false)}>
+                                        <X className="h-3 w-3" />
+                                    </Button>
+                                </div>
+                            </CardHeader>
+                            <CardContent className="p-4 bg-white flex flex-col gap-3">
+                                <p className="text-xs text-slate-600 text-center mb-1">
+                                    How would you like to deploy <strong>{selectedStrategyForDeploy.name || selectedStrategyForDeploy.config?.name || 'Strategy'}</strong>?
+                                </p>
+                                <div className="grid grid-cols-2 gap-3">
+                                    <Button
+                                        className="w-full h-10 rounded-lg text-xs font-bold gap-2 bg-blue-600 hover:bg-blue-700 text-white shadow-md transition-all active:scale-[0.98]"
+                                        onClick={() => {
+                                            handleExecute(selectedStrategyForDeploy.id, true);
+                                            setDeployModalOpen(false);
+                                        }}
+                                    >
+                                        <ShieldCheck className="h-4 w-4" /> Paper
+                                    </Button>
+                                    <Button
+                                        className="w-full h-10 rounded-lg text-xs font-bold gap-2 bg-orange-600 hover:bg-orange-700 text-white shadow-md transition-all active:scale-[0.98]"
+                                        onClick={() => {
+                                            handleExecute(selectedStrategyForDeploy.id, false);
+                                            setDeployModalOpen(false);
+                                        }}
+                                    >
+                                        <Zap className="h-4 w-4" /> Live
+                                    </Button>
+                                </div>
                             </CardContent>
                         </Card>
                     </div>
