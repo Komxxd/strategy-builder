@@ -8,11 +8,22 @@ const authService = require("../services/auth.service");
  * Returns the live status of both the Angel One API session
  * and the WebSocket connection independently.
  */
+const sessionService = require("../services/session.service");
+
+/**
+ * GET /api/market-socket/status
+ * Returns the live status of both the Angel One API session (for the current user)
+ * and the WebSocket connection independently.
+ */
 router.get("/status", (req, res) => {
-    const session = authService.getSession();
+    // Check if the current user has an active broker session
+    const userId = req.user.id;
+    const userSession = sessionService.getSession(userId);
+    const apiConnected = !!(userSession && userSession.jwtToken);
+
     res.json({
         success: true,
-        apiConnected: !!session,
+        apiConnected: apiConnected,
         socketConnected: socketService.isSocketConnected()
     });
 });

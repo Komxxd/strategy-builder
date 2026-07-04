@@ -70,34 +70,7 @@ function App() {
 
   // --- Angel One API Pill Handler ---
   const handleToggleApi = async () => {
-    if (isApiConnected) {
-      try {
-        setApiLoading(true);
-        await logoutBackend();
-        setIsApiConnected(false);
-        setIsSocketConnected(false); // Socket dies when session dies
-        setSuccess("Logged out from Angel One.");
-      } catch (err) {
-        setError("Failed to logout: " + err.message);
-      } finally {
-        setApiLoading(false);
-      }
-    } else {
-      try {
-        setApiLoading(true);
-        const res = await loginBackend();
-        if (res.success) {
-          setIsApiConnected(true);
-          setSuccess("Angel One session started!");
-        } else {
-          setError(res.message || "Failed to connect to Angel One");
-        }
-      } catch (err) {
-        setError("Error connecting to Angel One");
-      } finally {
-        setApiLoading(false);
-      }
-    }
+    setActiveTab('broker');
   };
 
   // --- WebSocket Pill Handler ---
@@ -318,16 +291,13 @@ function App() {
             <button
               id="angel-one-status-pill"
               onClick={handleToggleApi}
-              disabled={apiLoading}
-              title={isApiConnected ? "Angel One session active. Click to logout." : "Click to login to Angel One"}
+              title={isApiConnected ? "Angel One session active. Manage in Broker Setup." : "Click to login to Angel One in Broker Setup"}
               className={`flex items-center gap-1.5 px-2 py-1 sm:px-3 sm:py-2 rounded-full text-[10px] sm:text-xs font-bold border transition-all cursor-pointer shadow-sm shrink-0 ${isApiConnected
-                ? "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-red-50 hover:text-red-700 hover:border-red-200"
-                : "bg-red-50 text-red-600 border-red-200 hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-200"
-                } disabled:opacity-50 disabled:cursor-not-allowed`}
+                ? "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100"
+                : "bg-red-50 text-red-600 border-red-200 hover:bg-red-100"
+                }`}
             >
-              {apiLoading ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" />
-              ) : isApiConnected ? (
+              {isApiConnected ? (
                 <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
               ) : (
                 <AlertCircle className="h-3.5 w-3.5 shrink-0" />
