@@ -56,8 +56,8 @@ async function executeStrategy(strategyId) {
 /**
  * STARTS a strategy.
  */
-async function startStrategy(strategyId, overrideIsPaperTrading) {
-    const [template] = await withDbRetry(() => sql`SELECT * FROM strategies WHERE id = ${strategyId} LIMIT 1`);
+async function startStrategy(strategyId, overrideIsPaperTrading, userId) {
+    const [template] = await withDbRetry(() => sql`SELECT * FROM strategies WHERE id = ${strategyId} AND user_id = ${userId} LIMIT 1`);
     if (!template) throw new Error("Strategy template not found");
 
     // FIX: Coerce to strict boolean. Prevents "true" (string) !== true (boolean) mismatch
@@ -74,8 +74,8 @@ async function startStrategy(strategyId, overrideIsPaperTrading) {
     // FIX: Store is_paper_trading as a top-level column so it NEVER gets lost 
     // even if execution_details fails to persist during DB write timeouts.
     const [execution] = await withDbRetry(() => sql`
-        INSERT INTO strategy_executions (strategy_id, status, is_paper_trading, execution_details)
-        VALUES (${template.id}, 'WAITING', ${isPaper}, ${sql.json({ config: runtimeConfig })})
+        INSERT INTO strategy_executions (strategy_id, status, is_paper_trading, execution_details, user_id)
+        VALUES (${template.id}, 'WAITING', ${isPaper}, ${sql.json({ config: runtimeConfig })}, ${userId})
         RETURNING *
     `);
 
@@ -84,6 +84,7 @@ async function startStrategy(strategyId, overrideIsPaperTrading) {
         strategy_id: template.id,
         config: runtimeConfig,
         status: "WAITING",
+        user_id: userId,
         entryAttempted: false,
         startTime: new Date(),
         legs: []
@@ -94,9 +95,10 @@ async function startStrategy(strategyId, overrideIsPaperTrading) {
     return execution.id;
 }
 
-async function stopStrategy(strategyId) {
+async function stopStrategy(strategyId, userId) {
     const strategy = activeStrategies.get(strategyId);
     if (!strategy) throw new Error("Strategy not found in active memory. It may have already been stopped or the server was restarted.");
+    if (userId && strategy.user_id !== userId) throw new Error("Unauthorized access to this strategy");
     if (strategy.interval) clearInterval(strategy.interval);
     strategy.status = "STOPPED";
     updateStrategyInMemory(strategyId, { 
@@ -108,11 +110,12 @@ async function stopStrategy(strategyId) {
     activeStrategies.delete(strategyId);
 }
 
-async function deleteStrategyExecution(executionId) {
+async function deleteStrategyExecution(executionId, userId) {
     const strategy = activeStrategies.get(executionId);
+    if (strategy && userId && strategy.user_id !== userId) throw new Error("Unauthorized");
     if (strategy && strategy.interval) clearInterval(strategy.interval);
     activeStrategies.delete(executionId);
-    await sql`DELETE FROM strategy_executions WHERE id = ${executionId}`;
+    await sql`DELETE FROM strategy_executions WHERE id = ${executionId} AND user_id = ${userId}`;
     return { success: true };
 }
 
@@ -157,7 +160,8 @@ async function initializeActiveStrategies() {
                 exitAttempted: exec.execution_details?.exitAttempted || false,
                 totalPnlRupees: exec.execution_details?.totalPnlRupees || 0,
                 pnlPercent: exec.execution_details?.pnlPercent || 0,
-                totalOriginalValue: exec.execution_details?.totalOriginalValue || 0
+                totalOriginalValue: exec.execution_details?.totalOriginalValue || 0,
+                user_id: exec.user_id
             };
 
             activeStrategies.set(exec.id, runtimeStrategy);

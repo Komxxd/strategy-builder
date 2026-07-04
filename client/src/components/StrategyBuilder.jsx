@@ -18,14 +18,7 @@ import { fetchBacktestDates, runBacktest, runCombinedBacktest, getBacktestStatus
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:5001/api";
 const SOCKET_URL = API_BASE_URL.replace(/\/api\/?$/, "");
 
-// Tier 1 - Rule 1 & Phase 2: Interceptor to ensuring session key is always sent
-axios.interceptors.request.use((config) => {
-    const sessionKey = sessionStorage.getItem('app_api_key');
-    if (sessionKey && !config.headers['x-api-key']) {
-        config.headers['x-api-key'] = sessionKey;
-    }
-    return config;
-});
+// Removed interceptor, handled globally in App.jsx
 
 const DEFAULT_LEG = {
     expiry_type: 'weekly',

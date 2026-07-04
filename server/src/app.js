@@ -7,6 +7,7 @@ const authRoutes = require("./routes/auth.routes");
 const marketRoutes = require("./routes/market.routes");
 const marketSocketRoutes = require("./routes/marketSocket.routes");
 const strategyRoutes = require("./routes/strategy.routes");
+const brokerRoutes = require("./routes/broker.routes");
 const authMiddleware = require("./utils/authMiddleware");
 
 const app = express();
@@ -52,6 +53,7 @@ app.use("/api/auth", authLimiter, authRoutes); // Apply rate limit to auth endpo
 app.use("/api/market", authMiddleware, marketRoutes);
 app.use("/api/market-socket", authMiddleware, marketSocketRoutes);
 app.use("/api/strategy", authMiddleware, strategyRoutes);
+app.use("/api/broker", brokerRoutes); // Uses authMiddleware inside the router
 
 app.get("/api/health", (req, res) => {
     res.json({ status: "ok", mode: process.env.NODE_ENV || 'development' });

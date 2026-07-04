@@ -1,7 +1,10 @@
 import React, { useState, useEffect } from 'react';
+import { Routes, Route, Navigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { StrategyBuilder } from './components/StrategyBuilder';
-import { PasswordLock } from './components/PasswordLock';
+import { LandingPage } from './components/LandingPage';
+import { Auth } from './components/Auth';
+import { supabase } from './lib/supabase';
 import {
   AlertCircle, CheckCircle2, Search, LayoutDashboard, Box,
   ShoppingCart, Users, MessageSquare, Mail, Zap, BarChart2,
@@ -12,16 +15,41 @@ import {
 import { logoutBackend, loginBackend, connectSocket, disconnectSocket, getBrokerStatus, getConnectionStatus } from './api';
 import { StrategyHistory } from './components/StrategyHistory';
 import { BacktestResultsView } from './components/BacktestResultsView';
+import { BrokerSetup } from './components/BrokerSetup';
+import { BrokerCallback } from './components/BrokerCallback';
 
 import axios from 'axios';
 
-// Globally attach backend secret if already in session
-axios.defaults.headers.common['x-api-key'] = sessionStorage.getItem('app_api_key') || "";
+// Global Axios Interceptor for Supabase Auth
+axios.interceptors.request.use(async (config) => {
+  const { data: { session } } = await supabase.auth.getSession();
+  const token = session?.access_token;
+  if (token && !config.headers['Authorization']) {
+    config.headers['Authorization'] = `Bearer ${token}`;
+  }
+  return config;
+});
 
 function App() {
-  const [isAuthenticated, setIsAuthenticated] = useState(() => {
-    return sessionStorage.getItem('app_authenticated') === 'true';
-  });
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [session, setSession] = useState(null);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      setIsAuthenticated(!!session);
+    });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+      setIsAuthenticated(!!session);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
   // Angel One API session state (login/logout)
   const [isApiConnected, setIsApiConnected] = useState(false);
   // WebSocket live data stream state
@@ -37,10 +65,6 @@ function App() {
   const [globalBacktestStrategy, setGlobalBacktestStrategy] = useState(null);
 
   const handleAuthenticated = () => {
-    const newKey = sessionStorage.getItem('app_api_key');
-    axios.defaults.headers.common['x-api-key'] = newKey;
-    setIsAuthenticated(true);
-    sessionStorage.setItem('app_authenticated', 'true');
     setSuccess("Access unlocked! Welcome back.");
   };
 
@@ -115,19 +139,12 @@ function App() {
     }
   };
 
-  const handleLock = () => {
-    setIsAuthenticated(false);
-    sessionStorage.removeItem('app_authenticated');
-    sessionStorage.removeItem('app_api_key'); // Also wipe the sensitive key on lock
-    axios.defaults.headers.common['x-api-key'] = "";
-    setSuccess("Application locked safely.");
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
   };
 
   useEffect(() => {
-    // Ensure axios remains synced if someone refreshes while authenticated
     if (isAuthenticated) {
-      axios.defaults.headers.common['x-api-key'] = sessionStorage.getItem('app_api_key');
-
       // Auto-sync status with backend on mount/refresh
       const syncStatus = async () => {
         try {
@@ -203,15 +220,7 @@ function App() {
     </button>
   );
 
-  if (!isAuthenticated) {
-    return (
-      <div className="flex items-center justify-center min-h-screen bg-[#fcfcfc] text-foreground font-sans w-full">
-        <PasswordLock onAuthenticated={handleAuthenticated} />
-      </div>
-    );
-  }
-
-  return (
+  const dashboardElement = (
     <div className="flex h-screen w-full bg-[#fcfcfc] text-foreground font-sans overflow-hidden">
 
       {/* Sidebar */}
@@ -263,6 +272,13 @@ function App() {
               onClick={() => setActiveTab('backtest')}
               isCollapsed={isSidebarCollapsed}
             />
+            <SidebarItem
+              icon={CheckCircle2} // using CheckCircle2 as a placeholder for broker setup, or we can use Settings
+              label="Broker Setup"
+              active={activeTab === 'broker'}
+              onClick={() => setActiveTab('broker')}
+              isCollapsed={isSidebarCollapsed}
+            />
           </div>
 
         </div>
@@ -271,11 +287,11 @@ function App() {
           <Button
             variant="ghost"
             className={`w-full ${isSidebarCollapsed ? 'justify-center px-0' : 'justify-start gap-3'} text-muted-foreground hover:text-foreground hover:bg-red-50 hover:text-red-600 transition-all rounded-xl`}
-            onClick={handleLock}
-            title={isSidebarCollapsed ? "Lock Workspace" : ""}
+            onClick={handleLogout}
+            title={isSidebarCollapsed ? "Log Out" : ""}
           >
-            <Lock className="h-4 w-4 shrink-0" />
-            {!isSidebarCollapsed && <span className="whitespace-nowrap">Lock Workspace</span>}
+            <LogOut className="h-4 w-4 shrink-0" />
+            {!isSidebarCollapsed && <span className="whitespace-nowrap">Log Out</span>}
           </Button>
         </div>
       </aside>
@@ -291,7 +307,7 @@ function App() {
               </Button>
             </div>
             <h1 className="text-[15px] sm:text-2xl font-bold tracking-tight text-foreground whitespace-nowrap">
-              {activeTab === 'strategies' ? 'Strategies' : activeTab === 'history' ? 'Execution History' : 'Backtest Results'}
+              {activeTab === 'strategies' ? 'Strategies' : activeTab === 'history' ? 'Execution History' : activeTab === 'backtest' ? 'Backtest Results' : 'Broker Setup'}
             </h1>
           </div>
 
@@ -383,11 +399,13 @@ function App() {
                 />
               ) : activeTab === 'history' ? (
                 <StrategyHistory />
-              ) : (
+              ) : activeTab === 'backtest' ? (
                 <BacktestResultsView
                   results={globalBacktestResults}
                   strategy={globalBacktestStrategy}
                 />
+              ) : (
+                <BrokerSetup />
               )}
             </div>
           </div>
@@ -395,6 +413,16 @@ function App() {
         </div>
       </main>
     </div>
+  );
+
+  return (
+    <Routes>
+      <Route path="/" element={isAuthenticated ? dashboardElement : <LandingPage />} />
+      <Route path="/broker-callback" element={isAuthenticated ? <BrokerCallback /> : <Navigate to="/" replace />} />
+      <Route path="/login" element={isAuthenticated ? <Navigate to="/" replace /> : <Auth onAuthenticated={handleAuthenticated} defaultView="login" />} />
+      <Route path="/register" element={isAuthenticated ? <Navigate to="/" replace /> : <Auth onAuthenticated={handleAuthenticated} defaultView="signup" />} />
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
   );
 }
 

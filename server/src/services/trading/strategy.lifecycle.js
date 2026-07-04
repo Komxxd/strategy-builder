@@ -492,7 +492,7 @@ function stopStrategy(strategyId, reason) {
     marketSocketService.sendAlert(`Strategy CLOSED — ${reason}`, "error");
 }
 
-async function squareOffStrategy(strategyId) {
+async function squareOffStrategy(strategyId, userId) {
     const { activeStrategies, addStrategyLog, updateStrategyInMemory } = require("./strategy.state");
     const { getAuthorizedInstance } = require("../../config/smartapi");
     const { placeExitOrder } = require("./strategy.execution");
@@ -500,6 +500,7 @@ async function squareOffStrategy(strategyId) {
 
     const strategy = activeStrategies.get(strategyId);
     if (!strategy) throw new Error("Strategy not found");
+    if (userId && strategy.user_id !== userId) throw new Error("Unauthorized access to this strategy");
 
     // FIX: Allow square off from WAITING status (abort before entry).
     // Previously only IN_POSITION was allowed, which meant users couldn't abort
@@ -579,12 +580,13 @@ async function squareOffStrategy(strategyId) {
     return true;
 }
 
-async function squareOffLeg(strategyId, legIndex) {
+async function squareOffLeg(strategyId, legIndex, userId) {
     const { activeStrategies, addStrategyLog } = require("./strategy.state");
     const { placeExitOrder } = require("./strategy.execution");
 
     const strategy = activeStrategies.get(strategyId);
     if (!strategy) throw new Error("Strategy not found");
+    if (userId && strategy.user_id !== userId) throw new Error("Unauthorized access to this strategy");
     const leg = strategy.legs[legIndex];
     if (!leg) throw new Error("Leg not found");
     if (leg.exited) return true;
@@ -596,13 +598,14 @@ async function squareOffLeg(strategyId, legIndex) {
     return true;
 }
 
-async function resumeStrategy(strategyId) {
+async function resumeStrategy(strategyId, userId) {
     const { activeStrategies, addStrategyLog, updateStrategyInMemory } = require("./strategy.state");
     const { executeStrategy } = require("./strategy.engine");
     const marketSocketService = require("../marketSocket.service");
 
     const strategy = activeStrategies.get(strategyId);
     if (!strategy) throw new Error("Strategy is not active or not found");
+    if (userId && strategy.user_id !== userId) throw new Error("Unauthorized access to this strategy");
     if (strategy.status !== "PAUSED") throw new Error("Strategy is not in PAUSED state");
 
     // Reset markers

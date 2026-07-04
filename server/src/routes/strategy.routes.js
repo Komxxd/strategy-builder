@@ -27,7 +27,8 @@ const validateStrategy = [
 
 router.post("/save", validateStrategy, async (req, res) => {
     try {
-        const strategy = await strategyService.saveStrategy(req.body);
+        const userId = req.user.id;
+        const strategy = await strategyService.saveStrategy(req.body, userId);
         res.json({ success: true, strategy });
     } catch (error) {
         console.error("Error saving strategy:", error.message);
@@ -37,7 +38,8 @@ router.post("/save", validateStrategy, async (req, res) => {
 
 router.put("/update/:id", validateStrategy, async (req, res) => {
     try {
-        const strategy = await strategyService.updateStrategy(req.params.id, req.body);
+        const userId = req.user.id;
+        const strategy = await strategyService.updateStrategy(req.params.id, req.body, userId);
         res.json({ success: true, data: strategy });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message || "Failed to update strategy" });
@@ -48,7 +50,8 @@ router.put("/update/:id", validateStrategy, async (req, res) => {
 // No validateStrategy middleware — we only merge specific fields into the existing config.
 router.patch("/settings/:id", async (req, res) => {
     try {
-        const strategy = await strategyService.patchExecutionSettings(req.params.id, req.body);
+        const userId = req.user.id;
+        const strategy = await strategyService.patchExecutionSettings(req.params.id, req.body, userId);
         res.json({ success: true, data: strategy });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message || "Failed to update execution settings" });
@@ -58,7 +61,8 @@ router.patch("/settings/:id", async (req, res) => {
 
 router.delete("/delete/:id", async (req, res) => {
     try {
-        await strategyService.deleteStrategy(req.params.id);
+        const userId = req.user.id;
+        await strategyService.deleteStrategy(req.params.id, userId);
         res.json({ success: true });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message || "Failed to delete strategy" });
@@ -68,7 +72,8 @@ router.delete("/delete/:id", async (req, res) => {
 router.post("/execute/:id", async (req, res) => {
     try {
         const { is_paper_trading } = req.body;
-        const strategyId = await strategyService.startStrategy(req.params.id, is_paper_trading);
+        const userId = req.user.id;
+        const strategyId = await strategyService.startStrategy(req.params.id, is_paper_trading, userId);
         res.json({ success: true, strategy_id: strategyId });
     } catch (error) {
         console.error("Error starting strategy:", error.message);
@@ -78,7 +83,8 @@ router.post("/execute/:id", async (req, res) => {
 
 router.post("/squareoff/:id", async (req, res) => {
     try {
-        await strategyService.squareOffStrategy(req.params.id);
+        const userId = req.user.id;
+        await strategyService.squareOffStrategy(req.params.id, userId);
         res.json({ success: true, message: "Strategy Squared Off" });
     } catch (error) {
         console.error("Error squaring off strategy:", error.message);
@@ -88,7 +94,8 @@ router.post("/squareoff/:id", async (req, res) => {
 
 router.post("/squareoff/:id/leg/:legIndex", async (req, res) => {
     try {
-        await strategyService.squareOffLeg(req.params.id, parseInt(req.params.legIndex));
+        const userId = req.user.id;
+        await strategyService.squareOffLeg(req.params.id, parseInt(req.params.legIndex), userId);
         res.json({ success: true, message: "Leg Squared Off" });
     } catch (error) {
         console.error("Error squaring off leg:", error.message);
@@ -98,7 +105,8 @@ router.post("/squareoff/:id/leg/:legIndex", async (req, res) => {
 
 router.post("/stop/:id", async (req, res) => {
     try {
-        await strategyService.stopStrategy(req.params.id);
+        const userId = req.user.id;
+        await strategyService.stopStrategy(req.params.id, userId);
         res.json({ success: true });
     } catch (error) {
         res.status(500).json({ success: false, message: "Failed to stop strategy" });
@@ -107,7 +115,8 @@ router.post("/stop/:id", async (req, res) => {
 
 router.post("/movetohistory/:id", async (req, res) => {
     try {
-        await strategyService.forceMoveToHistory(req.params.id);
+        const userId = req.user.id;
+        await strategyService.forceMoveToHistory(req.params.id, userId);
         res.json({ success: true, message: "Strategy moved to history" });
     } catch (error) {
         console.error("Error moving strategy to history:", error.message);
@@ -117,7 +126,8 @@ router.post("/movetohistory/:id", async (req, res) => {
 
 router.post("/resume/:id", async (req, res) => {
     try {
-        await strategyService.resumeStrategy(req.params.id);
+        const userId = req.user.id;
+        await strategyService.resumeStrategy(req.params.id, userId);
         res.json({ success: true, message: "Strategy Resumed" });
     } catch (error) {
         console.error("Error resuming strategy:", error.message);
@@ -127,7 +137,8 @@ router.post("/resume/:id", async (req, res) => {
 
 router.get("/user", async (req, res) => {
     try {
-        const data = await strategyService.getUserStrategies();
+        const userId = req.user.id;
+        const data = await strategyService.getUserStrategies(userId);
         res.json({ success: true, data });
     } catch (error) {
         console.error("Error fetching user strategies:", error);
@@ -137,7 +148,8 @@ router.get("/user", async (req, res) => {
 
 router.get("/active", async (req, res) => {
     try {
-        const active = await strategyService.getActiveStrategies();
+        const userId = req.user.id;
+        const active = await strategyService.getActiveStrategies(userId);
         res.json({ success: true, data: active });
     } catch (error) {
         console.error("Error fetching active strategies:", error);
@@ -147,7 +159,8 @@ router.get("/active", async (req, res) => {
 
 router.get("/history", async (req, res) => {
     try {
-        const history = await strategyService.getExecutionHistory();
+        const userId = req.user.id;
+        const history = await strategyService.getExecutionHistory(userId);
         res.json({ success: true, data: history });
     } catch (error) {
         console.error("Error fetching execution history:", error);
@@ -157,7 +170,8 @@ router.get("/history", async (req, res) => {
 
 router.get("/status/:id", async (req, res) => {
     try {
-        const status = await strategyService.getStatus(req.params.id);
+        const userId = req.user.id;
+        const status = await strategyService.getStatus(req.params.id, userId);
         if (!status) {
             return res.status(404).json({ success: false, message: "Strategy not found" });
         }

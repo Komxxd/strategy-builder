@@ -40,11 +40,12 @@ async function withDbRetry(fn, maxRetries = 3, baseDelayMs = 1000) {
     throw lastError;
 }
 
-async function saveStrategy(config) {
+async function saveStrategy(config, userId) {
     if (config.name) {
         const existing = await sql`
             SELECT id FROM strategies 
             WHERE LOWER(TRIM(name)) = LOWER(TRIM(${config.name}))
+            AND user_id = ${userId}
             LIMIT 1
         `;
         if (existing.length > 0) {
@@ -58,19 +59,20 @@ async function saveStrategy(config) {
     const name = config.name || `Strategy ${new Date().toLocaleTimeString()}`;
 
     const [data] = await sql`
-        INSERT INTO strategies (name, config, status)
-        VALUES (${name}, ${sql.json(cleanConfig)}, 'INACTIVE')
+        INSERT INTO strategies (name, config, status, user_id)
+        VALUES (${name}, ${sql.json(cleanConfig)}, 'INACTIVE', ${userId})
         RETURNING *
     `;
     return data;
 }
 
-async function updateStrategy(strategyId, config) {
+async function updateStrategy(strategyId, config, userId) {
     if (config.name) {
         const existing = await sql`
             SELECT id FROM strategies 
             WHERE LOWER(TRIM(name)) = LOWER(TRIM(${config.name}))
             AND id != ${strategyId}
+            AND user_id = ${userId}
             LIMIT 1
         `;
         if (existing.length > 0) {
@@ -86,21 +88,21 @@ async function updateStrategy(strategyId, config) {
     const [data] = await sql`
         UPDATE strategies 
         SET name = ${name}, config = ${sql.json(cleanConfig)}, updated_at = NOW()
-        WHERE id = ${strategyId}
+        WHERE id = ${strategyId} AND user_id = ${userId}
         RETURNING *
     `;
 
     return data;
 }
 
-async function deleteStrategy(strategyId) {
-    await sql`DELETE FROM strategies WHERE id = ${strategyId}`;
+async function deleteStrategy(strategyId, userId) {
+    await sql`DELETE FROM strategies WHERE id = ${strategyId} AND user_id = ${userId}`;
     return true;
 }
 
-async function getUserStrategies() {
+async function getUserStrategies(userId) {
     const data = await withDbRetry(() =>
-        sql`SELECT * FROM strategies ORDER BY created_at DESC`
+        sql`SELECT * FROM strategies WHERE user_id = ${userId} ORDER BY created_at DESC`
     );
     return data.map(s => ({
         ...s,
@@ -109,9 +111,9 @@ async function getUserStrategies() {
     }));
 }
 
-async function getStrategyById(strategyId) {
+async function getStrategyById(strategyId, userId) {
     const data = await withDbRetry(() =>
-        sql`SELECT * FROM strategies WHERE id = ${strategyId}`
+        sql`SELECT * FROM strategies WHERE id = ${strategyId} AND user_id = ${userId}`
     );
     return data.map(s => ({
         ...s,
@@ -120,19 +122,20 @@ async function getStrategyById(strategyId) {
     }));
 }
 
-async function getActiveStrategies() {
+async function getActiveStrategies(userId) {
     const executions = await withDbRetry(() =>
         sql`
             SELECT e.*, s.name as strategy_name
             FROM strategy_executions e
             LEFT JOIN strategies s ON e.strategy_id = s.id
-            WHERE e.status IN ('WAITING', 'IN_POSITION', 'PAUSED')
+            WHERE e.user_id = ${userId}
+              AND (e.status IN ('WAITING', 'IN_POSITION', 'PAUSED')
                OR (
                   e.status IN ('COMPLETED', 'FAILED', 'TERMINATED', 'CANCELLED', 'STOPPED', 'SQUARED_OFF')
                   AND (COALESCE(e.completed_at, e.started_at) AT TIME ZONE 'Asia/Kolkata')::date = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Kolkata')::date
                   AND (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Kolkata')::time < '15:30:00'::time
                   AND (e.execution_details->>'moved_to_history' IS NULL OR e.execution_details->>'moved_to_history' != 'true')
-               )
+               ))
             ORDER BY e.started_at DESC
         `
     );
@@ -146,13 +149,14 @@ async function getActiveStrategies() {
     return Promise.all(results.map(exec => getStatus(exec.id)));
 }
 
-async function getExecutionHistory() {
+async function getExecutionHistory(userId) {
     const executions = await withDbRetry(() =>
         sql`
             SELECT e.*, s.name as strategy_name, s.config as strategy_config
             FROM strategy_executions e
             LEFT JOIN strategies s ON e.strategy_id = s.id
-            WHERE e.status IN ('COMPLETED', 'FAILED', 'TERMINATED', 'CANCELLED', 'STOPPED', 'SQUARED_OFF')
+            WHERE e.user_id = ${userId}
+              AND e.status IN ('COMPLETED', 'FAILED', 'TERMINATED', 'CANCELLED', 'STOPPED', 'SQUARED_OFF')
               AND NOT (
                   (COALESCE(e.completed_at, e.started_at) AT TIME ZONE 'Asia/Kolkata')::date = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Kolkata')::date
                   AND (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Kolkata')::time < '15:30:00'::time
@@ -188,9 +192,9 @@ async function getExecutionHistory() {
  * Reads the existing config from DB first, merges the settings, writes back.
  * This prevents accidental overwrites of the full config.
  */
-async function patchExecutionSettings(strategyId, settings) {
+async function patchExecutionSettings(strategyId, settings, userId) {
     const [existing] = await withDbRetry(() =>
-        sql`SELECT * FROM strategies WHERE id = ${strategyId} LIMIT 1`
+        sql`SELECT * FROM strategies WHERE id = ${strategyId} AND user_id = ${userId} LIMIT 1`
     );
     if (!existing) throw new Error("Strategy not found");
 
@@ -202,20 +206,20 @@ async function patchExecutionSettings(strategyId, settings) {
     const [data] = await withDbRetry(() => sql`
         UPDATE strategies
         SET config = ${sql.json(mergedConfig)}, updated_at = NOW()
-        WHERE id = ${strategyId}
+        WHERE id = ${strategyId} AND user_id = ${userId}
         RETURNING *
     `);
     return data;
 }
 
-async function forceMoveToHistory(executionId) {
-    const [existing] = await withDbRetry(() => sql`SELECT execution_details FROM strategy_executions WHERE id = ${executionId}`);
+async function forceMoveToHistory(executionId, userId) {
+    const [existing] = await withDbRetry(() => sql`SELECT execution_details FROM strategy_executions WHERE id = ${executionId} AND user_id = ${userId}`);
     if (!existing) return;
     
     const details = existing.execution_details || {};
     details.moved_to_history = true;
     
-    await withDbRetry(() => sql`UPDATE strategy_executions SET execution_details = ${sql.json(details)} WHERE id = ${executionId}`);
+    await withDbRetry(() => sql`UPDATE strategy_executions SET execution_details = ${sql.json(details)} WHERE id = ${executionId} AND user_id = ${userId}`);
     return true;
 }
 
