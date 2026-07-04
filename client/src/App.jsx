@@ -75,16 +75,14 @@ function App() {
 
   // --- WebSocket Pill Handler ---
   const handleToggleSocket = async () => {
-    if (!isApiConnected) {
-      setError("Login to Angel One first before connecting WebSocket.");
-      return;
-    }
+    // Note: We skip the `!isApiConnected` check here because the global feed 
+    // uses the admin credentials, so it can connect regardless of user session.
     if (isSocketConnected) {
       try {
         setSocketLoading(true);
         await disconnectSocket();
         setIsSocketConnected(false);
-        setSuccess("WebSocket disconnected.");
+        setSuccess("Global WebSocket disconnected.");
       } catch (err) {
         setError("Failed to disconnect WebSocket: " + err.message);
       } finally {
@@ -95,12 +93,8 @@ function App() {
         setSocketLoading(true);
         const res = await connectSocket();
         if (res.success) {
-          // Optimistic update: turn the pill blue immediately so the user
-          // knows their click registered. If the WebSocket actually fails to
-          // connect, the server will emit socket_status: false which will
-          // correct this back to grey automatically.
           setIsSocketConnected(true);
-          setSuccess("WebSocket connecting...");
+          setSuccess("Global WebSocket connecting...");
         } else {
           setError(res.message || "Failed to connect WebSocket");
         }
@@ -309,19 +303,16 @@ function App() {
             <button
               id="websocket-status-pill"
               onClick={handleToggleSocket}
-              disabled={socketLoading || !isApiConnected}
+              disabled={socketLoading}
               title={
-                !isApiConnected
-                  ? "Login to Angel One first"
-                  : isSocketConnected
-                    ? "WebSocket streaming. Click to disconnect."
-                    : "Click to connect WebSocket data stream"
+                  isSocketConnected
+                    ? "Live Data Stream Active (Global Feed). Click to disconnect."
+                    : "Live Data Stream Disconnected. Click to connect."
               }
-              className={`flex items-center gap-1.5 px-2 py-1 sm:px-3 sm:py-2 rounded-full text-[10px] sm:text-xs font-bold border transition-all shadow-sm shrink-0 ${!isApiConnected
-                ? "bg-slate-50 text-slate-400 border-slate-200 cursor-not-allowed"
-                : isSocketConnected
-                  ? "bg-blue-50 text-blue-700 border-blue-200 hover:bg-red-50 hover:text-red-700 hover:border-red-200 cursor-pointer"
-                  : "bg-slate-50 text-slate-500 border-slate-200 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-200 cursor-pointer"
+              className={`flex items-center gap-1.5 px-2 py-1 sm:px-3 sm:py-2 rounded-full text-[10px] sm:text-xs font-bold border transition-all shadow-sm shrink-0 cursor-pointer ${
+                  isSocketConnected
+                  ? "bg-blue-50 text-blue-700 border-blue-200 hover:bg-red-50 hover:text-red-700 hover:border-red-200"
+                  : "bg-slate-50 text-slate-500 border-slate-200 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-200"
                 } disabled:opacity-50 disabled:cursor-not-allowed`}
             >
               {socketLoading ? (
@@ -331,7 +322,7 @@ function App() {
               ) : (
                 <WifiOff className="h-3.5 w-3.5 shrink-0" />
               )}
-              <span className="whitespace-nowrap">WebSocket</span>
+              <span className="whitespace-nowrap">Live Data</span>
             </button>
 
           </div>

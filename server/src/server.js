@@ -131,4 +131,12 @@ process.on("unhandledRejection", (reason, promise) => {
 
 server.listen(PORT, async () => {
     console.log(`Server running on port ${PORT}`);
+    
+    // Auto-connect the global master WebSocket data feed
+    try {
+        console.log("[Server] Attempting to connect global master WebSocket feed...");
+        await authService.login();
+    } catch (err) {
+        console.error("[Server] Failed to connect global WebSocket feed on startup:", err.message);
+    }
 });
