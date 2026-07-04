@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { supabase } from '@/lib/supabase';
-import axios from 'axios';
 import { Key, Link as LinkIcon, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
+import { getBrokerCredentials, saveBrokerCredentials, logoutUserBroker } from '../api';
 
 const CALLBACK_URL = `${window.location.origin}/broker-callback`;
 
@@ -20,13 +20,13 @@ export function BrokerSetup() {
     const fetchCredentials = async () => {
         try {
             setLoading(true);
-            const res = await axios.get('/api/broker/credentials');
-            if (res.data.success) {
-                if (res.data.apiKey) {
-                    setApiKey(res.data.apiKey);
-                    setSavedApiKey(res.data.apiKey);
+            const data = await getBrokerCredentials();
+            if (data.success) {
+                if (data.apiKey) {
+                    setApiKey(data.apiKey);
+                    setSavedApiKey(data.apiKey);
                 }
-                setIsActive(res.data.isActive);
+                setIsActive(data.isActive);
             }
         } catch (err) {
             console.error(err);
@@ -45,13 +45,15 @@ export function BrokerSetup() {
             setLoading(true);
             setError(null);
             setSuccess(null);
-            const res = await axios.post('/api/broker/credentials', { apiKey });
-            if (res.data.success) {
+            const data = await saveBrokerCredentials(apiKey);
+            if (data.success) {
                 setSuccess("API Key saved successfully!");
                 setSavedApiKey(apiKey);
+            } else {
+                setError(data.message || "Failed to save API Key");
             }
         } catch (err) {
-            setError(err.response?.data?.message || "Failed to save API Key");
+            setError(err.message || "Failed to save API Key");
         } finally {
             setLoading(false);
         }
@@ -71,13 +73,15 @@ export function BrokerSetup() {
     const handleLogoutBroker = async () => {
         try {
             setLoading(true);
-            const res = await axios.post('/api/broker/logout');
-            if (res.data.success) {
+            const data = await logoutUserBroker();
+            if (data.success) {
                 setIsActive(false);
                 setSuccess("Broker disconnected successfully.");
+            } else {
+                setError(data.message || "Failed to disconnect broker.");
             }
         } catch (err) {
-            setError("Failed to disconnect broker.");
+            setError(err.message || "Failed to disconnect broker.");
         } finally {
             setLoading(false);
         }

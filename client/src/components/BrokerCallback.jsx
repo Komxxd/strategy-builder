@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import axios from 'axios';
 import { Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
+import { verifyBrokerCallback } from '../api';
 
 export function BrokerCallback() {
     const [searchParams] = useSearchParams();
@@ -21,24 +21,21 @@ export function BrokerCallback() {
 
         const verifyToken = async () => {
             try {
-                const res = await axios.post('/api/broker/callback', { auth_token: authToken });
-                if (res.data.success) {
+                const data = await verifyBrokerCallback(authToken);
+                if (data.success) {
                     setStatus('success');
                     setMessage('Broker connected successfully! Redirecting...');
                     setTimeout(() => {
-                        // The ?tab=broker relies on how App.jsx handles activeTab
-                        // Right now App.jsx uses state, so navigating to / doesn't auto-open broker tab
-                        // But we will navigate back to home anyway.
                         navigate('/');
                     }, 2000);
                 } else {
                     setStatus('error');
-                    setMessage(res.data.message || 'Failed to verify broker connection.');
+                    setMessage(data.message || 'Failed to verify broker connection.');
                     setTimeout(() => navigate('/'), 3000);
                 }
             } catch (err) {
                 setStatus('error');
-                setMessage(err.response?.data?.message || 'Server error during broker verification.');
+                setMessage(err.message || 'Server error during broker verification.');
                 setTimeout(() => navigate('/'), 3000);
             }
         };

@@ -132,3 +132,41 @@ export async function getBacktestStatus(jobId) {
     });
     return res.json();
 }
+
+// Broker API functions
+export async function getBrokerCredentials() {
+    const headers = await getHeaders();
+    const res = await fetch(`${API_BASE}/broker/credentials`, {
+        headers,
+    });
+    return res.json();
+}
+
+export async function saveBrokerCredentials(apiKey) {
+    const headers = await getHeaders();
+    const res = await fetch(`${API_BASE}/broker/credentials`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ apiKey }),
+    });
+    return res.json();
+}
+
+export async function verifyBrokerCallback(auth_token) {
+    const headers = await getHeaders();
+    const res = await fetch(`${API_BASE}/broker/callback`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ auth_token }),
+    });
+    return res.json();
+}
+
+export async function logoutUserBroker() {
+    const headers = await getHeaders();
+    const res = await fetch(`${API_BASE}/broker/logout`, {
+        method: "POST",
+        headers,
+    });
+    return res.json();
+}
