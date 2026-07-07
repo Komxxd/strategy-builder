@@ -84,7 +84,8 @@ async function createWorkerDroplet(userId, env = 'dev', masterServerUrl, workerS
         dependencies: {
             "socket.io-client": "^4.7.0",
             "smartapi-javascript": "^1.0.27",
-            "speakeasy": "^2.0.0"
+            "speakeasy": "^2.0.0",
+            "dotenv": "^16.4.5"
         }
     })).toString('base64');
 

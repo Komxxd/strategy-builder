@@ -1,3 +1,4 @@
+require("dotenv").config();
 const { io } = require("socket.io-client");
 const { SmartAPI } = require("smartapi-javascript");
 const speakeasy = require("speakeasy");
@@ -16,7 +17,7 @@ console.log(`Starting Worker Node ${WORKER_ID}...`);
 console.log(`Connecting to Master at ${MASTER_SERVER_URL}`);
 
 // Connect to the Master Server
-const socket = io(MASTER_SERVER_URL, {
+const socket = io(`${MASTER_SERVER_URL}/workers`, {
     auth: {
         workerId: WORKER_ID,
         secret: WORKER_SECRET
