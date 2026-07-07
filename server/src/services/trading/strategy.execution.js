@@ -16,6 +16,9 @@
 const { getAuthorizedInstance } = require("../../config/smartapi");
 const marketService = require("../market.service");
 const marketSocketService = require("../marketSocket.service");
+const workerSocketService = require("../workerSocket.service");
+const sql = require("../../config/db");
+const sessionService = require("../session.service");
 const { getLtpSecure, getLtpWithRetry, addStrategyLog } = require("./strategy.state");
 const { getISTTime, getISTExchangeFormat } = require("./strategy.time");
 const { roundToTick, getLimitOffsetAmt, computeStopLossExitPrices, resolveUniversalOrderParams } = require("./strategy.offset");
@@ -59,10 +62,36 @@ async function placeOrder(config, instrument, connectionId) {
     // --- CASE B: LIVE TRADING ---
     try {
         console.log(`[${new Date().toISOString()}] Placing order:`, orderParams);
+        
+        // CHECK 1: DOES THIS USER HAVE A WORKER NODE ASSIGNED?
+        if (connId) {
+            const creds = await sql`SELECT assigned_worker_id FROM public.users_broker_credentials WHERE id = ${connId}`;
+            if (creds.length > 0 && creds[0].assigned_worker_id) {
+                const workerId = creds[0].assigned_worker_id;
+                console.log(`[${new Date().toISOString()}] Routing order via Worker Node: ${workerId}`);
+                
+                // Fetch credentials needed by the worker (as the worker logs in independently)
+                const session = sessionService.getSession(connId);
+                const tradePayload = {
+                    api_key: session.api_key || process.env.SMARTAPI_API_KEY,
+                    client_code: session.client_code || process.env.SMARTAPI_CLIENT_CODE,
+                    password: session.password || process.env.SMARTAPI_PASSWORD,
+                    totp: session.totp_secret, // Worker will generate TOTP
+                    order_details: orderParams
+                };
+                
+                // Send trade to the worker over WebSocket
+                const response = await workerSocketService.executeTradeOnWorker(workerId, tradePayload);
+                console.log(`[${new Date().toISOString()}] Worker Order placed successfully:`, response.orderid);
+                return response;
+            }
+        }
+
+        // FALLBACK: Execute locally from the Master Server
         const api = await getAuthorizedInstance(connId);
         const response = await api.placeOrder(orderParams);
         if (response.status && response.data) {
-            console.log(`[${new Date().toISOString()}] Order placed successfully:`, response.data.orderid);
+            console.log(`[${new Date().toISOString()}] Local Order placed successfully:`, response.data.orderid);
             return response.data; // contains orderid and uniqueorderid
         }
         throw new Error(response.message || "Order placement failed");

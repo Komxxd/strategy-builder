@@ -26,6 +26,10 @@ const io = new Server(server, {
 
 marketSocketService.setIo(io);
 
+// Initialize the Worker Nodes WebSocket Namespace
+const workerSocketService = require("./services/workerSocket.service");
+workerSocketService.initWorkerSocket(io);
+
 const authService = require("./services/auth.service");
 
 io.on("connection", (socket) => {
