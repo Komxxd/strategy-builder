@@ -40,8 +40,32 @@ socket.on("execute_trade", async (tradePayload) => {
     console.log("Received trade command:", tradePayload);
     
     try {
-        const { api_key, client_code, password, totp, order_details, trade_id } = tradePayload;
+        const { is_paper_trading, api_key, client_code, password, totp, order_details, trade_id } = tradePayload;
 
+        // --- HANDLE PAPER TRADING ---
+        if (is_paper_trading) {
+            console.log(`[Trade ${trade_id}] Processing PAPER TRADE...`);
+            
+            // Simulate realistic network delay (50ms)
+            setTimeout(() => {
+                const mockOrderId = `PAPER_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
+                const mockUniqueId = `UPAPER_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
+                
+                console.log(`[Trade ${trade_id}] Paper trade completed successfully.`);
+                socket.emit('trade_result', {
+                    trade_id,
+                    status: 'SUCCESS',
+                    data: {
+                        orderid: mockOrderId,
+                        uniqueorderid: mockUniqueId
+                    }
+                });
+            }, 50);
+            
+            return; // Skip actual Angel One execution
+        }
+
+        // --- HANDLE LIVE TRADING ---
         // Initialize Angel One SmartAPI
         const smart_api = new SmartAPI({
             api_key: api_key

@@ -170,3 +170,21 @@ export async function logoutUserBroker() {
     });
     return res.json();
 }
+
+export async function getWorkerNode() {
+    const headers = await getHeaders();
+    const res = await fetch(`${API_BASE}/broker/worker`, {
+        method: "GET",
+        headers,
+    });
+    return res.json();
+}
+
+export async function provisionWorkerNode() {
+    const headers = await getHeaders();
+    const res = await fetch(`${API_BASE}/broker/worker`, {
+        method: "POST",
+        headers,
+    });
+    return res.json();
+}

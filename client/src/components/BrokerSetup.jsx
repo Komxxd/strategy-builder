@@ -3,7 +3,8 @@ import { Button } from '@/components/ui/button';
 import { supabase } from '@/lib/supabase';
 import { Key, Link as LinkIcon, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
-import { getBrokerCredentials, saveBrokerCredentials, logoutUserBroker } from '../api';
+import { getBrokerCredentials, saveBrokerCredentials, logoutUserBroker, getWorkerNode, provisionWorkerNode } from '../api';
+import { Copy } from 'lucide-react';
 
 const CALLBACK_URL = `${window.location.origin}/broker-callback`;
 
@@ -14,6 +15,11 @@ export function BrokerSetup() {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
     const [success, setSuccess] = useState(null);
+
+    // VEE (Virtual Execution Environment) States
+    const [workerIp, setWorkerIp] = useState(null);
+    const [workerStatus, setWorkerStatus] = useState(null);
+    const [isProvisioning, setIsProvisioning] = useState(false);
 
     const [searchParams] = useSearchParams();
 
@@ -27,6 +33,12 @@ export function BrokerSetup() {
                     setSavedApiKey(data.apiKey);
                 }
                 setIsActive(data.isActive);
+            }
+
+            const workerData = await getWorkerNode();
+            if (workerData.success && workerData.hasWorker) {
+                setWorkerIp(workerData.ip);
+                setWorkerStatus(workerData.status);
             }
         } catch (err) {
             console.error(err);
@@ -64,10 +76,36 @@ export function BrokerSetup() {
             setError("Please save your API Key first.");
             return;
         }
-        
-        // This is exactly how AlgoTest redirects to the Publisher API
+
         const angelOneLoginUrl = `https://smartapi.angelbroking.com/publisher-login/?api_key=${savedApiKey}&redirect_url=${encodeURIComponent(CALLBACK_URL)}`;
         window.location.href = angelOneLoginUrl;
+    };
+
+    const handleProvisionWorker = async () => {
+        try {
+            setIsProvisioning(true);
+            setError(null);
+            const data = await provisionWorkerNode();
+            if (data.success) {
+                setWorkerIp(data.ip);
+                setWorkerStatus('PROVISIONING'); // Or ACTIVE if it returns it
+                setSuccess("Dedicated Virtual Environment allocated successfully!");
+            } else {
+                setError(data.message || "Failed to allocate Virtual Environment.");
+            }
+        } catch (err) {
+            setError(err.message || "Failed to allocate Virtual Environment.");
+        } finally {
+            setIsProvisioning(false);
+        }
+    };
+
+    const handleCopyIp = () => {
+        if (workerIp) {
+            navigator.clipboard.writeText(workerIp);
+            setSuccess("IP Address copied to clipboard!");
+            setTimeout(() => setSuccess(null), 3000);
+        }
     };
 
     const handleLogoutBroker = async () => {
@@ -114,21 +152,55 @@ export function BrokerSetup() {
                 )}
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                    {/* Instructions */}
-                    <div className="bg-slate-50 p-5 rounded-xl border border-slate-100 space-y-4">
-                        <h3 className="font-semibold text-sm">How to Connect</h3>
-                        <ol className="list-decimal list-inside text-sm text-slate-600 space-y-3">
-                            <li>Go to the <a href="https://smartapi.angelone.in/" target="_blank" rel="noopener noreferrer" className="text-blue-600 font-medium hover:underline">SmartAPI portal</a> and login to your account.</li>
-                            <li>Create a new App with the name <strong>AlgoTest</strong> (or CoreQuant).</li>
-                            <li>When creating the app, copy and paste this exact URL as your <strong>Redirect URL</strong>:</li>
-                            <code className="block p-2 mt-2 bg-slate-200 text-slate-800 rounded text-xs select-all overflow-x-auto">
-                                {CALLBACK_URL}
-                            </code>
-                            <li>Enter the generated <strong>API Key</strong> in the form below.</li>
-                        </ol>
+                    {/* Left Column: Instructions & Setup */}
+                    <div className="space-y-6">
+                        {/* Step 1: Virtual Environment */}
+                        <div className="bg-slate-50 p-5 rounded-xl border border-slate-100 space-y-4">
+                            <h3 className="font-semibold text-sm">Step 1: Allocate Dedicated IP</h3>
+                            <p className="text-xs text-slate-600">
+                                Angel One requires every trading account to have a unique static IP.
+                                We will spin up a dedicated Virtual Execution Environment just for you.
+                            </p>
+
+                            {workerIp ? (
+                                <div className="p-3 bg-white border rounded-lg flex items-center justify-between">
+                                    <div>
+                                        <p className="text-xs text-slate-500 font-semibold mb-1">Your Dedicated IP</p>
+                                        <p className="font-mono font-bold text-slate-800">{workerIp}</p>
+                                    </div>
+                                    <Button variant="outline" size="sm" onClick={handleCopyIp}>
+                                        <Copy className="h-4 w-4 mr-2" /> Copy
+                                    </Button>
+                                </div>
+                            ) : (
+                                <Button
+                                    className="w-full bg-blue-600 hover:bg-blue-700"
+                                    onClick={handleProvisionWorker}
+                                    disabled={isProvisioning}
+                                >
+                                    {isProvisioning ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                                    {isProvisioning ? "Allocating Server (takes ~30s)..." : "Allocate Dedicated IP"}
+                                </Button>
+                            )}
+                        </div>
+
+                        {/* Step 2: Instructions */}
+                        <div className="bg-slate-50 p-5 rounded-xl border border-slate-100 space-y-4">
+                            <h3 className="font-semibold text-sm">Step 2: SmartAPI Setup</h3>
+                            <ol className="list-decimal list-inside text-sm text-slate-600 space-y-3">
+                                <li>Go to the <a href="https://smartapi.angelone.in/" target="_blank" rel="noopener noreferrer" className="text-blue-600 font-medium hover:underline">SmartAPI portal</a> and login to your account.</li>
+                                <li>Create a new App with the name CoreQuant.</li>
+                                <li>Paste your Dedicated IP (from Step 1) into the <strong>Client IP</strong> field.</li>
+                                <li>When creating the app, copy and paste this exact URL as your <strong>Redirect URL</strong>:</li>
+                                <code className="block p-2 mt-2 bg-slate-200 text-slate-800 rounded text-xs select-all overflow-x-auto">
+                                    {CALLBACK_URL}
+                                </code>
+                                <li>Enter the generated <strong>API Key</strong> in the form.</li>
+                            </ol>
+                        </div>
                     </div>
 
-                    {/* Form */}
+                    {/* Right Column: Form */}
                     <div className="space-y-5">
                         <div className="space-y-2">
                             <label className="text-sm font-semibold text-slate-700">Angel One API Key</label>
@@ -146,9 +218,9 @@ export function BrokerSetup() {
                             </div>
                         </div>
 
-                        <Button 
-                            className="w-full font-semibold" 
-                            onClick={handleSave} 
+                        <Button
+                            className="w-full font-semibold"
+                            onClick={handleSave}
                             disabled={loading || !apiKey}
                         >
                             {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
@@ -158,7 +230,7 @@ export function BrokerSetup() {
                         <div className="pt-6 border-t space-y-4">
                             <h3 className="font-semibold text-sm text-slate-700">Daily Authentication</h3>
                             <p className="text-xs text-slate-500">You must log in to your broker every morning before trading begins to authorize the connection for the day.</p>
-                            
+
                             {isActive ? (
                                 <div className="flex flex-col gap-3">
                                     <div className="p-3 bg-emerald-50 border border-emerald-100 rounded-lg flex items-center gap-3">
@@ -173,8 +245,8 @@ export function BrokerSetup() {
                                     </Button>
                                 </div>
                             ) : (
-                                <Button 
-                                    className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold" 
+                                <Button
+                                    className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold"
                                     onClick={handleLoginBroker}
                                     disabled={!savedApiKey || loading}
                                 >

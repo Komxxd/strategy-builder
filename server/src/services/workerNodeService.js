@@ -14,7 +14,7 @@ const crypto = require('crypto');
  * 2. Calls DO API to create a Droplet (with Cloud-Init script)
  * 3. Waits for DO to assign a public IPv4 address
  * 4. Saves the Droplet ID and IP to the `worker_nodes` table
- * 5. Updates `users_broker_credentials` to link this worker
+ * 5. Updates `user_broker_credentials` to link this worker
  * 
  * @param {string} userId - The Supabase user UUID
  * @param {string} env - 'dev' or 'prod' (defaults to process.env.NODE_ENV)
@@ -27,7 +27,7 @@ async function provisionWorkerNode(userId, env = 'dev') {
         // Prepare credentials
         const workerId = crypto.randomUUID();
         const workerSecret = crypto.randomBytes(32).toString('hex');
-        const masterServerUrl = process.env.MASTER_SERVER_URL || 'http://YOUR_MASTER_IP:8080';
+        const masterServerUrl = process.env.BACKEND_URL || 'http://localhost:5001';
         
         // 1. Create Droplet
         const droplet = await createWorkerDroplet(userId, env, masterServerUrl, workerSecret, workerId);
@@ -48,7 +48,7 @@ async function provisionWorkerNode(userId, env = 'dev') {
 
         // 4. Link to broker credentials
         await sql`
-            UPDATE public.users_broker_credentials
+            UPDATE public.user_broker_credentials
             SET assigned_worker_id = ${workerNode.id}
             WHERE user_id = ${userId}
         `;

@@ -5,6 +5,7 @@ const postgres = require('postgres');
 const sessionService = require('../services/session.service');
 const { SmartAPI } = require('smartapi-javascript');
 const { getAuthorizedInstance } = require('../config/smartapi');
+const { provisionWorkerNode } = require('../services/workerNodeService');
 
 const sql = postgres(process.env.DATABASE_URL, { ssl: { rejectUnauthorized: false } });
 
@@ -114,6 +115,54 @@ router.post('/logout', authMiddleware, async (req, res) => {
     } catch (err) {
         console.error("Error logging out broker:", err);
         res.status(500).json({ success: false, message: "Server error" });
+    }
+});
+
+// GET /api/broker/worker - Get worker node IP if it exists
+router.get('/worker', authMiddleware, async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const workers = await sql`
+            SELECT ip_address, status 
+            FROM public.worker_nodes 
+            WHERE user_id = ${userId} AND status != 'DELETED' 
+            ORDER BY created_at DESC LIMIT 1
+        `;
+
+        if (workers.length > 0) {
+            res.json({ success: true, hasWorker: true, ip: workers[0].ip_address, status: workers[0].status });
+        } else {
+            res.json({ success: true, hasWorker: false });
+        }
+    } catch (err) {
+        console.error("Error fetching worker status:", err);
+        res.status(500).json({ success: false, message: "Failed to fetch worker status" });
+    }
+});
+
+// POST /api/broker/worker - Provision a new worker node
+router.post('/worker', authMiddleware, async (req, res) => {
+    try {
+        const userId = req.user.id;
+        // Check if one already exists
+        const workers = await sql`
+            SELECT ip_address, status 
+            FROM public.worker_nodes 
+            WHERE user_id = ${userId} AND status != 'DELETED' 
+            LIMIT 1
+        `;
+
+        if (workers.length > 0) {
+            return res.json({ success: true, ip: workers[0].ip_address, message: "Worker already exists" });
+        }
+
+        // Provision a new one (This takes ~30 seconds as it hits DigitalOcean)
+        const workerNode = await provisionWorkerNode(userId, process.env.NODE_ENV === 'production' ? 'prod' : 'dev');
+        
+        res.json({ success: true, ip: workerNode.ip_address, message: "Worker provisioned successfully" });
+    } catch (err) {
+        console.error("Error provisioning worker:", err);
+        res.status(500).json({ success: false, message: "Failed to provision Dedicated IP. Ensure your DigitalOcean API key is correct." });
     }
 });
 

@@ -50,14 +50,7 @@ async function placeOrder(config, instrument, connectionId) {
         scripconsent: "yes"
     };
 
-    // --- CASE A: PAPER TRADING ---
-    if (isPaperTrading) {
-        console.log(`[${new Date().toISOString()}] PAPER ORDER:`, orderParams);
-        return {
-            orderid: `PAPER_${Date.now()}_${Math.floor(Math.random() * 10000)}`,
-            uniqueorderid: `UPAPER_${Date.now()}_${Math.floor(Math.random() * 10000)}`
-        };
-    }
+
 
     // --- CASE B: LIVE TRADING ---
     try {
@@ -65,7 +58,7 @@ async function placeOrder(config, instrument, connectionId) {
         
         // CHECK 1: DOES THIS USER HAVE A WORKER NODE ASSIGNED?
         if (connId) {
-            const creds = await sql`SELECT assigned_worker_id FROM public.users_broker_credentials WHERE id = ${connId}`;
+            const creds = await sql`SELECT assigned_worker_id FROM public.user_broker_credentials WHERE user_id = ${connId}`;
             if (creds.length > 0 && creds[0].assigned_worker_id) {
                 const workerId = creds[0].assigned_worker_id;
                 console.log(`[${new Date().toISOString()}] Routing order via Worker Node: ${workerId}`);
@@ -73,10 +66,11 @@ async function placeOrder(config, instrument, connectionId) {
                 // Fetch credentials needed by the worker (as the worker logs in independently)
                 const session = sessionService.getSession(connId);
                 const tradePayload = {
-                    api_key: session.api_key || process.env.SMARTAPI_API_KEY,
-                    client_code: session.client_code || process.env.SMARTAPI_CLIENT_CODE,
-                    password: session.password || process.env.SMARTAPI_PASSWORD,
-                    totp: session.totp_secret, // Worker will generate TOTP
+                    is_paper_trading: isPaperTrading,
+                    api_key: session?.api_key || process.env.SMARTAPI_API_KEY,
+                    client_code: session?.client_code || process.env.SMARTAPI_CLIENT_CODE,
+                    password: session?.password || process.env.SMARTAPI_PASSWORD,
+                    totp: session?.totp_secret, // Worker will generate TOTP
                     order_details: orderParams
                 };
                 
@@ -88,6 +82,17 @@ async function placeOrder(config, instrument, connectionId) {
         }
 
         // FALLBACK: Execute locally from the Master Server
+        
+        // --- CASE A: PAPER TRADING (Local Fallback) ---
+        if (isPaperTrading) {
+            console.log(`[${new Date().toISOString()}] PAPER ORDER (Local):`, orderParams);
+            return {
+                orderid: `PAPER_${Date.now()}_${Math.floor(Math.random() * 10000)}`,
+                uniqueorderid: `UPAPER_${Date.now()}_${Math.floor(Math.random() * 10000)}`
+            };
+        }
+
+        // --- CASE B: LIVE TRADING (Local Fallback) ---
         const api = await getAuthorizedInstance(connId);
         const response = await api.placeOrder(orderParams);
         if (response.status && response.data) {
