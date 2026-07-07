@@ -40,11 +40,20 @@ router.post('/credentials', authMiddleware, async (req, res) => {
             return res.status(400).json({ success: false, message: "API Key is required" });
         }
 
+        // Find if they have an active worker node
+        const workers = await sql`
+            SELECT id FROM public.worker_nodes 
+            WHERE user_id = ${userId} AND status != 'DELETED' 
+            ORDER BY created_at DESC LIMIT 1
+        `;
+        const workerId = workers.length > 0 ? workers[0].id : null;
+
         await sql`
-            INSERT INTO user_broker_credentials (user_id, api_key)
-            VALUES (${userId}, ${apiKey})
+            INSERT INTO user_broker_credentials (user_id, api_key, assigned_worker_id)
+            VALUES (${userId}, ${apiKey}, ${workerId})
             ON CONFLICT (user_id) DO UPDATE SET 
                 api_key = EXCLUDED.api_key,
+                assigned_worker_id = EXCLUDED.assigned_worker_id,
                 updated_at = NOW()
         `;
 
