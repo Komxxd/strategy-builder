@@ -68,7 +68,8 @@ async function startStrategy(strategyId, overrideIsPaperTrading, userId) {
 
     const runtimeConfig = {
         ...template.config,
-        is_paper_trading: isPaper
+        is_paper_trading: isPaper,
+        connectionId: userId
     };
 
     // FIX: Store is_paper_trading as a top-level column so it NEVER gets lost 
