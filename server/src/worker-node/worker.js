@@ -1,7 +1,6 @@
 require("dotenv").config();
 const { io } = require("socket.io-client");
-const { SmartAPI } = require("smartapi-javascript");
-const speakeasy = require("speakeasy");
+const { SmartAPI, WebSocketV2 } = require("smartapi-javascript");
 
 // Environment variables passed via Cloud-Init
 const MASTER_SERVER_URL = process.env.MASTER_SERVER_URL;
@@ -36,12 +35,71 @@ socket.on("disconnect", () => {
     console.log("Disconnected from Master Server.");
 });
 
+// Angel One WebSocket instance
+let angelSocket = null;
+
+// Listen for market data subscription commands
+socket.on("subscribe_ticks", (payload) => {
+    const { jwtToken, feedToken, api_key, client_code, exchangeType, tokens } = payload;
+    
+    if (!angelSocket) {
+        console.log(`Initializing Angel One WebSocket for ${client_code}`);
+        angelSocket = new WebSocketV2({
+            jwttoken: jwtToken,
+            feedtype: feedToken || jwtToken, // Fallback if Publisher API doesn't provide feedToken
+            apikey: api_key,
+            clientcode: client_code
+        });
+        
+        angelSocket.connect().then(() => {
+            console.log("Worker successfully connected to Angel One WebSocket");
+            
+            angelSocket.on("tick", (tick) => {
+                // Instantly relay the tick back to the Master Server
+                socket.emit("live_tick", tick);
+            });
+            
+            angelSocket.on("error", (err) => {
+                console.error("Angel WebSocket Error:", err);
+            });
+
+            angelSocket.on("close", () => {
+                console.log("Angel WebSocket Closed");
+                angelSocket = null;
+            });
+
+            angelSocket.fetchData({
+                correlationId: `worker_sub_${Date.now()}`,
+                action: 1,
+                mode: 1,
+                exchangeType,
+                tokens
+            });
+        }).catch(err => {
+            console.error("Worker failed to connect to Angel One WebSocket", err);
+        });
+    } else {
+        // Already connected, just subscribe to the new tokens
+        try {
+            angelSocket.fetchData({
+                correlationId: `worker_sub_${Date.now()}`,
+                action: 1,
+                mode: 1,
+                exchangeType,
+                tokens
+            });
+        } catch(err) {
+            console.error("Failed to fetch data on existing socket:", err);
+        }
+    }
+});
+
 // Listen for trade execution commands
 socket.on("execute_trade", async (tradePayload) => {
     console.log("Received trade command:", tradePayload);
     
     try {
-        const { is_paper_trading, api_key, client_code, password, totp, order_details, trade_id } = tradePayload;
+        const { is_paper_trading, api_key, client_code, jwtToken, order_details, trade_id } = tradePayload;
 
         // --- HANDLE PAPER TRADING ---
         if (is_paper_trading) {
@@ -72,19 +130,12 @@ socket.on("execute_trade", async (tradePayload) => {
             api_key: api_key
         });
 
-        // Generate TOTP Pin using the secret
-        const totp_pin = speakeasy.totp({
-            secret: totp,
-            encoding: 'base32'
-        });
-
-        // Generate Session
-        console.log("Generating session for client:", client_code);
-        const session = await smart_api.generateSession(client_code, password, totp_pin);
-        
-        if (!session || !session.data || !session.data.jwtToken) {
-            throw new Error("Failed to authenticate with Angel One.");
+        if (!jwtToken) {
+            throw new Error("Missing JWT session token from Master. Cannot authenticate with Angel One.");
         }
+
+        console.log("Setting JWT Session for client:", client_code);
+        smart_api.setAccessToken(jwtToken);
 
         console.log("Session generated successfully. Placing order...");
         

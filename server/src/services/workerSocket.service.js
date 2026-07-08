@@ -3,9 +3,11 @@
  * Manages WebSocket connections from Worker Droplets.
  */
 const sql = require('../config/db');
+const crypto = require('crypto');
 
 let workerIo;
-const connectedWorkers = new Map(); // workerId -> socketId
+const connectedWorkers = new Map(); // workerId -> socket
+const pendingTrades = new Map(); // trade_id -> { resolve, reject, timeout }
 
 /**
  * Initializes the /workers namespace on the Socket.io server
@@ -61,12 +63,27 @@ function initWorkerSocket(io) {
             sql`UPDATE public.worker_nodes SET status = 'DISCONNECTED' WHERE id = ${socket.workerId}`.catch(console.error);
         });
 
+        // Listen for live ticks relayed from the worker
+        socket.on('live_tick', (tick) => {
+            // Process the tick centrally as if it came from the local socket
+            const marketSocketService = require("./marketSocket.service");
+            marketSocketService.processTick(tick);
+        });
+
         // Listen for trade results from the worker
         socket.on('trade_result', (result) => {
             console.log(`[WorkerSocket] Trade result from Worker ${socket.workerId}:`, result);
-            // Here you would resolve the pending Promise waiting for this trade's execution
-            // We emit a local event that `strategy.execution.js` can listen to
-            workerIo.emit(`trade_completed_${result.trade_id}`, result);
+            
+            const pending = pendingTrades.get(result.trade_id);
+            if (pending) {
+                clearTimeout(pending.timeout);
+                pendingTrades.delete(result.trade_id);
+                if (result.status === 'SUCCESS') {
+                    pending.resolve(result.data);
+                } else {
+                    pending.reject(new Error(result.error));
+                }
+            }
         });
     });
 }
@@ -89,21 +106,12 @@ function executeTradeOnWorker(workerId, tradePayload) {
 
         // Set a timeout of 10 seconds for the trade to complete
         const timeout = setTimeout(() => {
-            workerIo.removeAllListeners(`trade_completed_${tradeId}`);
+            pendingTrades.delete(tradeId);
             reject(new Error(`Trade ${tradeId} timed out waiting for worker response`));
         }, 10000);
 
-        // Listen for the specific response for this trade
-        const responseListener = (result) => {
-            clearTimeout(timeout);
-            workerIo.removeAllListeners(`trade_completed_${tradeId}`);
-            if (result.status === 'SUCCESS') {
-                resolve(result.data);
-            } else {
-                reject(new Error(result.error));
-            }
-        };
-        workerIo.once(`trade_completed_${tradeId}`, responseListener);
+        // Store the promise handlers so the socket listener can resolve them
+        pendingTrades.set(tradeId, { resolve, reject, timeout });
 
         // Send the command
         console.log(`[WorkerSocket] Sending trade ${tradeId} to Worker ${workerId}`);
@@ -113,7 +121,53 @@ function executeTradeOnWorker(workerId, tradePayload) {
 
 const crypto = require('crypto');
 
+/**
+ * Sends a tick subscription command to a specific user's worker node
+ * @param {string} userId 
+ * @param {string} exchange 
+ * @param {number} exchangeType 
+ * @param {string[]} tokens 
+ * @returns {boolean} True if the command was sent to a worker, false if no worker is connected
+ */
+function subscribeWorkerTicks(userId, exchange, exchangeType, tokens) {
+    // Find the worker socket that belongs to this userId
+    let targetSocket = null;
+    for (const [id, socket] of connectedWorkers.entries()) {
+        if (socket.userId === userId) {
+            targetSocket = socket;
+            break;
+        }
+    }
+
+    if (!targetSocket) {
+        return false; // No worker connected for this user
+    }
+
+    // Get the user's Angel One session to extract the tokens
+    const sessionService = require("./session.service");
+    const session = sessionService.getSession(userId);
+    
+    if (!session || !session.jwtToken) {
+        console.warn(`[WorkerSocket] Cannot subscribe ticks for Worker ${targetSocket.workerId}: Missing Angel One session`);
+        return false; // Let the local master connection try
+    }
+
+    console.log(`[WorkerSocket] Delegating tick subscription to Worker ${targetSocket.workerId} for ${exchange}`);
+    
+    targetSocket.emit('subscribe_ticks', {
+        jwtToken: session.jwtToken,
+        feedToken: session.feedToken,
+        api_key: session.api_key || process.env.SMARTAPI_API_KEY,
+        client_code: session.client_code || process.env.SMARTAPI_CLIENT_ID,
+        exchangeType: exchangeType,
+        tokens: tokens
+    });
+
+    return true; // Successfully routed to worker
+}
+
 module.exports = {
     initWorkerSocket,
-    executeTradeOnWorker
+    executeTradeOnWorker,
+    subscribeWorkerTicks
 };

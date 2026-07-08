@@ -69,8 +69,7 @@ async function placeOrder(config, instrument, connectionId) {
                     is_paper_trading: isPaperTrading,
                     api_key: session?.api_key || process.env.SMARTAPI_API_KEY,
                     client_code: session?.client_code || process.env.SMARTAPI_CLIENT_CODE,
-                    password: session?.password || process.env.SMARTAPI_PASSWORD,
-                    totp: session?.totp_secret, // Worker will generate TOTP
+                    jwtToken: session?.jwtToken,
                     order_details: orderParams
                 };
                 

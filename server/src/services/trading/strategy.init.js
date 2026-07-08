@@ -74,7 +74,7 @@ async function handleInitialEntry(strategyId, strategy) {
             tokensByExch[exch].push(item.instrument.token);
         });
         Object.keys(tokensByExch).forEach(exch => {
-            marketSocketService.subscribeTokens(exch, tokensByExch[exch]);
+            marketSocketService.subscribeTokens(exch, tokensByExch[exch], config.connectionId);
         });
 
         strategy.legs = []; 

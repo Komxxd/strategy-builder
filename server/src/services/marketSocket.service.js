@@ -85,9 +85,10 @@ function getWsReadyState() {
  * This is the root cause of the "WebSocket is not open: readyState 0" crash.
  * @param {string} exchange - e.g. "NFO", "NSE"
  * @param {string[]} tokens - List of tokens
+ * @param {string} userId - Optional userId to route via worker node
  */
-function subscribeTokens(exchange, tokens) {
-    if (!socket || !isConnected || getWsReadyState() !== 1) return;
+function subscribeTokens(exchange, tokens, userId) {
+    if (!tokens || tokens.length === 0) return;
 
     const exchType = EXCH_MAPPING[exchange];
     if (!exchType) {
@@ -95,15 +96,28 @@ function subscribeTokens(exchange, tokens) {
         return;
     }
 
+    // Try routing via Worker Node first
+    if (userId) {
+        const workerSocketService = require("./workerSocket.service");
+        if (workerSocketService.subscribeWorkerTicks(userId, exchange, exchType, tokens)) {
+            // Worker is handling it, no need to subscribe globally
+            return;
+        }
+    }
+
+    if (!socket || !isConnected || getWsReadyState() !== 1) return;
+
     const newTokens = tokens.filter(t => !subscribedTokens.has(`${exchange}:${t}`));
     if (newTokens.length === 0) return;
 
-    // Angel One smart-api limit is ~50 per request. Batching into 30 for safety.
+    newTokens.forEach(t => subscribedTokens.add(`${exchange}:${t}`));
+
+    // Split into chunks of 30 because Angel One limits tokens per request
     const CHUNK_SIZE = 30;
     for (let i = 0; i < newTokens.length; i += CHUNK_SIZE) {
         const batch = newTokens.slice(i, i + CHUNK_SIZE);
         const request = {
-            correlationId: `strategy_builder_sub_${Date.now()}_${i}`,
+            correlationId: `strategy_builder_${Date.now()}_${i}`,
             action: 1, // 1 for Subscribe
             mode: 1,   // 1 for LTP
             exchangeType: exchType,
@@ -112,9 +126,8 @@ function subscribeTokens(exchange, tokens) {
 
         try {
             socket.fetchData(request);
-            batch.forEach(t => subscribedTokens.add(`${exchange}:${t}`));
         } catch (err) {
-            console.error(`[MarketSocket] Error sending subscription batch ${i}:`, err.message);
+            console.error(`[MarketSocket] Subscribe error for batch ${i}:`, err.message);
         }
     }
 }
@@ -231,6 +244,37 @@ function scheduleReconnect() {
 }
 
 
+function processTick(tick) {
+    if (!tick) return;
+
+    if (debugLogCount < 5) {
+        debugLogCount++;
+    }
+
+    const ltpRaw = tick.last_traded_price || tick.lp;
+    if (ltpRaw === undefined) return;
+
+    const exchType = tick.exchange_type || tick.exchangeType || tick.e;
+    const exchStr = INVERSE_EXCH_MAPPING[exchType];
+
+    let token = tick.token || tick.tk;
+    if (token && typeof token === "string") {
+        token = token.replace(/"/g, "");
+    }
+
+    const ltp = parseFloat(ltpRaw) / 100;
+
+    if (exchStr && token) {
+        // Updated to use the modular state management
+        const { updateLtp } = require("./trading/strategy.state");
+        updateLtp(`${exchStr}_${token}`, ltp);
+
+        if (io) {
+            io.emit("ltp_update", { exchange: exchStr, token, ltp });
+        }
+    }
+}
+
 /**
  * Attaches all event listeners to the socket after a successful connection.
  * Extracted into its own function so it can be called clean on every reconnect.
@@ -239,36 +283,7 @@ function scheduleReconnect() {
  */
 function attachSocketListeners(clientCode, onConnected) {
     // ------- Tick Handler -------
-    socket.on("tick", (tick) => {
-        if (!tick) return;
-
-        if (debugLogCount < 5) {
-            debugLogCount++;
-        }
-
-        const ltpRaw = tick.last_traded_price || tick.lp;
-        if (ltpRaw === undefined) return;
-
-        const exchType = tick.exchange_type || tick.exchangeType || tick.e;
-        const exchStr = INVERSE_EXCH_MAPPING[exchType];
-
-        let token = tick.token || tick.tk;
-        if (token && typeof token === "string") {
-            token = token.replace(/"/g, "");
-        }
-
-        const ltp = parseFloat(ltpRaw) / 100;
-
-        if (exchStr && token) {
-            // Updated to use the modular state management
-            const { updateLtp } = require("./trading/strategy.state");
-            updateLtp(`${exchStr}_${token}`, ltp);
-
-            if (io) {
-                io.emit("ltp_update", { exchange: exchStr, token, ltp });
-            }
-        }
-    });
+    socket.on("tick", processTick);
 
     // ------- Subscription Response -------
     socket.on("response", () => {
@@ -406,4 +421,5 @@ module.exports = {
     sendStrategyLog,
     isSocketConnected: () => isConnected,
     emitApiStatus,
+    processTick
 };
