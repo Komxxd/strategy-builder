@@ -28,7 +28,18 @@ router.get("/status", (req, res) => {
  */
 router.post("/connect", async (req, res) => {
     try {
-        await authService.login();
+        const sessionData = await authService.login();
+        
+        // If authService returns early, it won't init the socket, so we do it here manually
+        if (!socketService.isSocketConnected() && sessionData && sessionData.data) {
+            socketService.initMarketSocket({
+                jwtToken: sessionData.data.jwtToken,
+                feedToken: sessionData.data.feedToken,
+                apiKey: process.env.SMARTAPI_API_KEY,
+                clientCode: process.env.SMARTAPI_CLIENT_ID
+            });
+        }
+
         res.json({ success: true, message: "Global Master WebSocket connecting to Live Data..." });
     } catch (err) {
         res.status(500).json({ success: false, message: err.message });
