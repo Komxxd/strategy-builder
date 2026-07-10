@@ -165,8 +165,18 @@ function subscribeWorkerTicks(userId, exchange, exchangeType, tokens) {
     return true; // Successfully routed to worker
 }
 
+function hasWorkerConnected(userId) {
+    for (const [id, socket] of connectedWorkers.entries()) {
+        if (socket.userId === userId) {
+            return true;
+        }
+    }
+    return false;
+}
+
 module.exports = {
     initWorkerSocket,
     executeTradeOnWorker,
-    subscribeWorkerTicks
+    subscribeWorkerTicks,
+    hasWorkerConnected
 };

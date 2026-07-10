@@ -9,47 +9,51 @@ const authService = require("../services/auth.service");
  * and the WebSocket connection independently.
  */
 const sessionService = require("../services/session.service");
+const workerSocketService = require("../services/workerSocket.service");
 
 /**
  * GET /api/market-socket/status
- * Returns the live status of both the Angel One API session (for the current user)
- * and the WebSocket connection independently.
+ * Returns the live status of the Angel One API session and the Worker WebSocket connection.
  */
 router.get("/status", (req, res) => {
-    // Check if the current user has an active broker session
     const userId = req.user.id;
     const userSession = sessionService.getSession(userId);
     const apiConnected = !!(userSession && userSession.jwtToken);
+    
+    // Check if this specific user has an active worker node connected
+    const socketConnected = workerSocketService.hasWorkerConnected(userId);
 
     res.json({
         success: true,
         apiConnected: apiConnected,
-        socketConnected: socketService.isSocketConnected()
+        socketConnected: socketConnected
     });
 });
 
 /**
  * POST /api/market-socket/connect
- * Reconnects the WebSocket using the existing session (no re-login required).
- * Call this if the WebSocket drops but the Angel One session is still valid.
+ * Tells the user's Worker Node to subscribe to the Top Bar UI tokens (NIFTY/BANKNIFTY).
  */
 router.post("/connect", (req, res) => {
-    const session = authService.getSession();
-    if (!session || !session.data) {
+    const userId = req.user.id;
+    const session = sessionService.getSession(userId);
+    
+    if (!session || !session.jwtToken) {
         return res.status(400).json({
             success: false,
             message: "No active Angel One session. Please login first."
         });
     }
 
-    try {
-        socketService.initMarketSocket({
-            jwtToken: session.data.jwtToken,
-            feedToken: session.data.feedToken,
-            apiKey: process.env.SMARTAPI_API_KEY,
-            clientCode: process.env.SMARTAPI_CLIENT_ID
+    if (!workerSocketService.hasWorkerConnected(userId)) {
+        return res.status(400).json({
+            success: false,
+            message: "No active Dedicated Virtual Environment. Please allocate one in Broker Setup."
         });
-        res.json({ success: true, message: "WebSocket reconnecting..." });
+    }
+
+    try {
+        res.json({ success: true, message: "Worker Node is active! Live Data will stream automatically when a strategy starts." });
     } catch (err) {
         res.status(500).json({ success: false, message: err.message });
     }
@@ -57,11 +61,10 @@ router.post("/connect", (req, res) => {
 
 /**
  * POST /api/market-socket/disconnect
- * Manually disconnects the WebSocket without logging out of Angel One.
+ * Ignored in the new architecture since WebSockets are autonomous on the Worker Node.
  */
 router.post("/disconnect", (req, res) => {
-    socketService.disconnectMarketSocket();
-    res.json({ success: true, message: "WebSocket disconnected." });
+    res.json({ success: true, message: "Global disconnect ignored (Autonomous worker handles lifecycle)." });
 });
 
 module.exports = router;
