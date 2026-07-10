@@ -61,12 +61,12 @@ function createSecureSmartApi(instance) {
  */
 async function getAuthorizedInstance(connectionId) {
   if (!connectionId) {
-    return defaultSmartApi;
+    throw new Error("connectionId (userId) is required to get an authorized API instance");
   }
 
   const session = sessionService.getSession(connectionId);
   if (!session || !session.jwtToken) {
-    return defaultSmartApi; // Fallback to global if active session for user not found
+    throw new Error(`No active Angel One session found for user ${connectionId}`);
   }
 
   let smartApi = instanceCache.get(connectionId);

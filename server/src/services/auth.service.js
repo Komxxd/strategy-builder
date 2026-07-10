@@ -64,8 +64,6 @@ async function login() {
                 strategyService.initializeActiveStrategies();
             });
 
-            // Notify frontend that the Angel One session is now live
-            marketSocketService.emitApiStatus(true);
             console.log("Logged in successfully to SmartAPI");
         } else {
             // Capture the error message BEFORE clearing sessionData —

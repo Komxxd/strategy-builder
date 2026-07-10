@@ -3,17 +3,20 @@ const router = express.Router();
 const socketService = require("../services/marketSocket.service");
 const authService = require("../services/auth.service");
 
+const sessionService = require("../services/session.service");
+
 /**
  * GET /api/market-socket/status
- * Returns the live status of the Angel One API session and the global WebSocket connection.
+ * Returns the live status of the User's Angel One API session and the global WebSocket connection.
  */
 router.get("/status", (req, res) => {
     // Check if the master server is connected to Angel One WebSocket
     const socketConnected = socketService.isSocketConnected();
     
-    // Check if the master server has a valid session
-    const session = authService.getSession();
-    const apiConnected = !!(session && session.data && session.data.jwtToken);
+    // Check if the specific user has a valid publisher API session
+    const userId = req.user.id;
+    const userSession = sessionService.getSession(userId);
+    const apiConnected = !!(userSession && userSession.jwtToken);
 
     res.json({
         success: true,
