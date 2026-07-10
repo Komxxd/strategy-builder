@@ -119,7 +119,6 @@ function executeTradeOnWorker(workerId, tradePayload) {
     });
 }
 
-const crypto = require('crypto');
 
 /**
  * Sends a tick subscription command to a specific user's worker node

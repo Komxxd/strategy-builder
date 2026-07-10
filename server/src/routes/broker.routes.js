@@ -93,6 +93,14 @@ router.post('/callback', authMiddleware, async (req, res) => {
             const api = await getAuthorizedInstance(userId);
             const profile = await api.getProfile();
             if (profile && profile.status === true) {
+                // Update session with the client code now that we have it
+                sessionService.setSession(userId, {
+                    jwtToken: auth_token,
+                    api_key: creds.api_key,
+                    client_code: profile.data.clientcode,
+                    feedToken: profile.data.feedToken
+                });
+
                 return res.json({ 
                     success: true, 
                     message: "Broker connected successfully", 
