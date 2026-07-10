@@ -37,10 +37,11 @@ router.post("/connect", async (req, res) => {
 
 /**
  * POST /api/market-socket/disconnect
- * Ignored in the new architecture since WebSockets are autonomous on the Worker Node.
+ * Manually disconnects the global WebSocket without logging out of Angel One.
  */
 router.post("/disconnect", (req, res) => {
-    res.json({ success: true, message: "Global disconnect ignored (Autonomous worker handles lifecycle)." });
+    socketService.disconnectMarketSocket();
+    res.json({ success: true, message: "WebSocket disconnected." });
 });
 
 module.exports = router;
