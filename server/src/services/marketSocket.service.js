@@ -96,14 +96,6 @@ function subscribeTokens(exchange, tokens, userId) {
         return;
     }
 
-    // Try routing via Worker Node first
-    if (userId) {
-        const workerSocketService = require("./workerSocket.service");
-        if (workerSocketService.subscribeWorkerTicks(userId, exchange, exchType, tokens)) {
-            // Worker is handling it, no need to subscribe globally
-            return;
-        }
-    }
 
     if (!socket || !isConnected || getWsReadyState() !== 1) return;
 

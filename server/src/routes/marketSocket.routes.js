@@ -5,60 +5,31 @@ const authService = require("../services/auth.service");
 
 /**
  * GET /api/market-socket/status
- * Returns the live status of both the Angel One API session
- * and the WebSocket connection independently.
- */
-const sessionService = require("../services/session.service");
-const workerSocketService = require("../services/workerSocket.service");
-
-/**
- * GET /api/market-socket/status
- * Returns the live status of the Angel One API session and the Worker WebSocket connection.
+ * Returns the live status of the Angel One API session and the global WebSocket connection.
  */
 router.get("/status", (req, res) => {
-    const userId = req.user.id;
-    const userSession = sessionService.getSession(userId);
-    const apiConnected = !!(userSession && userSession.jwtToken);
+    // Check if the master server is connected to Angel One WebSocket
+    const socketConnected = socketService.isSocketConnected();
     
-    // Check if this specific user has an active worker node connected
-    const workerActive = workerSocketService.hasWorkerConnected(userId);
-    
-    // Check if that worker is actually streaming data from Angel One
-    const socketConnected = workerSocketService.isWorkerAngelOneConnected(userId);
+    // Check if the master server has a valid session
+    const session = authService.getSession();
+    const apiConnected = !!(session && session.data && session.data.jwtToken);
 
     res.json({
         success: true,
         apiConnected: apiConnected,
-        socketConnected: socketConnected,
-        workerActive: workerActive
+        socketConnected: socketConnected
     });
 });
 
 /**
  * POST /api/market-socket/connect
- * Tells the user's Worker Node to subscribe to the Top Bar UI tokens (NIFTY/BANKNIFTY).
+ * Uses credentials from .env to generate a session (with feedToken) and connect the global WebSocket.
  */
-router.post("/connect", (req, res) => {
-    const userId = req.user.id;
-    const session = sessionService.getSession(userId);
-    
-    if (!session || !session.jwtToken) {
-        return res.status(400).json({
-            success: false,
-            message: "No active Angel One session. Please login first."
-        });
-    }
-
-    if (!workerSocketService.hasWorkerConnected(userId)) {
-        return res.status(400).json({
-            success: false,
-            message: "No active Dedicated Virtual Environment. Please allocate one in Broker Setup."
-        });
-    }
-
+router.post("/connect", async (req, res) => {
     try {
-        workerSocketService.connectWorkerAngelSocket(userId);
-        res.json({ success: true, message: "Worker Node connecting to Angel One Live Data..." });
+        await authService.login();
+        res.json({ success: true, message: "Global Master WebSocket connecting to Live Data..." });
     } catch (err) {
         res.status(500).json({ success: false, message: err.message });
     }
