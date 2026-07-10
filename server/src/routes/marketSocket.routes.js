@@ -21,12 +21,16 @@ router.get("/status", (req, res) => {
     const apiConnected = !!(userSession && userSession.jwtToken);
     
     // Check if this specific user has an active worker node connected
-    const socketConnected = workerSocketService.hasWorkerConnected(userId);
+    const workerActive = workerSocketService.hasWorkerConnected(userId);
+    
+    // Check if that worker is actually streaming data from Angel One
+    const socketConnected = workerSocketService.isWorkerAngelOneConnected(userId);
 
     res.json({
         success: true,
         apiConnected: apiConnected,
-        socketConnected: socketConnected
+        socketConnected: socketConnected,
+        workerActive: workerActive
     });
 });
 
@@ -53,7 +57,8 @@ router.post("/connect", (req, res) => {
     }
 
     try {
-        res.json({ success: true, message: "Worker Node is active! Live Data will stream automatically when a strategy starts." });
+        workerSocketService.connectWorkerAngelSocket(userId);
+        res.json({ success: true, message: "Worker Node connecting to Angel One Live Data..." });
     } catch (err) {
         res.status(500).json({ success: false, message: err.message });
     }

@@ -38,6 +38,47 @@ socket.on("disconnect", () => {
 // Angel One WebSocket instance
 let angelSocket = null;
 
+// Connect to Angel WebSocket explicitly without subscribing
+socket.on("connect_angel_socket", (payload) => {
+    const { jwtToken, feedToken, api_key, client_code } = payload;
+    
+    if (angelSocket) {
+        console.log("Angel WebSocket already connected");
+        socket.emit("market_socket_status", { connected: true });
+        return;
+    }
+
+    console.log(`Initializing Angel One WebSocket for ${client_code}`);
+    angelSocket = new WebSocketV2({
+        jwttoken: jwtToken,
+        feedtype: feedToken || jwtToken, 
+        apikey: api_key,
+        clientcode: client_code
+    });
+    
+    angelSocket.connect().then(() => {
+        console.log("Worker successfully connected to Angel One WebSocket");
+        socket.emit("market_socket_status", { connected: true });
+        
+        angelSocket.on("tick", (tick) => {
+            socket.emit("live_tick", tick);
+        });
+        
+        angelSocket.on("error", (err) => {
+            console.error("Angel WebSocket Error:", err);
+        });
+
+        angelSocket.on("close", () => {
+            console.log("Angel WebSocket Closed");
+            angelSocket = null;
+            socket.emit("market_socket_status", { connected: false });
+        });
+
+    }).catch(err => {
+        console.error("Worker failed to connect to Angel One WebSocket", err);
+    });
+});
+
 // Listen for market data subscription commands
 socket.on("subscribe_ticks", (payload) => {
     const { jwtToken, feedToken, api_key, client_code, exchangeType, tokens } = payload;
@@ -53,6 +94,7 @@ socket.on("subscribe_ticks", (payload) => {
         
         angelSocket.connect().then(() => {
             console.log("Worker successfully connected to Angel One WebSocket");
+            socket.emit("market_socket_status", { connected: true });
             
             angelSocket.on("tick", (tick) => {
                 // Instantly relay the tick back to the Master Server
@@ -66,6 +108,7 @@ socket.on("subscribe_ticks", (payload) => {
             angelSocket.on("close", () => {
                 console.log("Angel WebSocket Closed");
                 angelSocket = null;
+                socket.emit("market_socket_status", { connected: false });
             });
 
             angelSocket.fetchData({

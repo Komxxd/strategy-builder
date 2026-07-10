@@ -63,6 +63,12 @@ function initWorkerSocket(io) {
             sql`UPDATE public.worker_nodes SET status = 'DISCONNECTED' WHERE id = ${socket.workerId}`.catch(console.error);
         });
 
+        // Track Angel One WebSocket Status from Worker
+        socket.on('market_socket_status', (data) => {
+            socket.angelOneConnected = data.connected;
+            console.log(`[WorkerSocket] Worker ${socket.workerId} Angel One Market Socket Status: ${data.connected}`);
+        });
+
         // Listen for live ticks relayed from the worker
         socket.on('live_tick', (tick) => {
             // Process the tick centrally as if it came from the local socket
@@ -174,9 +180,48 @@ function hasWorkerConnected(userId) {
     return false;
 }
 
+function isWorkerAngelOneConnected(userId) {
+    for (const [id, socket] of connectedWorkers.entries()) {
+        if (socket.userId === userId) {
+            return !!socket.angelOneConnected;
+        }
+    }
+    return false;
+}
+
+function connectWorkerAngelSocket(userId) {
+    let targetSocket = null;
+    for (const [id, socket] of connectedWorkers.entries()) {
+        if (socket.userId === userId) {
+            targetSocket = socket;
+            break;
+        }
+    }
+
+    if (!targetSocket) return false;
+
+    const sessionService = require("./session.service");
+    const session = sessionService.getSession(userId);
+    
+    if (!session || !session.jwtToken) return false;
+
+    console.log(`[WorkerSocket] Delegating connect command to Worker ${targetSocket.workerId}`);
+    
+    targetSocket.emit('connect_angel_socket', {
+        jwtToken: session.jwtToken,
+        feedToken: session.feedToken,
+        api_key: session.api_key || process.env.SMARTAPI_API_KEY,
+        client_code: session.client_code || process.env.SMARTAPI_CLIENT_ID
+    });
+
+    return true;
+}
+
 module.exports = {
     initWorkerSocket,
     executeTradeOnWorker,
     subscribeWorkerTicks,
-    hasWorkerConnected
+    hasWorkerConnected,
+    isWorkerAngelOneConnected,
+    connectWorkerAngelSocket
 };
