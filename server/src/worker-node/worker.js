@@ -184,23 +184,25 @@ socket.on("execute_trade", async (tradePayload) => {
         
         // Place the Order
         const orderResponse = await smart_api.placeOrder({
+            ...order_details,
             variety: order_details.variety || "NORMAL",
-            tradingsymbol: order_details.tradingsymbol,
-            symboltoken: order_details.symboltoken,
-            transactiontype: order_details.transactiontype,
             exchange: order_details.exchange || "NSE",
             ordertype: order_details.ordertype || "MARKET",
             producttype: order_details.producttype || "INTRADAY",
-            quantity: order_details.quantity
+            duration: order_details.duration || "DAY"
         });
+
+        if (!orderResponse || orderResponse.status === false || orderResponse.status === 400) {
+            throw new Error(orderResponse.message || "Order placement rejected by exchange/broker");
+        }
 
         console.log("Order placed successfully:", orderResponse);
 
-        // Send success response back to Master
+        // Send success response back to Master (sending only the data object which contains orderid)
         socket.emit("trade_result", {
             trade_id,
             status: "SUCCESS",
-            data: orderResponse
+            data: orderResponse.data || orderResponse
         });
 
     } catch (error) {
