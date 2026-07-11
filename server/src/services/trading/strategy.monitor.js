@@ -23,8 +23,9 @@ const { handleReentryLow, modifyReentryLowOrder } = require("./strategy.reentry.
 const { checkMomentumHit } = require("./strategy.momentum");
 const { getISTTime, getISTExchangeFormat } = require("./strategy.time");
 const { roundToTick, computeStopLossExitPrices, getLimitOffsetAmt } = require("./strategy.offset");
-const { placeStopLossWithRetry, placeExitOrder } = require("./strategy.execution");
-const { checkOverallPnlLimits, evaluateLegLimits } = require("./strategy.pnl");
+const { placeOrder, chaseOrderFill, placeStopLossExitOrder, cancelOrder, modifyOrderLocallyOrViaWorker } = require("./strategy.execution");
+const { placeExitOrder } = require("./strategy.execution");
+const { checkOrderFillOnce } = require("./strategy.chase");
 const marketSocketService = require("../marketSocket.service");
 const { handleLegStopOut, pauseStrategy } = require("./strategy.lifecycle");
 
@@ -396,8 +397,7 @@ async function monitorStrategyLoop(strategyId, strategy) {
                 await Promise.all(strategy.legs.map(async (leg) => {
                     if (!leg.exited && leg.slOrderId) {
                         try {
-                            const api = await getAuthorizedInstance(config.connectionId);
-                            await api.cancelOrder({ variety: "STOPLOSS", orderid: leg.slOrderId });
+                            await cancelOrder(config, "STOPLOSS", leg.slOrderId);
                         } catch (e) { }
                     }
                 }));
@@ -455,10 +455,9 @@ async function monitorStrategyLoop(strategyId, strategy) {
                 const { oldTrigger, newTrigger, newLimit, newReferencePrice } = evalResult.tslUpdates;
                 if (config.variety === "STOPLOSS" && !config.is_paper_trading && leg.slOrderId) {
                     try {
-                        const api = await getAuthorizedInstance(config.connectionId);
                         const multiplier = parseFloat(config.quantity_multiplier) || 1;
                         const quantityInShares = (leg.leg.lots * parseInt(leg.instrument.lotsize) * multiplier).toString();
-                        await api.modifyOrder({
+                        await modifyOrderLocallyOrViaWorker(config, {
                             variety: "STOPLOSS", orderid: leg.slOrderId, ordertype: "STOPLOSS_LIMIT", producttype: config.producttype || "CARRYFORWARD",
                             duration: config.duration || "DAY", price: newLimit.toString(), quantity: quantityInShares,
                             tradingsymbol: leg.instrument.symbol, symboltoken: leg.instrument.token, exchange: leg.instrument.exch_seg,
@@ -589,10 +588,9 @@ async function monitorStrategyLoop(strategyId, strategy) {
                 await Promise.all(strategy.legs.map(async (leg) => {
                     if (leg.exited) return;
                     try {
-                        const api = await getAuthorizedInstance(config.connectionId);
-                        if (leg.slOrderId) await api.cancelOrder({ variety: "STOPLOSS", orderid: leg.slOrderId });
+                        if (leg.slOrderId) await cancelOrder(config, "STOPLOSS", leg.slOrderId);
                         if (!leg.entryPrice && leg.orderId) {
-                            try { await api.cancelOrder({ variety: "NORMAL", orderid: leg.orderId }); } catch (e) { await api.cancelOrder({ variety: "STOPLOSS", orderid: leg.orderId }); }
+                            try { await cancelOrder(config, "NORMAL", leg.orderId); } catch (e) { await cancelOrder(config, "STOPLOSS", leg.orderId); }
                         }
                     } catch (e) { }
                 }));

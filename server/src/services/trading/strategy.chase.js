@@ -1,6 +1,10 @@
 const { getAuthorizedInstance } = require("../../config/smartapi");
 const { addStrategyLog } = require("./strategy.state");
 const { roundToTick, getLimitOffsetAmt } = require("./strategy.offset");
+const workerSocketService = require("../workerSocket.service");
+const sql = require("../../config/db");
+const sessionService = require("../session.service");
+const { modifyOrderLocallyOrViaWorker, cancelOrder } = require("./strategy.execution");
 
 /**
  * Single, non-blocking check for order fill status on the broker.
@@ -103,8 +107,7 @@ async function chaseOrderFill({ orderId, uniqueOrderId, instrument, config, legS
                     ? roundToTick(baseLtp + totalOffsetAmt)
                     : roundToTick(baseLtp - totalOffsetAmt);
 
-                const api = await getAuthorizedInstance(connectionId);
-                await api.modifyOrder({
+                await modifyOrderLocallyOrViaWorker(config, {
                     variety: "NORMAL",
                     orderid: orderId,
                     ordertype: "LIMIT",
@@ -153,8 +156,7 @@ async function chaseOrderFill({ orderId, uniqueOrderId, instrument, config, legS
 
     // Cancel the unfilled order
     try {
-        const api = await getAuthorizedInstance(connectionId);
-        await api.cancelOrder({ variety: "NORMAL", orderid: orderId });
+        await cancelOrder(config, "NORMAL", orderId);
         logChase(`EXHAUSTED: Cancelled unfilled order ${orderId} after 45s.`, "CRITICAL");
     } catch (cancelErr) {
         const lastCheck = await checkOrderFillOnce(uniqueOrderId, connectionId, expectedQuantity);

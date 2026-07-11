@@ -79,7 +79,36 @@ function initWorkerSocket(io) {
         // Listen for trade results from the worker
         socket.on('trade_result', (result) => {
             console.log(`[WorkerSocket] Trade result from Worker ${socket.workerId}:`, result);
-            
+            const pending = pendingTrades.get(result.trade_id);
+            if (pending) {
+                clearTimeout(pending.timeout);
+                pendingTrades.delete(result.trade_id);
+                if (result.status === 'SUCCESS') {
+                    pending.resolve(result.data);
+                } else {
+                    pending.reject(new Error(result.error));
+                }
+            }
+        });
+
+        // Listen for modify trade results
+        socket.on('modify_trade_result', (result) => {
+            console.log(`[WorkerSocket] Modify trade result from Worker ${socket.workerId}:`, result);
+            const pending = pendingTrades.get(result.trade_id);
+            if (pending) {
+                clearTimeout(pending.timeout);
+                pendingTrades.delete(result.trade_id);
+                if (result.status === 'SUCCESS') {
+                    pending.resolve(result.data);
+                } else {
+                    pending.reject(new Error(result.error));
+                }
+            }
+        });
+
+        // Listen for cancel trade results
+        socket.on('cancel_trade_result', (result) => {
+            console.log(`[WorkerSocket] Cancel trade result from Worker ${socket.workerId}:`, result);
             const pending = pendingTrades.get(result.trade_id);
             if (pending) {
                 clearTimeout(pending.timeout);
@@ -122,6 +151,44 @@ function executeTradeOnWorker(workerId, tradePayload) {
         // Send the command
         console.log(`[WorkerSocket] Sending trade ${tradeId} to Worker ${workerId}`);
         socket.emit('execute_trade', payloadWithId);
+    });
+}
+
+function modifyTradeOnWorker(workerId, tradePayload) {
+    return new Promise((resolve, reject) => {
+        const socket = connectedWorkers.get(workerId);
+        if (!socket) return reject(new Error(`Worker ${workerId} is not connected`));
+
+        const tradeId = crypto.randomUUID();
+        const payloadWithId = { ...tradePayload, trade_id: tradeId };
+
+        const timeout = setTimeout(() => {
+            pendingTrades.delete(tradeId);
+            reject(new Error(`Modify Trade ${tradeId} timed out waiting for worker`));
+        }, 10000);
+
+        pendingTrades.set(tradeId, { resolve, reject, timeout });
+        console.log(`[WorkerSocket] Sending modify_trade ${tradeId} to Worker ${workerId}`);
+        socket.emit('modify_trade', payloadWithId);
+    });
+}
+
+function cancelTradeOnWorker(workerId, tradePayload) {
+    return new Promise((resolve, reject) => {
+        const socket = connectedWorkers.get(workerId);
+        if (!socket) return reject(new Error(`Worker ${workerId} is not connected`));
+
+        const tradeId = crypto.randomUUID();
+        const payloadWithId = { ...tradePayload, trade_id: tradeId };
+
+        const timeout = setTimeout(() => {
+            pendingTrades.delete(tradeId);
+            reject(new Error(`Cancel Trade ${tradeId} timed out waiting for worker`));
+        }, 10000);
+
+        pendingTrades.set(tradeId, { resolve, reject, timeout });
+        console.log(`[WorkerSocket] Sending cancel_trade ${tradeId} to Worker ${workerId}`);
+        socket.emit('cancel_trade', payloadWithId);
     });
 }
 
@@ -220,6 +287,8 @@ function connectWorkerAngelSocket(userId) {
 module.exports = {
     initWorkerSocket,
     executeTradeOnWorker,
+    modifyTradeOnWorker,
+    cancelTradeOnWorker,
     subscribeWorkerTicks,
     hasWorkerConnected,
     isWorkerAngelOneConnected,

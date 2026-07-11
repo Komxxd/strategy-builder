@@ -14,7 +14,7 @@
 const { getISTTime, getISTExchangeFormat } = require("./strategy.time");
 const { addStrategyLog, activeStrategies, updateStrategyInMemory } = require("./strategy.state");
 const { roundToTick, getLimitOffsetAmt, computeStopLossExitPrices } = require("./strategy.offset");
-const { placeOrder, waitForOrderFillPrice, placeStopLossWithRetry } = require("./strategy.execution");
+const { placeOrder, waitForOrderFillPrice, placeStopLossWithRetry, cancelOrder } = require("./strategy.execution");
 
 /**
  * Handles the complete "Exit" process of a single leg.
@@ -535,8 +535,7 @@ async function squareOffStrategy(strategyId, userId) {
         await Promise.all(strategy.legs.map(async (leg) => {
             if (!leg.exited && leg.slOrderId) {
                 try {
-                    const api = await getAuthorizedInstance(config.connectionId);
-                    await api.cancelOrder({ variety: "STOPLOSS", orderid: leg.slOrderId });
+                    await cancelOrder(config, "STOPLOSS", leg.slOrderId);
                 } catch (e) { }
             }
         }));

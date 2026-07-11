@@ -24,6 +24,76 @@ const { getISTTime, getISTExchangeFormat } = require("./strategy.time");
 const { roundToTick, getLimitOffsetAmt, computeStopLossExitPrices, resolveUniversalOrderParams } = require("./strategy.offset");
 const { checkOrderFillOnce, chaseOrderFill } = require("./strategy.chase");
 
+const { checkOrderFillOnce, chaseOrderFill } = require("./strategy.chase");
+
+
+/**
+ * Helper function to cancel an order either via Worker Node or Locally
+ */
+async function cancelOrder(config, variety, orderId) {
+    const connId = config.connectionId;
+    const isPaperTrading = config.is_paper_trading === true;
+
+    if (connId) {
+        const creds = await sql`SELECT assigned_worker_id FROM public.user_broker_credentials WHERE user_id = ${connId}`;
+        if (creds.length > 0 && creds[0].assigned_worker_id) {
+            const workerId = creds[0].assigned_worker_id;
+            console.log(`[${new Date().toISOString()}] Routing cancel order via Worker Node: ${workerId}`);
+            
+            const session = sessionService.getSession(connId);
+            const tradePayload = {
+                is_paper_trading: isPaperTrading,
+                api_key: session?.api_key || process.env.SMARTAPI_API_KEY,
+                client_code: session?.client_code || process.env.SMARTAPI_CLIENT_CODE,
+                jwtToken: session?.jwtToken,
+                order_details: { variety, orderid: orderId }
+            };
+            
+            return await workerSocketService.cancelTradeOnWorker(workerId, tradePayload);
+        }
+    }
+
+    if (isPaperTrading) {
+        return { status: true, message: "PAPER TRADE CANCELLED" };
+    }
+
+    const api = await getAuthorizedInstance(connId);
+    return await api.cancelOrder({ variety, orderid: orderId });
+}
+
+/**
+ * Helper function to modify an order either via Worker Node or Locally
+ */
+async function modifyOrderLocallyOrViaWorker(config, modifyParams) {
+    const connId = config.connectionId;
+    const isPaperTrading = config.is_paper_trading === true;
+
+    if (connId) {
+        const creds = await sql`SELECT assigned_worker_id FROM public.user_broker_credentials WHERE user_id = ${connId}`;
+        if (creds.length > 0 && creds[0].assigned_worker_id) {
+            const workerId = creds[0].assigned_worker_id;
+            console.log(`[${new Date().toISOString()}] Routing modify order via Worker Node: ${workerId}`);
+            
+            const session = sessionService.getSession(connId);
+            const tradePayload = {
+                is_paper_trading: isPaperTrading,
+                api_key: session?.api_key || process.env.SMARTAPI_API_KEY,
+                client_code: session?.client_code || process.env.SMARTAPI_CLIENT_CODE,
+                jwtToken: session?.jwtToken,
+                order_details: modifyParams
+            };
+            
+            return await workerSocketService.modifyTradeOnWorker(workerId, tradePayload);
+        }
+    }
+
+    if (isPaperTrading) {
+        return { status: true, message: "PAPER TRADE MODIFIED" };
+    }
+
+    const api = await getAuthorizedInstance(connId);
+    return await api.modifyOrder(modifyParams);
+}
 
 /**
  * The primary function to place an order (Entry or Exit).
@@ -278,15 +348,14 @@ async function placeExitOrder({ config, leg, instrument, exitType }) {
         if (leg.orderId && !config.is_paper_trading) {
             console.log(`[Exit] Leg ${instrument.symbol} has orderId ${leg.orderId} but no entry price. Attempting cancellation...`);
             try {
-                const api = await getAuthorizedInstance(config.connectionId);
                 // Try to cancel as NORMAL first
                 try {
-                    await api.cancelOrder({ variety: "NORMAL", orderid: leg.orderId });
+                    await cancelOrder(config, "NORMAL", leg.orderId);
                     console.log(`[Exit] Successfully cancelled pending NORMAL entry order ${leg.orderId}`);
                 } catch (e) {
                     // If NORMAL fails, try STOPLOSS (used by RTP/MTP/Re-Entry orders)
                     console.log(`[Exit] NORMAL cancellation failed for ${leg.orderId}, trying STOPLOSS variety...`);
-                    await api.cancelOrder({ variety: "STOPLOSS", orderid: leg.orderId });
+                    await cancelOrder(config, "STOPLOSS", leg.orderId);
                     console.log(`[Exit] Successfully cancelled pending STOPLOSS entry order ${leg.orderId}`);
                 }
                 
@@ -323,8 +392,7 @@ async function placeExitOrder({ config, leg, instrument, exitType }) {
     if (leg.slOrderId && !config.is_paper_trading) {
         try {
             console.log(`[Exit] Cancelling pending Stop-Loss order ${leg.slOrderId} for ${instrument.symbol} before market exit.`);
-            const api = await getAuthorizedInstance(config.connectionId);
-            await api.cancelOrder({ variety: "STOPLOSS", orderid: leg.slOrderId });
+            await cancelOrder(config, "STOPLOSS", leg.slOrderId);
             console.log(`[Exit] Successfully cancelled pending SL order ${leg.slOrderId}`);
             leg.slOrderId = null; 
         } catch (e) {
@@ -420,5 +488,6 @@ async function placeExitOrder({ config, leg, instrument, exitType }) {
 module.exports = {
     roundToTick, placeOrder, getLimitOffsetAmt, computeStopLossExitPrices,
     resolveUniversalOrderParams, waitForOrderFillPrice, checkOrderFillOnce,
-    chaseOrderFill, placeStopLossExitOrder, placeStopLossWithRetry, placeExitOrder
+    chaseOrderFill, placeStopLossExitOrder, placeStopLossWithRetry, placeExitOrder,
+    cancelOrder, modifyOrderLocallyOrViaWorker
 };

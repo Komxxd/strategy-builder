@@ -1,4 +1,4 @@
-const { placeOrder, waitForOrderFillPrice, placeStopLossWithRetry } = require("./strategy.execution");
+const { placeOrder, waitForOrderFillPrice, placeStopLossWithRetry, modifyOrderLocallyOrViaWorker } = require("./strategy.execution");
 const { roundToTick, computeStopLossExitPrices, getLimitOffsetAmt } = require("./strategy.offset");
 const { getISTTime, getISTExchangeFormat } = require("./strategy.time");
 const { getAuthorizedInstance } = require("../../config/smartapi");
@@ -135,14 +135,14 @@ async function modifyReentryOrder({ leg, config, strategyId, addStrategyLog, new
     }
 
     try {
-        const api = await getAuthorizedInstance(config.connectionId);
         const offsetAmt = config.is_paper_trading ? 0 : getLimitOffsetAmt(newRtp, config);
         const side = leg.leg.side;
         const newPrice = side === "BUY" ? roundToTick(newRtp + offsetAmt) : roundToTick(newRtp - offsetAmt);
 
         const multiplier = parseFloat(config.quantity_multiplier) || 1;
         const quantityInShares = (leg.leg.lots * parseInt(leg.instrument.lotsize) * multiplier).toString();
-        await api.modifyOrder({
+
+        await modifyOrderLocallyOrViaWorker(config, {
             variety: "NORMAL",
             orderid: leg.orderId,
             ordertype: "LIMIT",

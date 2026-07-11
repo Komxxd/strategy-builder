@@ -216,3 +216,96 @@ socket.on("execute_trade", async (tradePayload) => {
         });
     }
 });
+
+// Listen for trade modification commands
+socket.on("modify_trade", async (tradePayload) => {
+    console.log("Received modify trade command:", tradePayload);
+    try {
+        const { is_paper_trading, api_key, client_code, jwtToken, order_details, trade_id } = tradePayload;
+
+        if (is_paper_trading) {
+            console.log(`[Modify ${trade_id}] Processing PAPER TRADE...`);
+            setTimeout(() => {
+                socket.emit('modify_trade_result', {
+                    trade_id,
+                    status: 'SUCCESS',
+                    data: { orderid: order_details.orderid }
+                });
+            }, 50);
+            return;
+        }
+
+        const smart_api = new SmartAPI({ api_key });
+        if (!jwtToken) throw new Error("Missing JWT session token from Master.");
+        smart_api.setAccessToken(jwtToken);
+
+        const response = await smart_api.modifyOrder({
+            ...order_details,
+            variety: order_details.variety || "NORMAL",
+            ordertype: order_details.ordertype || "LIMIT"
+        });
+
+        if (!response || response.status === false || response.status === 400) {
+            throw new Error(response.message || "Order modification rejected by exchange/broker");
+        }
+
+        socket.emit("modify_trade_result", {
+            trade_id,
+            status: "SUCCESS",
+            data: response.data || response
+        });
+    } catch (error) {
+        console.error("Failed to modify trade:", error);
+        socket.emit("modify_trade_result", {
+            trade_id: tradePayload.trade_id,
+            status: "FAILED",
+            error: error.message || "Unknown error occurred"
+        });
+    }
+});
+
+// Listen for trade cancellation commands
+socket.on("cancel_trade", async (tradePayload) => {
+    console.log("Received cancel trade command:", tradePayload);
+    try {
+        const { is_paper_trading, api_key, client_code, jwtToken, order_details, trade_id } = tradePayload;
+
+        if (is_paper_trading) {
+            console.log(`[Cancel ${trade_id}] Processing PAPER TRADE...`);
+            setTimeout(() => {
+                socket.emit('cancel_trade_result', {
+                    trade_id,
+                    status: 'SUCCESS',
+                    data: { orderid: order_details.orderid }
+                });
+            }, 50);
+            return;
+        }
+
+        const smart_api = new SmartAPI({ api_key });
+        if (!jwtToken) throw new Error("Missing JWT session token from Master.");
+        smart_api.setAccessToken(jwtToken);
+
+        const response = await smart_api.cancelOrder({
+            variety: order_details.variety || "NORMAL",
+            orderid: order_details.orderid
+        });
+
+        if (!response || response.status === false || response.status === 400) {
+            throw new Error(response.message || "Order cancellation rejected by exchange/broker");
+        }
+
+        socket.emit("cancel_trade_result", {
+            trade_id,
+            status: "SUCCESS",
+            data: response.data || response
+        });
+    } catch (error) {
+        console.error("Failed to cancel trade:", error);
+        socket.emit("cancel_trade_result", {
+            trade_id: tradePayload.trade_id,
+            status: "FAILED",
+            error: error.message || "Unknown error occurred"
+        });
+    }
+});
