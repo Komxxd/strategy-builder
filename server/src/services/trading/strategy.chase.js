@@ -4,7 +4,6 @@ const { roundToTick, getLimitOffsetAmt } = require("./strategy.offset");
 const workerSocketService = require("../workerSocket.service");
 const sql = require("../../config/db");
 const sessionService = require("../session.service");
-const { modifyOrderLocallyOrViaWorker, cancelOrder } = require("./strategy.execution");
 
 /**
  * Single, non-blocking check for order fill status on the broker.
@@ -56,6 +55,7 @@ async function checkOrderFillOnce(uniqueOrderId, connectionId, expectedQuantity 
  * @returns {number|null} Fill price, or null if not filled after 45s
  */
 async function chaseOrderFill({ orderId, uniqueOrderId, instrument, config, legSide, lots, connectionId, strategyId, baseLtp }) {
+    const { modifyOrderLocallyOrViaWorker, cancelOrder } = require("./strategy.execution");
     const expectedQuantity = lots * parseInt(instrument.lotsize);
     const INITIAL_WAIT_MS = 1000;
     const CHASE_INTERVAL_MS = 1000;
