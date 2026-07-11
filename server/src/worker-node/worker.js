@@ -41,7 +41,7 @@ let angelSocket = null;
 // Connect to Angel WebSocket explicitly without subscribing
 socket.on("connect_angel_socket", (payload) => {
     const { jwtToken, feedToken, api_key, client_code } = payload;
-    
+
     if (angelSocket) {
         console.log("Angel WebSocket already connected");
         socket.emit("market_socket_status", { connected: true });
@@ -51,19 +51,19 @@ socket.on("connect_angel_socket", (payload) => {
     console.log(`Initializing Angel One WebSocket for ${client_code}`);
     angelSocket = new WebSocketV2({
         jwttoken: jwtToken,
-        feedtype: feedToken || jwtToken, 
+        feedtype: feedToken || jwtToken,
         apikey: api_key,
         clientcode: client_code
     });
-    
+
     angelSocket.connect().then(() => {
         console.log("Worker successfully connected to Angel One WebSocket");
         socket.emit("market_socket_status", { connected: true });
-        
+
         angelSocket.on("tick", (tick) => {
             socket.emit("live_tick", tick);
         });
-        
+
         angelSocket.on("error", (err) => {
             console.error("Angel WebSocket Error:", err);
         });
@@ -82,7 +82,7 @@ socket.on("connect_angel_socket", (payload) => {
 // Listen for market data subscription commands
 socket.on("subscribe_ticks", (payload) => {
     const { jwtToken, feedToken, api_key, client_code, exchangeType, tokens } = payload;
-    
+
     if (!angelSocket) {
         console.log(`Initializing Angel One WebSocket for ${client_code}`);
         angelSocket = new WebSocketV2({
@@ -91,16 +91,16 @@ socket.on("subscribe_ticks", (payload) => {
             apikey: api_key,
             clientcode: client_code
         });
-        
+
         angelSocket.connect().then(() => {
             console.log("Worker successfully connected to Angel One WebSocket");
             socket.emit("market_socket_status", { connected: true });
-            
+
             angelSocket.on("tick", (tick) => {
                 // Instantly relay the tick back to the Master Server
                 socket.emit("live_tick", tick);
             });
-            
+
             angelSocket.on("error", (err) => {
                 console.error("Angel WebSocket Error:", err);
             });
@@ -131,7 +131,7 @@ socket.on("subscribe_ticks", (payload) => {
                 exchangeType,
                 tokens
             });
-        } catch(err) {
+        } catch (err) {
             console.error("Failed to fetch data on existing socket:", err);
         }
     }
@@ -140,19 +140,19 @@ socket.on("subscribe_ticks", (payload) => {
 // Listen for trade execution commands
 socket.on("execute_trade", async (tradePayload) => {
     console.log("Received trade command:", tradePayload);
-    
+
     try {
         const { is_paper_trading, api_key, client_code, jwtToken, order_details, trade_id } = tradePayload;
 
         // --- HANDLE PAPER TRADING ---
         if (is_paper_trading) {
             console.log(`[Trade ${trade_id}] Processing PAPER TRADE...`);
-            
+
             // Simulate realistic network delay (50ms)
             setTimeout(() => {
                 const mockOrderId = `PAPER_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
                 const mockUniqueId = `UPAPER_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
-                
+
                 console.log(`[Trade ${trade_id}] Paper trade completed successfully.`);
                 socket.emit('trade_result', {
                     trade_id,
@@ -163,7 +163,7 @@ socket.on("execute_trade", async (tradePayload) => {
                     }
                 });
             }, 50);
-            
+
             return; // Skip actual Angel One execution
         }
 
@@ -181,7 +181,7 @@ socket.on("execute_trade", async (tradePayload) => {
         smart_api.setAccessToken(jwtToken);
 
         console.log("Session generated successfully. Placing order...");
-        
+
         // Place the Order
         const orderResponse = await smart_api.placeOrder({
             ...order_details,
@@ -207,7 +207,7 @@ socket.on("execute_trade", async (tradePayload) => {
 
     } catch (error) {
         console.error("Failed to execute trade:", error);
-        
+
         // Send failure response back to Master
         socket.emit("trade_result", {
             trade_id: tradePayload.trade_id,
