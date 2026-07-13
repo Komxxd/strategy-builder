@@ -28,7 +28,7 @@ const { placeExitOrder } = require("./strategy.execution");
 const { checkOrderFillOnce } = require("./strategy.chase");
 const marketSocketService = require("../marketSocket.service");
 const { handleLegStopOut, pauseStrategy } = require("./strategy.lifecycle");
-const { checkOverallPnlLimits } = require("./strategy.pnl");
+const { checkOverallPnlLimits, evaluateLegLimits } = require("./strategy.pnl");
 
 /**
  * The main monitoring function for a single strategy.
