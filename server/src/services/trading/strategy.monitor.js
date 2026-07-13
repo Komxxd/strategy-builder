@@ -28,6 +28,7 @@ const { placeExitOrder } = require("./strategy.execution");
 const { checkOrderFillOnce } = require("./strategy.chase");
 const marketSocketService = require("../marketSocket.service");
 const { handleLegStopOut, pauseStrategy } = require("./strategy.lifecycle");
+const { checkOverallPnlLimits } = require("./strategy.pnl");
 
 /**
  * The main monitoring function for a single strategy.
@@ -472,7 +473,7 @@ async function monitorStrategyLoop(strategyId, strategy) {
                         try {
                             const api = await getAuthorizedInstance(config.connectionId);
                             const details = await api.indOrderDetails(leg.slUniqueOrderId);
-                            const orderStatus = (details?.data?.orderstatus || "").toLowerCase();
+                            const orderStatus = (details?.data?.orderstatus || details?.data?.status || "").toString().toLowerCase();
                             
                             if (orderStatus === "cancelled" || orderStatus === "rejected") {
                                 addStrategyLog(strategyId, `[TSL RECOVERY] Original SL order was ${orderStatus}. Placing a new SL order at ₹${newTrigger} to restore protection.`, "WARNING");
@@ -515,7 +516,7 @@ async function monitorStrategyLoop(strategyId, strategy) {
                     try {
                         const api = await getAuthorizedInstance(config.connectionId);
                         const details = await api.indOrderDetails(leg.slUniqueOrderId);
-                        const orderStatus = (details?.data?.orderstatus || "").toLowerCase();
+                        const orderStatus = (details?.data?.orderstatus || details?.data?.status || "").toString().toLowerCase();
                         
                         if (orderStatus === "cancelled" || orderStatus === "rejected") {
                             addStrategyLog(strategyId, `[FALLBACK] Internal Monitor detected SL breach. Exchange SL order was ${orderStatus}. Forcing manual Market Exit to protect position!`, "CRITICAL");
@@ -562,7 +563,7 @@ async function monitorStrategyLoop(strategyId, strategy) {
                     try {
                         const api = await getAuthorizedInstance(config.connectionId);
                         const details = await api.indOrderDetails(leg.slUniqueOrderId);
-                        const orderStatus = (details?.data?.orderstatus || "").toLowerCase();
+                        const orderStatus = (details?.data?.orderstatus || details?.data?.status || "").toString().toLowerCase();
                         if (orderStatus === "complete" || orderStatus === "filled") {
                             const exchangeFillPrice = Number(details.data.averageprice || details.data.averagePrice || 0) || null;
                             const exchangeFillTime = details.data.exchorderupdatetime || details.data.filltime || null;
