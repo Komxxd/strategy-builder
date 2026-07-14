@@ -1,391 +1,383 @@
-import React, { useState, useEffect } from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
-import { Button } from '@/components/ui/button';
-import { StrategyBuilder } from './components/StrategyBuilder';
-import { LandingPage } from './components/LandingPage';
-import { Auth } from './components/Auth';
-import { supabase } from './lib/supabase';
+import React, { useState, useEffect } from'react';
+import { Routes, Route, Navigate } from'react-router-dom';
+import { Button } from'@/components/ui/button';
+import { StrategyBuilder } from'./components/StrategyBuilder';
+import { LandingPage } from'./components/LandingPage';
+import { Auth } from'./components/Auth';
+import { UpdatePassword } from './components/UpdatePassword';
+import { supabase } from'./lib/supabase';
 import {
-  AlertCircle, CheckCircle2, Search, LayoutDashboard, Box,
-  ShoppingCart, Users, MessageSquare, Mail, Zap, BarChart2,
-  Share2, Share, Bell, Folder, Tag, HelpCircle, MessageCircle,
-  Settings, Rocket, ChevronRight, Menu, LogOut, Loader2, Lock, History, ChevronLeft,
-  Wifi, WifiOff
-} from 'lucide-react';
-import { logoutBackend, loginBackend, connectSocket, disconnectSocket, getBrokerStatus, getConnectionStatus } from './api';
-import { StrategyHistory } from './components/StrategyHistory';
-import { BacktestResultsView } from './components/BacktestResultsView';
-import { BrokerSetup } from './components/BrokerSetup';
-import { BrokerCallback } from './components/BrokerCallback';
+ AlertCircle, CheckCircle2, Search, LayoutDashboard, Box,
+ ShoppingCart, Users, MessageSquare, Mail, Zap, BarChart2,
+ Share2, Share, Bell, Folder, Tag, HelpCircle, MessageCircle,
+ Settings, Rocket, ChevronRight, Menu, LogOut, Loader2, Lock, History, ChevronLeft,
+ Wifi, WifiOff, User
+} from'lucide-react';
+import { logoutBackend, loginBackend, connectSocket, disconnectSocket, getBrokerStatus, getConnectionStatus } from'./api';
+import { StrategyHistory } from'./components/StrategyHistory';
+import { BacktestResultsView } from'./components/BacktestResultsView';
+import { BrokerSetup } from'./components/BrokerSetup';
+import { BrokerCallback } from'./components/BrokerCallback';
+import { Profile } from './components/Profile';
 
-import axios from 'axios';
+import axios from'axios';
 
 // Global Axios Interceptor for Supabase Auth
 axios.interceptors.request.use(async (config) => {
-  const { data: { session } } = await supabase.auth.getSession();
-  const token = session?.access_token;
-  if (token && !config.headers['Authorization']) {
-    config.headers['Authorization'] = `Bearer ${token}`;
-  }
-  return config;
+ const { data: { session } } = await supabase.auth.getSession();
+ const token = session?.access_token;
+ if (token && !config.headers['Authorization']) {
+ config.headers['Authorization'] =`Bearer ${token}`;
+ }
+ return config;
 });
 
 function App() {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [session, setSession] = useState(null);
+ const [isAuthenticated, setIsAuthenticated] = useState(false);
+ const [session, setSession] = useState(null);
 
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setIsAuthenticated(!!session);
-    });
+ useEffect(() => {
+ supabase.auth.getSession().then(({ data: { session } }) => {
+ setSession(session);
+ setIsAuthenticated(!!session);
+ });
 
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-      setIsAuthenticated(!!session);
-    });
+ const {
+ data: { subscription },
+ } = supabase.auth.onAuthStateChange((_event, session) => {
+ setSession(session);
+ setIsAuthenticated(!!session);
+ });
 
-    return () => subscription.unsubscribe();
-  }, []);
+ return () => subscription.unsubscribe();
+ }, []);
 
-  // Angel One API session state (login/logout)
-  const [isApiConnected, setIsApiConnected] = useState(false);
-  // WebSocket live data stream state
-  const [isSocketConnected, setIsSocketConnected] = useState(false);
-  const [error, setError] = useState(null);
-  const [success, setSuccess] = useState(null);
-  const [apiLoading, setApiLoading] = useState(false);
-  const [socketLoading, setSocketLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState('strategies');
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(true);
+ // Angel One API session state (login/logout)
+ const [isApiConnected, setIsApiConnected] = useState(false);
+ // WebSocket live data stream state
+ const [isSocketConnected, setIsSocketConnected] = useState(false);
+ const [error, setError] = useState(null);
+ const [success, setSuccess] = useState(null);
+ const [apiLoading, setApiLoading] = useState(false);
+ const [socketLoading, setSocketLoading] = useState(false);
+ const [activeTab, setActiveTab] = useState('strategies');
+ const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
-  const [globalBacktestResults, setGlobalBacktestResults] = useState(null);
-  const [globalBacktestStrategy, setGlobalBacktestStrategy] = useState(null);
+ const [globalBacktestResults, setGlobalBacktestResults] = useState(null);
+ const [globalBacktestStrategy, setGlobalBacktestStrategy] = useState(null);
 
-  const handleAuthenticated = () => {
-    setSuccess("Access unlocked! Welcome back.");
-  };
+ const handleAuthenticated = () => {
+ setSuccess("Access unlocked! Welcome back.");
+ };
 
-  // --- Angel One API Pill Handler ---
-  const handleToggleApi = async () => {
-    setActiveTab('broker');
-  };
+ // --- Angel One API Pill Handler ---
+ const handleToggleApi = async () => {
+ setActiveTab('broker');
+ };
 
-  // --- WebSocket Pill Handler ---
-  const handleToggleSocket = async () => {
-    // Note: We skip the `!isApiConnected` check here because the global feed 
-    // uses the admin credentials, so it can connect regardless of user session.
-    if (isSocketConnected) {
-      try {
-        setSocketLoading(true);
-        await disconnectSocket();
-        setIsSocketConnected(false);
-        setSuccess("Global WebSocket disconnected.");
-      } catch (err) {
-        setError("Failed to disconnect WebSocket: " + err.message);
-      } finally {
-        setSocketLoading(false);
-      }
-    } else {
-      try {
-        setSocketLoading(true);
-        const res = await connectSocket();
-        if (res.success) {
-          setIsSocketConnected(true);
-          setSuccess("Global WebSocket connecting...");
-        } else {
-          setError(res.message || "Failed to connect WebSocket");
-        }
-      } catch (err) {
-        setError("Error connecting WebSocket");
-      } finally {
-        setSocketLoading(false);
-      }
-    }
-  };
+ // --- WebSocket Pill Handler ---
+ const handleToggleSocket = async () => {
+ // Note: We skip the`!isApiConnected` check here because the global feed 
+ // uses the admin credentials, so it can connect regardless of user session.
+ if (isSocketConnected) {
+ try {
+ setSocketLoading(true);
+ await disconnectSocket();
+ setIsSocketConnected(false);
+ setSuccess("Global WebSocket disconnected.");
+ } catch (err) {
+ setError("Failed to disconnect WebSocket:" + err.message);
+ } finally {
+ setSocketLoading(false);
+ }
+ } else {
+ try {
+ setSocketLoading(true);
+ const res = await connectSocket();
+ if (res.success) {
+ setIsSocketConnected(true);
+ setSuccess("Global WebSocket connecting...");
+ } else {
+ setError(res.message ||"Failed to connect WebSocket");
+ }
+ } catch (err) {
+ setError("Error connecting WebSocket");
+ } finally {
+ setSocketLoading(false);
+ }
+ }
+ };
 
-  const handleLogout = async () => {
-    await supabase.auth.signOut();
-  };
+ const handleLogout = async () => {
+ await supabase.auth.signOut();
+ };
 
-  useEffect(() => {
-    if (isAuthenticated) {
-      // Auto-sync status with backend on mount/refresh
-      const syncStatus = async () => {
-        try {
-          const res = await getConnectionStatus();
-          if (res.success) {
-            setIsApiConnected(res.apiConnected);
-            setIsSocketConnected(res.socketConnected);
-          }
-        } catch (err) {
-          console.error("Failed to sync initial status:", err);
-        }
-      };
+ useEffect(() => {
+ if (isAuthenticated) {
+ // Auto-sync status with backend on mount/refresh
+ const syncStatus = async () => {
+ try {
+ const res = await getConnectionStatus();
+ if (res.success) {
+ setIsApiConnected(res.apiConnected);
+ setIsSocketConnected(res.socketConnected);
+ }
+ } catch (err) {
+ console.error("Failed to sync initial status:", err);
+ }
+ };
 
-      syncStatus();
-    }
-  }, [isAuthenticated]);
+ syncStatus();
+ }
+ }, [isAuthenticated]);
 
-  useEffect(() => {
-    // Store cleanup in a closure variable so the outer useEffect return can reach it.
-    // The previous pattern returned cleanup from inside .then() which React never sees —
-    // that makes socket listeners stack on every mount (bad in React Strict Mode dev).
-    let cleanup = null;
+ useEffect(() => {
+ // Store cleanup in a closure variable so the outer useEffect return can reach it.
+ // The previous pattern returned cleanup from inside .then() which React never sees —
+ // that makes socket listeners stack on every mount (bad in React Strict Mode dev).
+ let cleanup = null;
 
-    import('./api').then(({ initSocket }) => {
-      const socket = initSocket();
+ import('./api').then(({ initSocket }) => {
+ const socket = initSocket();
 
-      // broker_status = Angel One API session (login/logout)
-      const handleBrokerStatus = (data) => {
-        setIsApiConnected(data.connected);
-        if (!data.connected) setIsSocketConnected(false);
-      };
+ // broker_status = Angel One API session (login/logout)
+ const handleBrokerStatus = (data) => {
+ setIsApiConnected(data.connected);
+ if (!data.connected) setIsSocketConnected(false);
+ };
 
-      // socket_status = WebSocket data stream only
-      const handleSocketStatus = (data) => {
-        setIsSocketConnected(data.connected);
-      };
+ // socket_status = WebSocket data stream only
+ const handleSocketStatus = (data) => {
+ setIsSocketConnected(data.connected);
+ };
 
-      const handleStrategyAlert = (data) => {
-        if (data.type === 'success') setSuccess(data.message);
-        else setError(data.message);
-      };
+ const handleStrategyAlert = (data) => {
+ if (data.type ==='success') setSuccess(data.message);
+ else setError(data.message);
+ };
 
-      socket.on('broker_status', handleBrokerStatus);
-      socket.on('socket_status', handleSocketStatus);
-      socket.on('strategy_alert', handleStrategyAlert);
+ socket.on('broker_status', handleBrokerStatus);
+ socket.on('socket_status', handleSocketStatus);
+ socket.on('strategy_alert', handleStrategyAlert);
 
-      // Store cleanup for when React unmounts or re-runs the effect
-      cleanup = () => {
-        socket.off('broker_status', handleBrokerStatus);
-        socket.off('socket_status', handleSocketStatus);
-        socket.off('strategy_alert', handleStrategyAlert);
-      };
-    });
+ // Store cleanup for when React unmounts or re-runs the effect
+ cleanup = () => {
+ socket.off('broker_status', handleBrokerStatus);
+ socket.off('socket_status', handleSocketStatus);
+ socket.off('strategy_alert', handleStrategyAlert);
+ };
+ });
 
-    // This is what React actually calls on unmount — now it can reach the cleanup
-    return () => {
-      if (cleanup) cleanup();
-    };
-  }, []);
+ // This is what React actually calls on unmount — now it can reach the cleanup
+ return () => {
+ if (cleanup) cleanup();
+ };
+ }, []);
 
 
-  const SidebarItem = ({ icon: Icon, label, active, onClick, badge, isCollapsed }) => (
+  const NavItem = ({ label, active, onClick }) => (
     <button
-      onClick={onClick}
-      className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${active ? 'bg-secondary text-foreground' : 'text-muted-foreground hover:bg-secondary/50 hover:text-foreground'} ${isCollapsed ? 'justify-center' : ''}`}
-      title={isCollapsed ? label : ''}
+      onClick={() => { onClick(); setIsMobileMenuOpen(false); }}
+      className={`relative h-full w-full lg:w-auto px-4 text-[13px] flex items-center justify-center transition-colors ${active ? 'text-slate-900 font-bold' : 'text-slate-500 font-medium hover:text-slate-800'}`}
     >
-      <div className={`flex items-center ${isCollapsed ? 'justify-center w-full' : 'gap-3'}`}>
-        <Icon className={`h-4 w-4 shrink-0 ${active ? 'text-primary' : ''}`} />
-        {!isCollapsed && <span className="whitespace-nowrap">{label}</span>}
-      </div>
-      {!isCollapsed && badge && <span className="px-2 py-0.5 rounded-full bg-secondary text-muted-foreground text-[10px] font-bold shrink-0">{badge}</span>}
+      <span className="whitespace-nowrap">{label}</span>
+      {active && (
+        <span className="hidden lg:block absolute bottom-0 left-0 w-full h-[2px] bg-slate-900 animate-in fade-in duration-300"></span>
+      )}
     </button>
   );
 
-  const dashboardElement = (
-    <div className="flex h-screen w-full bg-[#fcfcfc] text-foreground font-sans overflow-hidden">
-
-      {/* Sidebar */}
-      <aside className={`${isSidebarCollapsed ? 'hidden md:flex md:w-[80px]' : 'flex w-[280px] sm:w-[260px] absolute md:relative z-50 h-[100dvh] shadow-2xl md:shadow-none'} transition-all duration-300 flex-shrink-0 border-r bg-white flex flex-col`}>
-        <div className={`h-[76px] ${isSidebarCollapsed ? 'px-0 justify-center' : 'px-4 justify-between'} border-b flex-shrink-0 flex items-center overflow-hidden`}>
-          {!isSidebarCollapsed && (
-            <div className="flex items-center gap-3 px-2 py-1.5">
-              <div className="h-8 w-8 bg-black rounded-lg flex items-center justify-center text-white shrink-0">
-                <Box className="h-5 w-5" />
-              </div>
-              <div>
-                <h2 className="text-sm font-bold tracking-tight leading-tight whitespace-nowrap">CoreQuant</h2>
-              </div>
-            </div>
-          )}
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8 flex text-muted-foreground hover:bg-slate-100 hover:text-foreground shrink-0"
-            onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-          >
-            <Menu className="h-5 w-5" />
-          </Button>
-        </div>
-
-        <div className="flex-1 overflow-y-auto px-3 py-4 space-y-6 custom-scrollbar">
-
-          <div className="space-y-1">
-            {!isSidebarCollapsed && <p className="px-3 text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2 whitespace-nowrap">Main Menu</p>}
-            {isSidebarCollapsed && <div className="h-4"></div>}
-            <SidebarItem
-              icon={LayoutDashboard}
-              label="Strategies"
-              active={activeTab === 'strategies'}
-              onClick={() => setActiveTab('strategies')}
-              isCollapsed={isSidebarCollapsed}
-            />
-            <SidebarItem
-              icon={History}
-              label="History"
-              active={activeTab === 'history'}
-              onClick={() => setActiveTab('history')}
-              isCollapsed={isSidebarCollapsed}
-            />
-            <SidebarItem
-              icon={BarChart2}
-              label="Backtest Results"
-              active={activeTab === 'backtest'}
-              onClick={() => setActiveTab('backtest')}
-              isCollapsed={isSidebarCollapsed}
-            />
-            <SidebarItem
-              icon={CheckCircle2} // using CheckCircle2 as a placeholder for broker setup, or we can use Settings
-              label="Broker Setup"
-              active={activeTab === 'broker'}
-              onClick={() => setActiveTab('broker')}
-              isCollapsed={isSidebarCollapsed}
-            />
+ const dashboardElement = (
+ <div className="flex flex-col h-screen w-full bg-[#fcfcfc] text-foreground font-sans overflow-hidden">
+ 
+ {/* Top Header */}
+      <header className="h-[52px] sm:h-[60px] bg-white border-b flex items-center justify-between px-4 sm:px-6 flex-shrink-0 z-20 transition-all gap-4 relative">
+        
+        {/* Left: Branding */}
+        <div className="flex-1 flex items-center gap-3">
+          <div className="h-8 w-8 bg-black rounded-lg flex items-center justify-center text-white shrink-0">
+            <Box className="h-5 w-5" />
           </div>
-
+          <h2 className="text-lg font-bold tracking-tight leading-tight whitespace-nowrap hidden sm:block">CoreQuant</h2>
         </div>
+          
+        {/* Center: Desktop Navigation */}
+        <nav className="hidden lg:flex items-center justify-center gap-1 flex-1 absolute left-1/2 -translate-x-1/2 h-full">
+           <NavItem label="Strategies" active={activeTab === 'strategies'} onClick={() => setActiveTab('strategies')} />
+           <NavItem label="History" active={activeTab === 'history'} onClick={() => setActiveTab('history')} />
+           <NavItem label="Backtest Results" active={activeTab === 'backtest'} onClick={() => setActiveTab('backtest')} />
+           <NavItem label="Broker Setup" active={activeTab === 'broker'} onClick={() => setActiveTab('broker')} />
+        </nav>
 
-        <div className="p-4 border-t flex flex-col items-center">
-          <Button
-            variant="ghost"
-            className={`w-full ${isSidebarCollapsed ? 'justify-center px-0' : 'justify-start gap-3'} text-muted-foreground hover:text-foreground hover:bg-red-50 hover:text-red-600 transition-all rounded-xl`}
-            onClick={handleLogout}
-            title={isSidebarCollapsed ? "Log Out" : ""}
-          >
-            <LogOut className="h-4 w-4 shrink-0" />
-            {!isSidebarCollapsed && <span className="whitespace-nowrap">Log Out</span>}
-          </Button>
-        </div>
-      </aside>
+        {/* Right Actions */}
+        <div className="flex-1 flex items-center justify-end gap-2 sm:gap-4 shrink-0">
+ {/* Status Pills */}
+ <button
+ id="angel-one-status-pill"
+ onClick={handleToggleApi}
+ title={isApiConnected ?"Angel One session active. Manage in Broker Setup." :"Click to login to Angel One in Broker Setup"}
+ className={`flex items-center gap-1.5 px-2 py-1.5 sm:px-3 sm:py-2 rounded-full text-[10px] sm:text-xs font-bold border transition-all cursor-pointer shrink-0 ${isApiConnected
+ ?"bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100"
+ :"bg-red-50 text-red-600 border-red-200 hover:bg-red-100"
+ }`}
+ >
+ {isApiConnected ? (
+ <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+ ) : (
+ <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+ )}
+ <span className="whitespace-nowrap hidden sm:inline">Angel One</span>
+ <span className="whitespace-nowrap sm:hidden">Angel</span>
+ </button>
 
-      {/* Main Container */}
-      <main className="flex-1 flex flex-col h-full overflow-hidden bg-background md:bg-[#FAFAFA]">
+ <button
+ id="websocket-status-pill"
+ onClick={handleToggleSocket}
+ disabled={socketLoading}
+ title={
+ isSocketConnected
+ ?"Live Data Stream Active (Global Feed). Click to disconnect."
+ :"Live Data Stream Disconnected. Click to connect."
+ }
+ className={`flex items-center gap-1.5 px-2 py-1.5 sm:px-3 sm:py-2 rounded-full text-[10px] sm:text-xs font-bold border transition-all shrink-0 cursor-pointer ${
+ isSocketConnected
+ ?"bg-blue-50 text-blue-700 border-blue-200 hover:bg-red-50 hover:text-red-700 hover:border-red-200"
+ :"bg-slate-50 text-slate-500 border-slate-200 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-200"
+ } disabled:opacity-50 disabled:cursor-not-allowed`}
+ >
+ {socketLoading ? (
+ <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" />
+ ) : isSocketConnected ? (
+ <Wifi className="h-3.5 w-3.5 shrink-0" />
+ ) : (
+ <WifiOff className="h-3.5 w-3.5 shrink-0" />
+ )}
+ <span className="whitespace-nowrap hidden sm:inline">Live Data</span>
+ <span className="whitespace-nowrap sm:hidden">Live</span>
+ </button>
 
-        <header className="h-[64px] sm:h-[76px] bg-white border-b flex flex-nowrap items-center justify-between px-2 sm:px-6 flex-shrink-0 z-10 transition-all gap-2 overflow-x-auto no-scrollbar">
-          <div className="flex items-center gap-1 sm:gap-4 shrink-0">
-            <div className="flex items-center md:hidden">
-              <Button variant="ghost" size="icon" className="h-9 w-9 shrink-0" onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}>
-                <Menu className="h-5 w-5" />
-              </Button>
-            </div>
-            <h1 className="text-[15px] sm:text-2xl font-bold tracking-tight text-foreground whitespace-nowrap">
-              {activeTab === 'strategies' ? 'Strategies' : activeTab === 'history' ? 'Execution History' : activeTab === 'backtest' ? 'Backtest Results' : 'Broker Setup'}
-            </h1>
-          </div>
-
-          {/* Two independent status pills */}
-          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-
-            {/* Pill 1: Angel One API Session */}
+            <div className="w-px h-6 bg-slate-200 hidden lg:block mx-1"></div>
+            
             <button
-              id="angel-one-status-pill"
-              onClick={handleToggleApi}
-              title={isApiConnected ? "Angel One session active. Manage in Broker Setup." : "Click to login to Angel One in Broker Setup"}
-              className={`flex items-center gap-1.5 px-2 py-1 sm:px-3 sm:py-2 rounded-full text-[10px] sm:text-xs font-bold border transition-all cursor-pointer shadow-sm shrink-0 ${isApiConnected
-                ? "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100"
-                : "bg-red-50 text-red-600 border-red-200 hover:bg-red-100"
-                }`}
+              onClick={() => setActiveTab('profile')}
+              title="User Profile"
+              className={`hidden lg:flex px-3 h-8 items-center justify-center rounded-full transition-all border font-bold text-xs ${activeTab === 'profile' ? 'bg-slate-900 text-white border-slate-900' : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100 hover:text-slate-800'}`}
             >
-              {isApiConnected ? (
-                <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
-              ) : (
-                <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-              )}
-              <span className="whitespace-nowrap">Angel One</span>
+              <div className="flex items-center gap-1.5">
+                <User className="h-3.5 w-3.5" />
+                <span className="truncate max-w-[120px]">
+                  {session?.user?.user_metadata?.full_name || session?.user?.email?.split('@')[0] || 'Profile'}
+                </span>
+              </div>
             </button>
-
-            {/* Pill 2: WebSocket Data Stream */}
-            <button
-              id="websocket-status-pill"
-              onClick={handleToggleSocket}
-              disabled={socketLoading}
-              title={
-                  isSocketConnected
-                    ? "Live Data Stream Active (Global Feed). Click to disconnect."
-                    : "Live Data Stream Disconnected. Click to connect."
-              }
-              className={`flex items-center gap-1.5 px-2 py-1 sm:px-3 sm:py-2 rounded-full text-[10px] sm:text-xs font-bold border transition-all shadow-sm shrink-0 cursor-pointer ${
-                  isSocketConnected
-                  ? "bg-blue-50 text-blue-700 border-blue-200 hover:bg-red-50 hover:text-red-700 hover:border-red-200"
-                  : "bg-slate-50 text-slate-500 border-slate-200 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-200"
-                } disabled:opacity-50 disabled:cursor-not-allowed`}
+            
+            <Button
+              variant="ghost"
+              size="icon"
+              className="text-muted-foreground hover:bg-red-50 hover:text-red-600 transition-all hidden lg:flex"
+              onClick={handleLogout}
+              title="Log Out"
             >
-              {socketLoading ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" />
-              ) : isSocketConnected ? (
-                <Wifi className="h-3.5 w-3.5 shrink-0" />
-              ) : (
-                <WifiOff className="h-3.5 w-3.5 shrink-0" />
-              )}
-              <span className="whitespace-nowrap">Live Data</span>
-            </button>
+              <LogOut className="h-5 w-5 shrink-0" />
+            </Button>
+ 
+ {/* Mobile Menu Toggle */}
+ <Button
+ variant="ghost"
+ size="icon"
+ className="lg:hidden text-muted-foreground hover:bg-slate-100 hover:text-foreground shrink-0"
+ onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+ >
+ <Menu className="h-5 w-5" />
+ </Button>
+ </div>
+ </header>
+ 
+      {/* Mobile/Tablet Dropdown Navigation */}
+      {isMobileMenuOpen && (
+         <div className="lg:hidden absolute top-[52px] sm:top-[60px] left-0 w-full bg-white border-b z-30 flex flex-col p-4 gap-2 animate-in slide-in-from-top-2">
+            <NavItem label="Strategies" active={activeTab === 'strategies'} onClick={() => setActiveTab('strategies')} />
+            <NavItem label="History" active={activeTab === 'history'} onClick={() => setActiveTab('history')} />
+            <NavItem label="Backtest Results" active={activeTab === 'backtest'} onClick={() => setActiveTab('backtest')} />
+            <NavItem label="Broker Setup" active={activeTab === 'broker'} onClick={() => setActiveTab('broker')} />
+            <NavItem label="Profile" active={activeTab === 'profile'} onClick={() => setActiveTab('profile')} />
+            <div className="h-px w-full bg-slate-100 my-2"></div>
+            <Button
+              variant="ghost"
+              className="w-full justify-center gap-2 px-3 py-2 rounded-lg text-sm font-semibold text-slate-500 hover:bg-red-50 hover:text-red-600 transition-all"
+              onClick={() => { handleLogout(); setIsMobileMenuOpen(false); }}
+            >
+              <LogOut className="h-4 w-4 shrink-0" />
+              Log Out
+            </Button>
+         </div>
+      )}
 
-          </div>
-        </header>
+ {/* Main Container */}
+ <main className="flex-1 flex flex-col h-full overflow-hidden bg-background md:bg-[#FAFAFA] relative">
 
-        {/* Content Area */}
-        <div className={`flex-1 overflow-y-auto custom-scrollbar relative ${activeTab === 'backtest' ? 'p-0' : 'p-4 sm:p-8'}`}>
 
-          <div className={`${activeTab === 'backtest' ? 'w-full h-full flex flex-col' : 'max-w-[1400px] mx-auto space-y-6'}`}>
-            {error && (
-              <div className="p-4 bg-red-50 border border-red-100 text-red-700 rounded-lg flex items-center gap-3 animate-in slide-in-from-top-2">
-                <AlertCircle className="h-5 w-5" />
-                <p className="text-sm font-medium">{error}</p>
-                <Button variant="ghost" size="sm" className="ml-auto" onClick={() => setError(null)}>Dismiss</Button>
-              </div>
-            )}
 
-            {success && (
-              <div className="p-4 bg-green-50 border border-green-100 text-green-700 rounded-lg flex items-center gap-3 animate-in slide-in-from-top-2">
-                <CheckCircle2 className="h-5 w-5" />
-                <p className="text-sm font-medium">{success}</p>
-                <Button variant="ghost" size="sm" className="ml-auto" onClick={() => setSuccess(null)}>Dismiss</Button>
-              </div>
-            )}
+ {/* Content Area */}
+ <div className={`flex-1 overflow-y-auto custom-scrollbar relative ${activeTab ==='backtest' ?'p-0' :'p-4 sm:p-8'}`}>
 
-            <div className={`w-full flex-1 animate-in fade-in duration-500 ${activeTab === 'backtest' ? 'h-full' : 'pb-20'}`}>
-              {activeTab === 'strategies' ? (
-                <StrategyBuilder
-                  isConnected={isApiConnected && isSocketConnected}
-                  onBacktestComplete={(results, strategy) => {
-                    setGlobalBacktestResults(results);
-                    setGlobalBacktestStrategy(strategy);
-                    setActiveTab('backtest');
-                  }}
-                />
-              ) : activeTab === 'history' ? (
-                <StrategyHistory />
-              ) : activeTab === 'backtest' ? (
-                <BacktestResultsView
-                  results={globalBacktestResults}
-                  strategy={globalBacktestStrategy}
-                />
-              ) : (
-                <BrokerSetup />
-              )}
-            </div>
-          </div>
+ <div className={`${activeTab ==='backtest' ?'w-full h-full flex flex-col' :'max-w-[1400px] mx-auto space-y-6'}`}>
+ {error && (
+ <div className="p-4 bg-red-50 border border-red-100 text-red-700 rounded-lg flex items-center gap-3 animate-in slide-in-from-top-2">
+ <AlertCircle className="h-5 w-5" />
+ <p className="text-sm font-medium">{error}</p>
+ <Button variant="ghost" size="sm" className="ml-auto" onClick={() => setError(null)}>Dismiss</Button>
+ </div>
+ )}
 
-        </div>
-      </main>
-    </div>
-  );
+ {success && (
+ <div className="p-4 bg-green-50 border border-green-100 text-green-700 rounded-lg flex items-center gap-3 animate-in slide-in-from-top-2">
+ <CheckCircle2 className="h-5 w-5" />
+ <p className="text-sm font-medium">{success}</p>
+ <Button variant="ghost" size="sm" className="ml-auto" onClick={() => setSuccess(null)}>Dismiss</Button>
+ </div>
+ )}
 
-  return (
-    <Routes>
-      <Route path="/" element={isAuthenticated ? dashboardElement : <LandingPage />} />
-      <Route path="/broker-callback" element={isAuthenticated ? <BrokerCallback /> : <Navigate to="/" replace />} />
-      <Route path="/login" element={isAuthenticated ? <Navigate to="/" replace /> : <Auth onAuthenticated={handleAuthenticated} defaultView="login" />} />
-      <Route path="/register" element={isAuthenticated ? <Navigate to="/" replace /> : <Auth onAuthenticated={handleAuthenticated} defaultView="signup" />} />
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
-  );
+ <div className={`w-full flex-1 animate-in fade-in duration-500 ${activeTab ==='backtest' ?'h-full' :'pb-20'}`}>
+ {activeTab ==='strategies' ? (
+ <StrategyBuilder
+ isConnected={isApiConnected && isSocketConnected}
+ onBacktestComplete={(results, strategy) => {
+ setGlobalBacktestResults(results);
+ setGlobalBacktestStrategy(strategy);
+ setActiveTab('backtest');
+ }}
+ />
+ ) : activeTab ==='history' ? (
+ <StrategyHistory />
+ ) : activeTab ==='backtest' ? (
+ <BacktestResultsView
+ results={globalBacktestResults}
+ strategy={globalBacktestStrategy}
+ />
+ ) : activeTab === 'profile' ? (
+ <Profile />
+ ) : (
+ <BrokerSetup />
+ )}
+ </div>
+ </div>
+
+ </div>
+ </main>
+ </div>
+ );
+
+ return (
+ <Routes>
+  <Route path="/login" element={!isAuthenticated ? <Auth onAuthenticated={handleAuthenticated} defaultView="login" /> : <Navigate to="/" />} />
+  <Route path="/register" element={!isAuthenticated ? <Auth onAuthenticated={handleAuthenticated} defaultView="register" /> : <Navigate to="/" />} />
+  <Route path="/update-password" element={<UpdatePassword />} />
+  <Route path="/broker-callback" element={isAuthenticated ? <BrokerCallback /> : <Navigate to="/" replace />} />
+  <Route path="/" element={isAuthenticated ? dashboardElement : <Navigate to="/login" />} />
+  <Route path="*" element={<Navigate to="/" replace />} />
+ </Routes>
+ );
 }
 
 export default App;
-
