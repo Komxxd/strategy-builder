@@ -2771,7 +2771,7 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  {/* Strategy Legs */}
 
  {/* Running Legs */}
- {strategyData.legs?.filter(l => !l.exited || ["WAITING_FOR_RECOST","WAITING_FOR_MNTM","WAITING_FOR_RE_ASAP","WAITING_FOR_LAZY","WAITING_FOR_RESL_MNTM","WAITING_FOR_RE_HIGH","WAITING_FOR_RE_LOW"].includes(l.state)).length > 0 && (
+ {strategyData.legs?.filter(l => !l.exited || ["WAITING_FOR_RECOST","WAITING_FOR_MNTM","WAITING_FOR_RE_ASAP","WAITING_FOR_LAZY","WAITING_FOR_RESL_MNTM","WAITING_FOR_RE_HIGH","WAITING_FOR_RE_LOW","WAITING_FOR_SIMPLE_MNTM","WAITING_FOR_FILL","WAITING_FOR_INTERNAL_FALLBACK"].includes(l.state)).length > 0 && (
  <div className="space-y-2">
  <div
  className="flex items-center justify-between cursor-pointer group"
@@ -2784,7 +2784,7 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  </div>
  {collapsedSections[`${id}-running`] === true && (
  <div className="space-y-2 animate-in slide-in-from-top-2 duration-200">
- {strategyData.legs.map((l, idx) => (!l.exited || ["WAITING_FOR_RECOST","WAITING_FOR_MNTM","WAITING_FOR_RE_ASAP","WAITING_FOR_LAZY","WAITING_FOR_RESL_MNTM","WAITING_FOR_RE_HIGH","WAITING_FOR_RE_LOW"].includes(l.state)) && (
+ {strategyData.legs.map((l, idx) => (!l.exited || ["WAITING_FOR_RECOST","WAITING_FOR_MNTM","WAITING_FOR_RE_ASAP","WAITING_FOR_LAZY","WAITING_FOR_RESL_MNTM","WAITING_FOR_RE_HIGH","WAITING_FOR_RE_LOW","WAITING_FOR_SIMPLE_MNTM","WAITING_FOR_FILL","WAITING_FOR_INTERNAL_FALLBACK"].includes(l.state)) && (
  <div key={idx} className="flex flex-col md:flex-row items-start md:items-center justify-between p-2.5 bg-white border border-border rounded-xl gap-3">
  <div className="flex flex-col">
  <div className="flex items-center gap-1 flex-wrap">
@@ -2837,7 +2837,7 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  <span className="text-purple-500 font-medium text-[10px] font-mono">MTP: {l.mtp.toFixed(2)}</span>
  </>
  )}
- {l.mntmTargetPrice != null && l.state ==="WAITING_FOR_SIMPLE_MNTM" && (
+ {l.mntmTargetPrice != null && ["WAITING_FOR_SIMPLE_MNTM", "WAITING_FOR_FILL", "WAITING_FOR_INTERNAL_FALLBACK"].includes(l.state) && (
  <>
  <span className="text-muted-foreground text-[10px] font-mono">|</span>
  <span className="text-blue-500 font-medium animate-pulse text-[10px] font-mono">Wait Target: ₹{l.mntmTargetPrice.toFixed(2)}</span>
@@ -2881,6 +2881,12 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  </>
  )}
  </>
+ )}
+ {l.state ==="WAITING_FOR_FILL" && (
+ <span className="px-2 py-0.5 ml-2 bg-amber-100 text-amber-700 font-medium rounded text-[10px] font-mono uppercase">Waiting For Fill</span>
+ )}
+ {l.state ==="WAITING_FOR_INTERNAL_FALLBACK" && (
+ <span className="px-2 py-0.5 ml-2 bg-orange-100 text-orange-700 font-medium rounded text-[10px] font-mono uppercase">Internal Monitoring</span>
  )}
  {l.state ==="WAITING_FOR_LAZY" && (
  <span className="px-2 py-0.5 ml-2 bg-purple-100 text-purple-700 font-medium rounded text-[10px] font-mono">Initializing Lazy Leg</span>
