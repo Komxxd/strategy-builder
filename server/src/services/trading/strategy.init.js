@@ -220,6 +220,7 @@ async function handleInitialEntry(strategyId, strategy) {
                     leg.base_otp = fillPrice;
                     leg.peakPrice = fillPrice;
                     leg.tslReferencePrice = fillPrice;
+                    leg.state = "ACTIVE";
                     addStrategyLog(strategyId, `${leg.instrument.symbol} order filled at ₹${fillPrice}.`, "INFO");
                 } else if (!config.is_paper_trading && config.ordertype === 'LIMIT' && !leg.simpleMntmEnabled) {
                     const { stopStrategy } = require("./strategy.lifecycle");

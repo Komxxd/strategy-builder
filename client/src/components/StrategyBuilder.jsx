@@ -2446,6 +2446,22 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  [data.strategyId]: { ...strategy, logs: updatedLogs }
  };
  });
+ // Trigger an immediate fetch to reflect the log's associated state change instantly
+ axios.get(`${API_BASE_URL}/strategy/status/${data.strategyId}`).then(res => {
+ setRunningStrategies(prev => {
+ if (!prev[data.strategyId]) return prev;
+ const latestData = res.data.data;
+ const currentStrategy = prev[data.strategyId];
+ // Keep local logs since we just updated them above
+ return {
+ ...prev,
+ [data.strategyId]: { 
+ ...latestData,
+ logs: currentStrategy.logs
+ }
+ };
+ });
+ }).catch(e => console.error("Instant state sync failed on log:", e));
  });
 
  socket.on('connect', () => console.log('WebSocket Connected'));
@@ -2536,7 +2552,7 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  } catch (err) {
  console.error("Error polling statuses:", err);
  }
- }, 5000); // Polling every 5s for reliable status sync
+ }, 2000); // Polling every 2s for reliable status sync
  }
  return () => clearInterval(interval);
  }, [Object.keys(runningStrategies).length, isConnected]);
