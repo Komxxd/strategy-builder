@@ -51,22 +51,22 @@ export const Profile = () => {
   const fullName = user?.user_metadata?.full_name || user?.user_metadata?.name || getFallbackName(email);
 
   return (
-    <div className="w-full h-full flex flex-col items-center p-12 animate-in fade-in duration-500">
+    <div className="w-full h-full flex flex-col items-center p-4 sm:p-8 md:p-12 animate-in fade-in duration-500">
       
-      <div className="bg-white border p-8 rounded-2xl w-full max-w-md flex flex-col items-center">
-        <div className="bg-slate-100 h-20 w-20 flex items-center justify-center rounded-full mb-6">
-          <span className="text-3xl font-bold text-slate-400">
+      <div className="bg-white border p-6 sm:p-8 rounded-2xl w-full max-w-md flex flex-col items-center">
+        <div className="bg-slate-100 h-16 w-16 sm:h-20 sm:w-20 flex items-center justify-center rounded-full mb-4 sm:mb-6">
+          <span className="text-2xl sm:text-3xl font-bold text-slate-400">
             {fullName ? fullName.charAt(0).toUpperCase() : 'U'}
           </span>
         </div>
         
         {isEditingName ? (
-          <div className="flex items-center gap-2 mb-2 w-full max-w-[280px]">
+          <div className="flex items-center gap-2 mb-2 w-full max-w-sm">
             <input 
               type="text"
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
-              className="flex-1 w-full bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-lg text-lg font-bold text-slate-900 outline-none focus:border-primary/50"
+              className="flex-1 w-full bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-lg text-base sm:text-lg font-bold text-slate-900 outline-none focus:border-primary/50"
               autoFocus
               onKeyDown={(e) => {
                 if (e.key === 'Enter') handleSaveName();
@@ -89,14 +89,14 @@ export const Profile = () => {
             </button>
           </div>
         ) : (
-          <div className="flex items-center gap-2 mb-1 group">
-            <h2 className="text-2xl font-bold text-slate-900">{fullName}</h2>
+          <div className="flex items-center gap-2 mb-1 group max-w-full">
+            <h2 className="text-xl sm:text-2xl font-bold text-slate-900 truncate">{fullName}</h2>
             <button 
               onClick={() => {
                 setNewName(fullName);
                 setIsEditingName(true);
               }}
-              className="p-1.5 text-slate-400 transition-colors hover:text-slate-900 hover:bg-slate-50 rounded-lg"
+              className="p-1.5 shrink-0 text-slate-400 transition-colors hover:text-slate-900 hover:bg-slate-50 rounded-lg"
               title="Edit Name"
             >
               <Pencil className="h-4 w-4" />

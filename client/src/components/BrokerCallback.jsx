@@ -26,12 +26,12 @@ export function BrokerCallback() {
  setStatus('success');
  setMessage('Broker connected successfully! Redirecting...');
  setTimeout(() => {
- navigate('/');
+ window.location.href = '/?tab=broker';
  }, 2000);
  } else {
  setStatus('error');
  setMessage(data.message ||'Failed to verify broker connection.');
- setTimeout(() => navigate('/'), 3000);
+ setTimeout(() => window.location.href = '/?tab=broker', 3000);
  }
  } catch (err) {
  setStatus('error');

@@ -295,8 +295,21 @@ function App() {
  
       {/* Mobile/Tablet Dropdown Navigation */}
       {isMobileMenuOpen && (
-         <div className="lg:hidden absolute top-[52px] sm:top-[60px] left-0 w-full bg-white border-b z-30 flex flex-col p-4 gap-2 animate-in slide-in-from-top-2">
-            <NavItem label="Strategies" active={activeTab === 'strategies'} onClick={() => setActiveTab('strategies')} />
+ <div className="lg:hidden absolute top-[52px] sm:top-[60px] left-0 w-full bg-white border-b z-30 flex flex-col p-4 gap-2 animate-in slide-in-from-top-2">
+ <div className="px-3 py-3 mb-2 bg-slate-50 rounded-lg flex items-center gap-3 border border-slate-100">
+ <div className="h-9 w-9 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-bold text-sm">
+ {session?.user?.user_metadata?.full_name ? session.user.user_metadata.full_name.charAt(0).toUpperCase() : (session?.user?.email ? session.user.email.charAt(0).toUpperCase() : 'U')}
+ </div>
+ <div className="flex flex-col">
+ <span className="text-sm font-bold text-slate-800">
+ {session?.user?.user_metadata?.full_name || session?.user?.email?.split('@')[0] || 'Profile'}
+ </span>
+ <span className="text-xs text-slate-500 truncate max-w-[200px]">
+ {session?.user?.email || 'Logged In'}
+ </span>
+ </div>
+ </div>
+ <NavItem label="Strategies" active={activeTab === 'strategies'} onClick={() => setActiveTab('strategies')} />
             <NavItem label="History" active={activeTab === 'history'} onClick={() => setActiveTab('history')} />
             <NavItem label="Backtest Results" active={activeTab === 'backtest'} onClick={() => setActiveTab('backtest')} />
             <NavItem label="Broker Setup" active={activeTab === 'broker'} onClick={() => setActiveTab('broker')} />
