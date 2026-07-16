@@ -182,6 +182,70 @@ async function handleInitialEntry(strategyId, strategy) {
         await Promise.all(placedLegs.map(async (leg) => {
             if (leg.uniqueOrderId) {
                 if (leg.state === "WAITING_FOR_SIMPLE_MNTM") return;
+                if (leg.state === "WAITING_FOR_INTERNAL_FALLBACK") return;
+
+                if (leg.state === "WAITING_FOR_FILL" && leg.simpleMntmEnabled) {
+                    // Background live order monitoring for simple momentum to prevent blocking init
+                    setTimeout(async () => {
+                        try {
+                            const { waitForOrderFillPrice } = require("./strategy.execution");
+                            const fillPrice = await waitForOrderFillPrice(
+                                leg.uniqueOrderId,
+                                config.connectionId,
+                                config.is_paper_trading === true,
+                                leg.instrument,
+                                28800000, // 8 hours timeout for live momentum limit orders
+                                2000,
+                                {
+                                    side: leg.leg.side,
+                                    ordertype: config.ordertype,
+                                    price: parseFloat(leg.original_traded_price || config.price || 0),
+                                    triggerprice: parseFloat(leg.mntmTargetPrice || config.triggerprice || 0),
+                                    isInstantFill: true
+                                }
+                            );
+                            if (fillPrice) {
+                                leg.entryPrice = fillPrice;
+                                leg.entryTime = getISTExchangeFormat();
+                                leg.original_traded_price = fillPrice;
+                                leg.base_otp = fillPrice;
+                                leg.peakPrice = fillPrice;
+                                leg.tslReferencePrice = fillPrice;
+                                leg.state = "ACTIVE";
+                                addStrategyLog(strategyId, `${leg.instrument.symbol} order filled at ₹${fillPrice}.`, "INFO");
+
+                                if (config.variety === "STOPLOSS" && leg.leg.sl_enabled !== false) {
+                                    const { placeStopLossWithRetry } = require("./strategy.execution");
+                                    const { computeStopLossExitPrices, getLimitOffsetAmt } = require("./strategy.offset");
+                                    const slOrder = await placeStopLossWithRetry({
+                                        baseConfig: config,
+                                        legSide: leg.leg.side,
+                                        entryPrice: leg.entryPrice,
+                                        instrument: leg.instrument,
+                                        lots: leg.leg.lots,
+                                        slType: leg.leg.sl_type || "PERCENTAGE",
+                                        slValue: leg.leg.stop_loss,
+                                        slLimitMargin: getLimitOffsetAmt(leg.entryPrice, config),
+                                        slLimitMarginType: 'POINTS',
+                                        connectionId: config.connectionId,
+                                        strategyId: strategyId
+                                    });
+                                    const prices = computeStopLossExitPrices(leg.entryPrice, leg.leg.side, leg.leg.sl_type || "PERCENTAGE", leg.leg.stop_loss, getLimitOffsetAmt(leg.entryPrice, config), 'POINTS');
+                                    if (slOrder?.orderid) {
+                                        leg.slOrderId = slOrder.orderid;
+                                        leg.slUniqueOrderId = slOrder.uniqueorderid;
+                                    }
+                                    leg.slTriggerPrice = prices?.trigger || null;
+                                    leg.initialSlTriggerPrice = prices?.trigger || null;
+                                    leg.slLimitPrice = prices?.limit || null;
+                                }
+                            } else {
+                                addStrategyLog(strategyId, `Warning: Fill price not detected for ${leg.instrument.symbol}. Position will NOT be protected with a Stop-Loss.`, "ERROR");
+                            }
+                        } catch (e) { console.error("Error background simple mntm", e); }
+                    }, 0);
+                    return;
+                }
 
                 let fillPrice;
                 if (!config.is_paper_trading && config.ordertype === 'LIMIT' && !leg.simpleMntmEnabled) {
