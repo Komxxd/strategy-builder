@@ -387,7 +387,7 @@ function App() {
   <Route path="/register" element={!isAuthenticated ? <Auth onAuthenticated={handleAuthenticated} defaultView="register" /> : <Navigate to="/" />} />
   <Route path="/update-password" element={<UpdatePassword />} />
   <Route path="/broker-callback" element={isAuthenticated ? <BrokerCallback /> : <Navigate to="/" replace />} />
-  <Route path="/" element={isAuthenticated ? dashboardElement : <Navigate to="/login" />} />
+  <Route path="/" element={isAuthenticated ? dashboardElement : <LandingPage />} />
   <Route path="*" element={<Navigate to="/" replace />} />
  </Routes>
  );
