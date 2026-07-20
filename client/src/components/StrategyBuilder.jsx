@@ -3127,8 +3127,6 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  </TabsTrigger>
  </TabsList>
 
- {
- savedStrategies.length > 0 && (
  <Card className="w-full border-border bg-card mt-2">
  <div
  className="border-b bg-muted/60 py-3 px-4 flex flex-col md:flex-row items-center justify-between gap-2 cursor-pointer hover:bg-muted/80 transition-colors"
@@ -3422,7 +3420,6 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  </CardContent>
  )}
  </Card>
- )}
  <StrategyLogs
  isOpen={logWindowOpen}
  onClose={() => setLogWindowOpen(false)}
