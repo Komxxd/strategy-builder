@@ -6,7 +6,7 @@ import { Input } from'@/components/ui/input';
 import { Label } from'@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from'@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from'@/components/ui/tabs';
-import { StopCircle, Loader2, TrendingUp, Search, Timer, LayoutDashboard, Target, Save, Play, Plus, Trash2, ShieldCheck, Zap, Copy, MessageSquare, Ghost, X, Settings2, Clock, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, GripVertical, RefreshCw, Sliders, Eye, Database, Archive } from'lucide-react';
+import { StopCircle, Loader2, TrendingUp, Search, Timer, LayoutDashboard, Target, Save, Play, Plus, Trash2, ShieldCheck, Zap, Copy, MessageSquare, Ghost, X, Settings2, Clock, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, GripVertical, RefreshCw, Sliders, Eye, Database, Archive, Download, Upload } from'lucide-react';
 import { Switch } from"@/components/ui/switch";
 import axios from'axios';
 import { io } from'socket.io-client';
@@ -2039,6 +2039,72 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  const [loadingDates, setLoadingDates] = useState(false);
  const [isBacktesting, setIsBacktesting] = useState(false);
 
+ const fileInputRef = useRef(null);
+
+ const handleDownloadStrategy = (strategy) => {
+ const exportData = {
+ ...strategy.config,
+ name: strategy.name || strategy.config?.name || 'Exported Strategy'
+ };
+ delete exportData.id;
+ delete exportData.user_id;
+
+ const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(exportData, null, 2));
+ const downloadAnchorNode = document.createElement('a');
+ downloadAnchorNode.setAttribute("href", dataStr);
+ downloadAnchorNode.setAttribute("download", `${exportData.name}.json`);
+ document.body.appendChild(downloadAnchorNode);
+ downloadAnchorNode.click();
+ downloadAnchorNode.remove();
+ };
+
+ const handleUploadClick = () => {
+ if (fileInputRef.current) {
+ fileInputRef.current.click();
+ }
+ };
+
+ const handleFileChange = async (e) => {
+ const file = e.target.files[0];
+ if (!file) return;
+
+ const reader = new FileReader();
+ reader.onload = async (event) => {
+ try {
+ const uploadedConfig = JSON.parse(event.target.result);
+ delete uploadedConfig.id;
+ delete uploadedConfig.user_id;
+
+ let baseName = uploadedConfig.name || "Imported Strategy";
+ let finalName = baseName;
+ let counter = 1;
+ while(savedStrategies.find(s => s.name.trim().toLowerCase() === finalName.trim().toLowerCase())) {
+ finalName = `${baseName} (${counter})`;
+ counter++;
+ }
+ uploadedConfig.name = finalName;
+
+ const finalConfig = {
+ ...uploadedConfig,
+ variety: 'STOPLOSS',
+ producttype: 'CARRYFORWARD',
+ ordertype: 'LIMIT',
+ duration: 'DAY'
+ };
+
+ setLoading(true);
+ await axios.post(`${API_BASE_URL}/strategy/save`, finalConfig);
+ fetchSavedStrategies();
+ } catch (err) {
+ alert("Error importing strategy: " + (err.response?.data?.message || err.message || "Invalid JSON"));
+ } finally {
+ setLoading(false);
+ e.target.value = ''; // Reset input
+ }
+ };
+ reader.readAsText(file);
+ };
+
  useEffect(() => {
  if (selectedStrategyForBacktest) {
  const stratIdKey = Array.isArray(selectedStrategyForBacktest)
@@ -2568,6 +2634,7 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
 
  return (
  <div className="space-y-4">
+ <input type="file" ref={fileInputRef} style={{ display: 'none' }} accept=".json" onChange={handleFileChange} />
  <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
 
  <Card className="w-full border-border bg-card overflow-hidden">
@@ -3088,6 +3155,15 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  Simulate Portfolio ({selectedForCombined.length})
  </Button>
  )}
+ <Button
+ variant="outline"
+ size="sm"
+ className="h-8 gap-1 rounded-md text-[10px] font-medium border-slate-200 hover:bg-slate-50 text-slate-600"
+ onClick={(e) => { e.stopPropagation(); handleUploadClick(); }}
+ title="Upload Strategy"
+ >
+ <Upload className="h-3 w-3" /> Upload
+ </Button>
  <div className="relative w-full md:w-64" onClick={e => e.stopPropagation()}>
  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
  <Input
@@ -3317,6 +3393,15 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  onClick={() => handleEdit(s)}
  >
  Edit
+ </Button>
+ <Button
+ size="sm"
+ variant="outline"
+ className="h-8 xl:h-7 px-3 gap-1 rounded-md text-[11px] xl:text-[10px] font-medium border-slate-200 hover:bg-slate-50 text-slate-600 flex-1 xl:flex-none"
+ onClick={() => handleDownloadStrategy(s)}
+ title="Download Strategy"
+ >
+ <Download className="h-3 w-3" /> Download
  </Button>
  <Button
  size="sm"
