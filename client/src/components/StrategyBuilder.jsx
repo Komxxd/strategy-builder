@@ -2049,13 +2049,15 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  delete exportData.id;
  delete exportData.user_id;
 
- const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(exportData, null, 2));
+ const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+ const url = URL.createObjectURL(blob);
  const downloadAnchorNode = document.createElement('a');
- downloadAnchorNode.setAttribute("href", dataStr);
+ downloadAnchorNode.setAttribute("href", url);
  downloadAnchorNode.setAttribute("download", `${exportData.name}.json`);
  document.body.appendChild(downloadAnchorNode);
  downloadAnchorNode.click();
- downloadAnchorNode.remove();
+ document.body.removeChild(downloadAnchorNode);
+ URL.revokeObjectURL(url);
  };
 
  const handleUploadClick = () => {
