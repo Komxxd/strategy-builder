@@ -9,10 +9,11 @@ const { getStrategyById } = require('../trading/strategy.crud');
  * and Options to simulate entry and exit based solely on time.
  */
 class BacktestEngine {
-    constructor(strategyId, fromDate, toDate) {
+    constructor(strategyId, fromDate, toDate, userId) {
         this.strategyId = strategyId;
         this.fromDate = fromDate;
         this.toDate = toDate;
+        this.userId = userId;
         
         this.strategy = null;
         this.results = {
@@ -25,7 +26,7 @@ class BacktestEngine {
     }
 
     async init() {
-        const strategies = await getStrategyById(this.strategyId);
+        const strategies = await getStrategyById(this.strategyId, this.userId);
         if (!strategies || strategies.length === 0) {
             throw new Error(`Strategy not found: ${this.strategyId}`);
         }

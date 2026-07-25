@@ -28,8 +28,8 @@ const worker = new Worker('backtest-jobs', async (job) => {
         const startMem = process.memoryUsage();
 
         if (job.name === 'single') {
-            const { strategyId, fromDate, toDate } = job.data;
-            const engine = new BacktestEngine(strategyId, fromDate, toDate);
+            const { strategyId, fromDate, toDate, userId } = job.data;
+            const engine = new BacktestEngine(strategyId, fromDate, toDate, userId);
             const results = await engine.run();
             
             const endCpu = process.cpuUsage(startCpu);
@@ -38,11 +38,11 @@ const worker = new Worker('backtest-jobs', async (job) => {
             
             return sanitizeBigInt(results); // BullMQ stores this returned value in job.returnvalue
         } else if (job.name === 'combined') {
-            const { strategyIds, fromDate, toDate } = job.data;
+            const { strategyIds, fromDate, toDate, userId } = job.data;
             
             const allResults = [];
             for (const strategyId of strategyIds) {
-                const engine = new BacktestEngine(strategyId, fromDate, toDate);
+                const engine = new BacktestEngine(strategyId, fromDate, toDate, userId);
                 const results = await engine.run();
                 results.strategyId = strategyId;
                 if (results.trades) {

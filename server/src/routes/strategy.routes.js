@@ -186,12 +186,13 @@ const { addBacktestJob, backtestQueue } = require('../queue/backtestQueue');
 
 router.post("/backtest", async (req, res) => {
     try {
+        const userId = req.user.id;
         const { strategyId, fromDate, toDate } = req.body;
         if (!strategyId || !fromDate || !toDate) {
             return res.status(400).json({ success: false, message: "strategyId, fromDate, toDate required" });
         }
 
-        const jobId = await addBacktestJob({ strategyId, fromDate, toDate });
+        const jobId = await addBacktestJob({ strategyId, fromDate, toDate, userId });
         res.json({ success: true, jobId, message: "Backtest started" });
     } catch (error) {
         console.error("Error queueing backtest:", error);
@@ -201,12 +202,13 @@ router.post("/backtest", async (req, res) => {
 
 router.post("/backtest/combined", async (req, res) => {
     try {
+        const userId = req.user.id;
         const { strategyIds, fromDate, toDate } = req.body;
         if (!strategyIds || !Array.isArray(strategyIds) || !fromDate || !toDate) {
             return res.status(400).json({ success: false, message: "strategyIds array, fromDate, toDate required" });
         }
 
-        const jobId = await addBacktestJob({ strategyIds, fromDate, toDate });
+        const jobId = await addBacktestJob({ strategyIds, fromDate, toDate, userId });
         res.json({ success: true, jobId, message: "Combined backtest started" });
     } catch (error) {
         console.error("Error queueing combined backtest:", error);
