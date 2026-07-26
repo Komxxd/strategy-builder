@@ -68,7 +68,11 @@ const DEFAULT_LEG = {
  tsl_move: 0,
  tsl_trail: 0,
  tsl_on_close: false,
- reentry_tsl_on_close: false
+ tsl_on_close_low: false,
+ tsl_on_close_high: false,
+ reentry_tsl_on_close: false,
+ reentry_tsl_on_close_low: false,
+ reentry_tsl_on_close_high: false
 };
 
 
@@ -526,10 +530,36 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
  id={`tsl-on-close-${idPrefix}`}
  className="w-3.5 h-3.5 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
  checked={leg.tsl_on_close || false}
- onChange={(e) => onChange({ ...leg, tsl_on_close: e.target.checked })}
+ onChange={(e) => onChange({ ...leg, tsl_on_close: e.target.checked, tsl_on_close_low: false, tsl_on_close_high: false })}
  />
  <Label htmlFor={`tsl-on-close-${idPrefix}`} className="text-[10px] cursor-pointer whitespace-nowrap">On Close</Label>
  </div>
+
+ {leg.tsl_on_close && leg.side === 'SELL' && (
+ <div className="flex items-center gap-1.5">
+ <input
+ type="checkbox"
+ id={`tsl-on-close-low-${idPrefix}`}
+ className="w-3.5 h-3.5 rounded text-pink-600 focus:ring-pink-500 cursor-pointer"
+ checked={leg.tsl_on_close_low || false}
+ onChange={(e) => onChange({ ...leg, tsl_on_close_low: e.target.checked })}
+ />
+ <Label htmlFor={`tsl-on-close-low-${idPrefix}`} className="text-[10px] cursor-pointer whitespace-nowrap text-pink-600">On Close Low</Label>
+ </div>
+ )}
+
+ {leg.tsl_on_close && leg.side === 'BUY' && (
+ <div className="flex items-center gap-1.5">
+ <input
+ type="checkbox"
+ id={`tsl-on-close-high-${idPrefix}`}
+ className="w-3.5 h-3.5 rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+ checked={leg.tsl_on_close_high || false}
+ onChange={(e) => onChange({ ...leg, tsl_on_close_high: e.target.checked })}
+ />
+ <Label htmlFor={`tsl-on-close-high-${idPrefix}`} className="text-[10px] cursor-pointer whitespace-nowrap text-emerald-600">On Close High</Label>
+ </div>
+ )}
  </div>
  )}
  </div>
@@ -909,10 +939,36 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
  id={`reentry-tsl-on-close-recost-${idPrefix}`}
  className="w-3.5 h-3.5 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
  checked={leg.reentry_tsl_on_close || false}
- onChange={(e) => onChange({ ...leg, reentry_tsl_on_close: e.target.checked })}
+ onChange={(e) => onChange({ ...leg, reentry_tsl_on_close: e.target.checked, reentry_tsl_on_close_low: false, reentry_tsl_on_close_high: false })}
  />
  <Label htmlFor={`reentry-tsl-on-close-recost-${idPrefix}`} className="text-[10px] cursor-pointer whitespace-nowrap">On Close</Label>
  </div>
+
+ {leg.reentry_tsl_on_close && leg.side === 'SELL' && (
+ <div className="flex items-center gap-1.5">
+ <input
+ type="checkbox"
+ id={`reentry-tsl-on-close-low-recost-${idPrefix}`}
+ className="w-3.5 h-3.5 rounded text-pink-600 focus:ring-pink-500 cursor-pointer"
+ checked={leg.reentry_tsl_on_close_low || false}
+ onChange={(e) => onChange({ ...leg, reentry_tsl_on_close_low: e.target.checked })}
+ />
+ <Label htmlFor={`reentry-tsl-on-close-low-recost-${idPrefix}`} className="text-[10px] cursor-pointer whitespace-nowrap text-pink-600">On Close Low</Label>
+ </div>
+ )}
+
+ {leg.reentry_tsl_on_close && leg.side === 'BUY' && (
+ <div className="flex items-center gap-1.5">
+ <input
+ type="checkbox"
+ id={`reentry-tsl-on-close-high-recost-${idPrefix}`}
+ className="w-3.5 h-3.5 rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+ checked={leg.reentry_tsl_on_close_high || false}
+ onChange={(e) => onChange({ ...leg, reentry_tsl_on_close_high: e.target.checked })}
+ />
+ <Label htmlFor={`reentry-tsl-on-close-high-recost-${idPrefix}`} className="text-[10px] cursor-pointer whitespace-nowrap text-emerald-600">On Close High</Label>
+ </div>
+ )}
  </div>
  )}
  </div>
@@ -1135,10 +1191,36 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
  id={`reentry-tsl-on-close-resl-${idPrefix}`}
  className="w-3.5 h-3.5 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
  checked={leg.reentry_tsl_on_close || false}
- onChange={(e) => onChange({ ...leg, reentry_tsl_on_close: e.target.checked })}
+ onChange={(e) => onChange({ ...leg, reentry_tsl_on_close: e.target.checked, reentry_tsl_on_close_low: false, reentry_tsl_on_close_high: false })}
  />
  <Label htmlFor={`reentry-tsl-on-close-resl-${idPrefix}`} className="text-[10px] cursor-pointer whitespace-nowrap">On Close</Label>
  </div>
+
+ {leg.reentry_tsl_on_close && leg.side === 'SELL' && (
+ <div className="flex items-center gap-1.5 pt-1">
+ <input
+ type="checkbox"
+ id={`reentry-tsl-on-close-low-resl-${idPrefix}`}
+ className="w-3.5 h-3.5 rounded text-pink-600 focus:ring-pink-500 cursor-pointer"
+ checked={leg.reentry_tsl_on_close_low || false}
+ onChange={(e) => onChange({ ...leg, reentry_tsl_on_close_low: e.target.checked })}
+ />
+ <Label htmlFor={`reentry-tsl-on-close-low-resl-${idPrefix}`} className="text-[10px] cursor-pointer whitespace-nowrap text-pink-600">On Close Low</Label>
+ </div>
+ )}
+
+ {leg.reentry_tsl_on_close && leg.side === 'BUY' && (
+ <div className="flex items-center gap-1.5 pt-1">
+ <input
+ type="checkbox"
+ id={`reentry-tsl-on-close-high-resl-${idPrefix}`}
+ className="w-3.5 h-3.5 rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+ checked={leg.reentry_tsl_on_close_high || false}
+ onChange={(e) => onChange({ ...leg, reentry_tsl_on_close_high: e.target.checked })}
+ />
+ <Label htmlFor={`reentry-tsl-on-close-high-resl-${idPrefix}`} className="text-[10px] cursor-pointer whitespace-nowrap text-emerald-600">On Close High</Label>
+ </div>
+ )}
  </div>
  )}
  </>
@@ -1361,10 +1443,36 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
  id={`reentry-tsl-on-close-rehigh-${idPrefix}`}
  className="w-3.5 h-3.5 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
  checked={leg.reentry_tsl_on_close || false}
- onChange={(e) => onChange({ ...leg, reentry_tsl_on_close: e.target.checked })}
+ onChange={(e) => onChange({ ...leg, reentry_tsl_on_close: e.target.checked, reentry_tsl_on_close_low: false, reentry_tsl_on_close_high: false })}
  />
  <Label htmlFor={`reentry-tsl-on-close-rehigh-${idPrefix}`} className="text-[10px] cursor-pointer whitespace-nowrap">On Close</Label>
  </div>
+
+ {leg.reentry_tsl_on_close && leg.side === 'SELL' && (
+ <div className="flex items-center gap-1.5">
+ <input
+ type="checkbox"
+ id={`reentry-tsl-on-close-low-rehigh-${idPrefix}`}
+ className="w-3.5 h-3.5 rounded text-pink-600 focus:ring-pink-500 cursor-pointer"
+ checked={leg.reentry_tsl_on_close_low || false}
+ onChange={(e) => onChange({ ...leg, reentry_tsl_on_close_low: e.target.checked })}
+ />
+ <Label htmlFor={`reentry-tsl-on-close-low-rehigh-${idPrefix}`} className="text-[10px] cursor-pointer whitespace-nowrap text-pink-600">On Close Low</Label>
+ </div>
+ )}
+
+ {leg.reentry_tsl_on_close && leg.side === 'BUY' && (
+ <div className="flex items-center gap-1.5">
+ <input
+ type="checkbox"
+ id={`reentry-tsl-on-close-high-rehigh-${idPrefix}`}
+ className="w-3.5 h-3.5 rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+ checked={leg.reentry_tsl_on_close_high || false}
+ onChange={(e) => onChange({ ...leg, reentry_tsl_on_close_high: e.target.checked })}
+ />
+ <Label htmlFor={`reentry-tsl-on-close-high-rehigh-${idPrefix}`} className="text-[10px] cursor-pointer whitespace-nowrap text-emerald-600">On Close High</Label>
+ </div>
+ )}
  </div>
  )}
  </div>
@@ -1586,10 +1694,36 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
  id={`reentry-tsl-on-close-relow-${idPrefix}`}
  className="w-3.5 h-3.5 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
  checked={leg.reentry_tsl_on_close || false}
- onChange={(e) => onChange({ ...leg, reentry_tsl_on_close: e.target.checked })}
+ onChange={(e) => onChange({ ...leg, reentry_tsl_on_close: e.target.checked, reentry_tsl_on_close_low: false, reentry_tsl_on_close_high: false })}
  />
  <Label htmlFor={`reentry-tsl-on-close-relow-${idPrefix}`} className="text-[10px] cursor-pointer whitespace-nowrap">On Close</Label>
  </div>
+
+ {leg.reentry_tsl_on_close && leg.side === 'SELL' && (
+ <div className="flex items-center gap-1.5">
+ <input
+ type="checkbox"
+ id={`reentry-tsl-on-close-low-relow-${idPrefix}`}
+ className="w-3.5 h-3.5 rounded text-pink-600 focus:ring-pink-500 cursor-pointer"
+ checked={leg.reentry_tsl_on_close_low || false}
+ onChange={(e) => onChange({ ...leg, reentry_tsl_on_close_low: e.target.checked })}
+ />
+ <Label htmlFor={`reentry-tsl-on-close-low-relow-${idPrefix}`} className="text-[10px] cursor-pointer whitespace-nowrap text-pink-600">On Close Low</Label>
+ </div>
+ )}
+
+ {leg.reentry_tsl_on_close && leg.side === 'BUY' && (
+ <div className="flex items-center gap-1.5">
+ <input
+ type="checkbox"
+ id={`reentry-tsl-on-close-high-relow-${idPrefix}`}
+ className="w-3.5 h-3.5 rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+ checked={leg.reentry_tsl_on_close_high || false}
+ onChange={(e) => onChange({ ...leg, reentry_tsl_on_close_high: e.target.checked })}
+ />
+ <Label htmlFor={`reentry-tsl-on-close-high-relow-${idPrefix}`} className="text-[10px] cursor-pointer whitespace-nowrap text-emerald-600">On Close High</Label>
+ </div>
+ )}
  </div>
  )}
  </div>
@@ -2883,6 +3017,18 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  <span className="text-[10px] font-mono text-muted-foreground">Entry: {(l.entryPrice || 0).toFixed(2)}</span>
  <span className="text-muted-foreground text-[10px] font-mono">|</span>
  <span className="text-[10px] font-mono animate-pulse text-blue-600 font-medium">LTP: {(l.currentLtp || 0).toFixed(2)}</span>
+ {l.leg?.tsl_on_close_low && l.leg?.side === 'SELL' && l.candleLow != null && (
+ <>
+ <span className="text-muted-foreground text-[10px] font-mono">|</span>
+ <span className="text-pink-600 font-bold text-[10px] font-mono">C.Low: {l.candleLow.toFixed(2)}</span>
+ </>
+ )}
+ {l.leg?.tsl_on_close_high && l.leg?.side === 'BUY' && l.candleHigh != null && (
+ <>
+ <span className="text-muted-foreground text-[10px] font-mono">|</span>
+ <span className="text-emerald-600 font-bold text-[10px] font-mono">C.High: {l.candleHigh.toFixed(2)}</span>
+ </>
+ )}
  {l.initialSlTriggerPrice != null && (
  <>
  <span className="text-muted-foreground text-[10px] font-mono">|</span>

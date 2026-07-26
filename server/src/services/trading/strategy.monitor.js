@@ -76,6 +76,18 @@ async function monitorStrategyLoop(strategyId, strategy) {
             if (tickPrice !== undefined) {
                 leg.currentLtp = tickPrice;
 
+                // Track intra-minute candle high/low for TSL "On Close Low/High" feature.
+                // Reset on each new minute so we always have the current candle's range.
+                const currentMinute = currentTime.substring(0, 5); // "HH:MM"
+                if (leg.candleMinute !== currentMinute) {
+                    leg.candleMinute = currentMinute;
+                    leg.candleHigh = tickPrice;
+                    leg.candleLow = tickPrice;
+                } else {
+                    if (tickPrice > (leg.candleHigh ?? tickPrice)) leg.candleHigh = tickPrice;
+                    if (tickPrice < (leg.candleLow ?? tickPrice)) leg.candleLow = tickPrice;
+                }
+
                 /**
                  * PHASE 2.5: Internal Fallback Monitoring (Strike 2)
                  * For MTP/RTP orders that were rejected by exchange LPP on trigger.

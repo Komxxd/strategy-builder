@@ -111,13 +111,31 @@ function evaluateLegLimits({ leg, config, strategyId, addStrategyLog, isMinuteCl
                 trailAmount = (leg.entryPrice || 0) * (tslTrail / 100);
             }
 
+            // Determine which price to use for TSL step evaluation.
+            // On Close Low (SELL): use the candle's intra-minute low.
+            // On Close High (BUY): use the candle's intra-minute high.
+            // Plain On Close / non-on-close: use currentLtp as always.
+            const tslOnCloseLow = isTslOverride
+                ? (leg.leg.reentry_tsl_on_close_low === true)
+                : (leg.leg.tsl_on_close_low === true);
+            const tslOnCloseHigh = isTslOverride
+                ? (leg.leg.reentry_tsl_on_close_high === true)
+                : (leg.leg.tsl_on_close_high === true);
+
+            let effectiveLtp = leg.currentLtp;
+            if (tslOnCloseLow && leg.leg.side === "SELL" && leg.candleLow != null) {
+                effectiveLtp = leg.candleLow;
+            } else if (tslOnCloseHigh && leg.leg.side === "BUY" && leg.candleHigh != null) {
+                effectiveLtp = leg.candleHigh;
+            }
+
 
             if (moveThreshold > 0) {
                 let favorableMove = 0;
                 if (leg.leg.side === "BUY") {
-                    favorableMove = (leg.currentLtp || 0) - (leg.tslReferencePrice || leg.entryPrice || 0);
+                    favorableMove = (effectiveLtp || 0) - (leg.tslReferencePrice || leg.entryPrice || 0);
                 } else if (leg.leg.side === "SELL") {
-                    favorableMove = (leg.tslReferencePrice || leg.entryPrice || 0) - (leg.currentLtp || 0);
+                    favorableMove = (leg.tslReferencePrice || leg.entryPrice || 0) - (effectiveLtp || 0);
                 }
 
                 if (favorableMove >= moveThreshold) {
