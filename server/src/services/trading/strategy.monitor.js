@@ -432,11 +432,11 @@ async function monitorStrategyLoop(strategyId, strategy) {
                     return "TERMINATE";
                 }
                 const exitOrders = exitResults.map(r => r.value);
-                strategy.status = "COMPLETED";
+                strategy.status = "EXITED";
                 strategy.exitOrderId = exitOrders;
                 strategy.exitType = limitCheck.exitType;
                 updateStrategyInMemory(strategyId, {
-                    status: "COMPLETED", exit_order_id: strategy.exitOrderId, exit_type: limitCheck.exitType,
+                    status: "EXITED", exit_order_id: strategy.exitOrderId, exit_type: limitCheck.exitType,
                     final_pnl_percent: avgPnl, totalPnlRupees: totalPnlRupees, totalOriginalValue: strategy.totalOriginalValue, legs: strategy.legs
                 });
                 return "TERMINATE";
@@ -629,9 +629,9 @@ async function monitorStrategyLoop(strategyId, strategy) {
 
                 const exitOrders = exitResults.map(r => r.value);
 
-                strategy.status = "COMPLETED";
+                strategy.status = "EXITED";
                 updateStrategyInMemory(strategyId, {
-                    status: "COMPLETED", exit_order_id: exitOrders, exit_type: "EXIT_TIME", final_pnl_percent: strategy.pnlPercent,
+                    status: "EXITED", exit_order_id: exitOrders, exit_type: "EXIT_TIME", final_pnl_percent: strategy.pnlPercent,
                     totalPnlRupees: strategy.totalPnlRupees, totalOriginalValue: strategy.totalOriginalValue, legs: strategy.legs
                 });
                 return "TERMINATE";
@@ -642,9 +642,9 @@ async function monitorStrategyLoop(strategyId, strategy) {
 
         // All Legs Completed Check
         if (strategy.legs.every(l => l.exited)) {
-            strategy.status = "COMPLETED";
+            strategy.status = "EXITED";
             updateStrategyInMemory(strategyId, {
-                status: "COMPLETED", exit_type: "LEGS_COMPLETED", final_pnl_percent: strategy.pnlPercent,
+                status: "EXITED", exit_type: "LEGS_COMPLETED", final_pnl_percent: strategy.pnlPercent,
                 totalPnlRupees: strategy.totalPnlRupees, legs: strategy.legs
             });
             return "TERMINATE";

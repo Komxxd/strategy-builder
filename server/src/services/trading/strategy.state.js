@@ -170,7 +170,7 @@ function updateStrategyInMemory(executionId, data) {
         updateData.execution_details[key] = val;
     }
 
-    if (["COMPLETED", "FAILED", "STOPPED", "SQUARED_OFF", "TERMINATED"].includes(data.status)) {
+    if (["COMPLETED", "EXITED", "FAILED", "STOPPED", "SQUARED_OFF", "TERMINATED"].includes(data.status)) {
         updateData.completed_at = new Date();
         setTimeout(runGlobalDbWriter, 0);
     }

@@ -129,7 +129,7 @@ async function getActiveStrategies(userId) {
             FROM strategy_executions e
             LEFT JOIN strategies s ON e.strategy_id = s.id
             WHERE e.user_id = ${userId}
-              AND (e.status IN ('WAITING', 'IN_POSITION', 'PAUSED')
+              AND (e.status IN ('WAITING', 'IN_POSITION', 'PAUSED', 'EXITED')
                OR (
                   e.status IN ('COMPLETED', 'FAILED', 'TERMINATED', 'CANCELLED', 'STOPPED', 'SQUARED_OFF')
                   AND (COALESCE(e.completed_at, e.started_at) AT TIME ZONE 'Asia/Kolkata')::date = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Kolkata')::date
@@ -213,13 +213,20 @@ async function patchExecutionSettings(strategyId, settings, userId) {
 }
 
 async function forceMoveToHistory(executionId, userId) {
-    const [existing] = await withDbRetry(() => sql`SELECT execution_details FROM strategy_executions WHERE id = ${executionId} AND user_id = ${userId}`);
+    const [existing] = await withDbRetry(() => sql`SELECT status, execution_details FROM strategy_executions WHERE id = ${executionId} AND user_id = ${userId}`);
     if (!existing) return;
-    
+
     const details = existing.execution_details || {};
     details.moved_to_history = true;
-    
-    await withDbRetry(() => sql`UPDATE strategy_executions SET execution_details = ${sql.json(details)} WHERE id = ${executionId} AND user_id = ${userId}`);
+
+    // If the strategy is in EXITED state, promote it to COMPLETED at the same time.
+    await withDbRetry(() => sql`
+        UPDATE strategy_executions
+        SET status = CASE WHEN status = 'EXITED' THEN 'COMPLETED' ELSE status END,
+            execution_details = ${sql.json(details)},
+            completed_at = COALESCE(completed_at, NOW())
+        WHERE id = ${executionId} AND user_id = ${userId}
+    `);
     return true;
 }
 

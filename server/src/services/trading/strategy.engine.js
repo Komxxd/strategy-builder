@@ -14,6 +14,7 @@ const { handleInitialEntry } = require("./strategy.init");
 const { monitorStrategyLoop } = require("./strategy.monitor");
 const { handleLegStopOut, pauseStrategy, squareOffStrategy, squareOffLeg, resumeStrategy } = require("./strategy.lifecycle");
 const { placeExitOrder } = require("./strategy.execution");
+require("./strategy.sweeper"); // Start the 3:30 PM EXITED → COMPLETED sweeper
 
 /**
  * The CORE LOOP function.

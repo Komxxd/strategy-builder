@@ -471,7 +471,7 @@ function stopStrategy(strategyId, reason) {
     const strategy = activeStrategies.get(strategyId);
     if (!strategy) return;
 
-    strategy.status = "COMPLETED";
+    strategy.status = "EXITED";
     strategy.error = reason;
     if (strategy.interval) {
         clearInterval(strategy.interval);
@@ -480,7 +480,7 @@ function stopStrategy(strategyId, reason) {
 
     addStrategyLog(strategyId, `Strategy CLOSED: ${reason}.`, "CRITICAL");
     updateStrategyInMemory(strategyId, {
-        status: "COMPLETED",
+        status: "EXITED",
         error: reason,
         pnlPercent: strategy.pnlPercent || 0,
         totalPnlRupees: strategy.totalPnlRupees || 0,
@@ -561,9 +561,9 @@ async function squareOffStrategy(strategyId, userId) {
 
             const exitOrders = exitResults.map(r => r.value);
 
-            strategy.status = "COMPLETED";
+            strategy.status = "EXITED";
             updateStrategyInMemory(strategyId, {
-                status: "COMPLETED",
+                status: "EXITED",
                 exit_type: "MANUAL_SQUARE_OFF",
                 final_pnl_percent: strategy.pnlPercent || 0,
                 totalPnlRupees: strategy.totalPnlRupees || 0,

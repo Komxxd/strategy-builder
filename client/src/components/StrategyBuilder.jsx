@@ -2691,64 +2691,53 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  );
 
  setRunningStrategies(prev => {
- let next = { ...prev };
- let hasChanges = false;
+  let next = { ...prev };
+  let hasChanges = false;
 
- updates.forEach(u => {
- if (u.error) {
- // Skip on error, don't automatically delete or move to history
- return;
- }
+  updates.forEach(u => {
+  if (u.error) {
+  // Skip on error, don't automatically delete or move to history
+  return;
+  }
 
- const isTerminalState = u.data?.status && ["COMPLETED","FAILED","TERMINATED","STOPPED","CANCELLED","SQUARED_OFF"].includes(u.data.status);
+  // EXITED is an active-but-done state — keep it in the panel (grayed out)
+  // Only truly terminal states (swept by server or moved manually) get removed
+  const isFullyDone = u.data?.status && ["COMPLETED","FAILED","TERMINATED","STOPPED","CANCELLED","SQUARED_OFF"].includes(u.data.status);
 
- let shouldDelete = false;
- if (isTerminalState) {
- const now = new Date();
- const istTime = new Date(now.toLocaleString("en-US", { timeZone:"Asia/Kolkata" }));
-
- if (istTime.getHours() > 15 || (istTime.getHours() === 15 && istTime.getMinutes() >= 30)) {
- shouldDelete = true;
- }
- }
-
- if (shouldDelete) {
- if (next[u.id]) {
- delete next[u.id];
- hasChanges = true;
- 
- axios.post(`${API_BASE_URL}/strategy/movetohistory/${u.id}`)
- .catch(err => console.error("Auto move to history failed:", err));
- }
- } else {
- const existing = next[u.id];
- // Add if new, or update if status changed
- if (!existing || existing.status !== u.data.status) {
- next[u.id] = u.data;
- hasChanges = true;
- } else {
- // Periodic refresh of non-price data (pnl, etc)
- // We merge u.data (latest DB state) with our local memory (carrying LTPs)
- // and then perform a local PnL recalculation to keep it snappy.
- const latestLegs = u.data.legs || [];
- const mergedStrategy = {
- ...u.data,
- legs: latestLegs.map(newLeg => {
- // Try to find matching leg in our current memory to preserve its fast price
- const existingLeg = existing.legs?.find(ex => ex.instrument.token === newLeg.instrument.token);
- return {
- ...newLeg,
- currentLtp: existingLeg ? (existingLeg.currentLtp || newLeg.currentLtp) : newLeg.currentLtp
- };
- })
- };
- next[u.id] = recalculateStrategyPnL(mergedStrategy);
- hasChanges = true;
- }
- }
- });
- return hasChanges ? next : prev;
- });
+  if (isFullyDone) {
+  if (next[u.id]) {
+  delete next[u.id];
+  hasChanges = true;
+  }
+  } else {
+  const existing = next[u.id];
+  // Add if new, or update if status changed
+  if (!existing || existing.status !== u.data.status) {
+  next[u.id] = u.data;
+  hasChanges = true;
+  } else {
+  // Periodic refresh of non-price data (pnl, etc)
+  // We merge u.data (latest DB state) with our local memory (carrying LTPs)
+  // and then perform a local PnL recalculation to keep it snappy.
+  const latestLegs = u.data.legs || [];
+  const mergedStrategy = {
+  ...u.data,
+  legs: latestLegs.map(newLeg => {
+  // Try to find matching leg in our current memory to preserve its fast price
+  const existingLeg = existing.legs?.find(ex => ex.instrument.token === newLeg.instrument.token);
+  return {
+  ...newLeg,
+  currentLtp: existingLeg ? (existingLeg.currentLtp || newLeg.currentLtp) : newLeg.currentLtp
+  };
+  })
+  };
+  next[u.id] = recalculateStrategyPnL(mergedStrategy);
+  hasChanges = true;
+  }
+  }
+  });
+  return hasChanges ? next : prev;
+  });
 
  // Intentionally removed fetchActive() to prevent bringing deleted/ghost strategies back to UI
  } catch (err) {
@@ -2767,6 +2756,24 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  const cumulativeActivePnl = filteredRunningStrategies.reduce((sum, [_, s]) => sum + (Number(s.totalPnlRupees) || 0), 0);
  const cumulativeActiveValue = filteredRunningStrategies.reduce((sum, [_, s]) => sum + (Number(s.totalOriginalValue) || 0), 0);
  const cumulativeActivePnlPercent = cumulativeActiveValue > 0 ? (cumulativeActivePnl / cumulativeActiveValue) * 100 : 0;
+
+ // Update browser tab title with live overall PnL (live trading only)
+ useEffect(() => {
+    if (activeTab !== 'live') {
+      document.title = 'Corequant';
+      return;
+    }
+    if (filteredRunningStrategies.length > 0) {
+      const sign = cumulativeActivePnl >= 0 ? '+' : '';
+      const pnlStr = `${sign}₹${cumulativeActivePnl.toFixed(0)}`;
+      document.title = `${pnlStr} | Live Trading - Corequant`;
+    } else {
+      document.title = 'Live Trading - Corequant';
+    }
+    return () => {
+      document.title = 'Corequant';
+    };
+  }, [cumulativeActivePnl, filteredRunningStrategies.length, activeTab]);
 
  return (
  <div className="space-y-4">
@@ -2832,7 +2839,7 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  return activeTab ==='paper' ? isPaper : !isPaper;
  })
  .map(([id, strategyData]) => {
- const isTerminal = ["COMPLETED","FAILED","TERMINATED","STOPPED","CANCELLED","SQUARED_OFF"].includes(strategyData.status);
+  const isTerminal = ["EXITED","COMPLETED","FAILED","TERMINATED","STOPPED","CANCELLED","SQUARED_OFF"].includes(strategyData.status);
  return (
  <Card key={id} className={`w-full border-border animate-in fade-in slide-in-from-bottom-4 duration-500 ${strategyData.config?.is_paper_trading ?'bg-blue-50/50' :'bg-orange-50/50'} ${isTerminal ?'opacity-60 grayscale' :''}`}>
  <CardContent className="p-3 space-y-2">
@@ -2846,9 +2853,9 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  {collapsedSections[id] === true ? <ChevronUp className="h-4 w-4 text-slate-400 group-hover:text-primary transition-colors" /> : <ChevronDown className="h-4 w-4 text-slate-400 group-hover:text-primary transition-colors" />}
  </div>
  </div>
- <span className="relative flex h-2 w-2 )] rounded-full mr-1">
- <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${strategyData.status ==='FAILED' ?'bg-red-400' : strategyData.status ==='PAUSED' ?'bg-amber-400' :'bg-green-400'} opacity-75`}></span>
- <span className={`relative inline-flex rounded-full h-2 w-2 ${strategyData.status ==='FAILED' ?'bg-red-500' : strategyData.status ==='PAUSED' ?'bg-amber-500' :'bg-green-500'}`}></span>
+ <span className="relative flex h-2 w-2">
+  <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${strategyData.status === 'FAILED' ? 'bg-red-400' : strategyData.status === 'PAUSED' ? 'bg-amber-400' : strategyData.status === 'EXITED' ? 'bg-slate-300' : 'bg-green-400'} opacity-75`}></span>
+  <span className={`relative inline-flex rounded-full h-2 w-2 ${strategyData.status === 'FAILED' ? 'bg-red-500' : strategyData.status === 'PAUSED' ? 'bg-amber-500' : strategyData.status === 'EXITED' ? 'bg-slate-400' : 'bg-green-500'}`}></span>
  </span>
 
  <span className="text-xs font-bold text-black">
