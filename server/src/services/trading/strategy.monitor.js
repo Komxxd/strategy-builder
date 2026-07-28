@@ -173,12 +173,12 @@ async function monitorStrategyLoop(strategyId, strategy) {
                         }
                     }
                     continue; 
-                }
-
-                /**
+                }                /**
                  * PHASE 3: Re-Entry Tracking (RE-HIGH / RE-LOW)
                  */
                 if (leg.state === "WAITING_FOR_RE_HIGH") {
+                    if (isReentryBlockedThisMinute) continue;
+
                     let isNewPeak = false;
                     if (!leg.max_peak_price || tickPrice > leg.max_peak_price) {
                         leg.max_peak_price = tickPrice;
@@ -213,7 +213,7 @@ async function monitorStrategyLoop(strategyId, strategy) {
                             addStrategyLog(strategyId, `[RE-HIGH] PEAK: ₹${peak} | RTP: ₹${rtp} | MTP: ₹${leg.mtp}`, "INFO");
                         }
 
-                        if (tickPrice <= rtp && !isReentryBlockedThisMinute) {
+                        if (tickPrice <= rtp) {
                             await handleReentryHigh({ leg, config, strategyId, addStrategyLog, currentTick: tickPrice, isMtpPlacement: true });
                         }
                     }
@@ -224,13 +224,15 @@ async function monitorStrategyLoop(strategyId, strategy) {
                             addStrategyLog(strategyId, `[RE-HIGH] PEAK: ₹${peak} | RTP: ₹${rtp}`, "INFO");
                         }
 
-                        if (tickPrice <= rtp && !isReentryBlockedThisMinute) {
+                        if (tickPrice <= rtp) {
                             await handleReentryHigh({ leg, config, strategyId, addStrategyLog, currentTick: tickPrice, isMtpPlacement: false });
                         }
                     }
                 }
 
                 if (leg.state === "WAITING_FOR_RE_LOW") {
+                    if (isReentryBlockedThisMinute) continue;
+
                     let isNewLow = false;
                     if (!leg.max_low_price || tickPrice < leg.max_low_price) {
                         leg.max_low_price = tickPrice;
@@ -265,7 +267,7 @@ async function monitorStrategyLoop(strategyId, strategy) {
                             addStrategyLog(strategyId, `[RE-LOW] LOW: ₹${low} | RTP: ₹${rtp} | MTP: ₹${leg.mtp}`, "INFO");
                         }
 
-                        if (tickPrice >= rtp && !isReentryBlockedThisMinute) {
+                        if (tickPrice >= rtp) {
                             await handleReentryLow({ leg, config, strategyId, addStrategyLog, currentTick: tickPrice, isMtpPlacement: true });
                         }
                     }
@@ -276,7 +278,7 @@ async function monitorStrategyLoop(strategyId, strategy) {
                             addStrategyLog(strategyId, `[RE-LOW] LOW: ₹${low} | RTP: ₹${rtp}`, "INFO");
                         }
 
-                        if (tickPrice >= rtp && !isReentryBlockedThisMinute) {
+                        if (tickPrice >= rtp) {
                             await handleReentryLow({ leg, config, strategyId, addStrategyLog, currentTick: tickPrice, isMtpPlacement: false });
                         }
                     }
@@ -284,6 +286,8 @@ async function monitorStrategyLoop(strategyId, strategy) {
 
                 // 1. Simple Momentum Entry (Paper Only)
                 if (leg.state === "WAITING_FOR_SIMPLE_MNTM" && leg.last_tick_price !== null) {
+                    if (isReentryBlockedThisMinute) continue;
+
                     const target = leg.mntmTargetPrice;
                     const mntmHit = checkMomentumHit(leg, leg.currentLtp, leg.last_tick_price);
 
@@ -316,6 +320,8 @@ async function monitorStrategyLoop(strategyId, strategy) {
 
                 // 2. Re-Cost Cross Logic
                 if (leg.state === "WAITING_FOR_MNTM" && leg.last_tick_price !== null) {
+                    if (isReentryBlockedThisMinute) continue;
+
                     const currentTick = leg.currentLtp;
                     const prevTick = leg.last_tick_price;
                     const rtp = leg.recost_trigger_price;
@@ -328,13 +334,15 @@ async function monitorStrategyLoop(strategyId, strategy) {
                         if (prevTick >= rtp && currentTick <= rtp) triggerReEntry = true;
                     }
 
-                    if (triggerReEntry && !isReentryBlockedThisMinute) {
+                    if (triggerReEntry) {
                         await handleReentryCost({ leg, config, strategyId, addStrategyLog, currentTick });
                     }
                 }
 
                 // 2b. Re-SL Cross Logic
                 if (leg.state === "WAITING_FOR_RESL_MNTM" && leg.last_tick_price !== null) {
+                    if (isReentryBlockedThisMinute) continue;
+
                     const currentTick = leg.currentLtp;
                     const prevTick = leg.last_tick_price;
                     const rtp = leg.resl_trigger_price;
@@ -347,7 +355,7 @@ async function monitorStrategyLoop(strategyId, strategy) {
                         if (prevTick >= rtp && currentTick <= rtp) triggerReEntry = true;
                     }
 
-                    if (triggerReEntry && !isReentryBlockedThisMinute) {
+                    if (triggerReEntry) {
                         await handleReentryReSL({ leg, config, strategyId, addStrategyLog, currentTick });
                     }
                 }

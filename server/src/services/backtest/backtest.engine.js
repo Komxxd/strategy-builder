@@ -1098,6 +1098,12 @@ class BacktestEngine {
                     }
 
                     if (active.state === 'WAITING_FOR_RECOST_RTP') {
+                        if (active.leg.no_reentry_on_sl_candle && active.slHitMinute === t) {
+                            currentOpenPnL += active.lockedPnL;
+                            currentClosePnL += active.lockedPnL;
+                            active.minutePnLMap.set(t, active.lockedPnL);
+                            continue;
+                        }
                         const high = node.high;
                         const low = node.low;
                         let rtpCrossed = false;
@@ -1209,6 +1215,12 @@ class BacktestEngine {
                     }
 
                     if (active.state === 'WAITING_FOR_RESL_RTP') {
+                        if (active.leg.no_reentry_on_sl_candle && active.slHitMinute === t) {
+                            currentOpenPnL += active.lockedPnL;
+                            currentClosePnL += active.lockedPnL;
+                            active.minutePnLMap.set(t, active.lockedPnL);
+                            continue;
+                        }
                         const high = node.high;
                         const low = node.low;
                         let rtpCrossed = false;
@@ -1328,6 +1340,12 @@ class BacktestEngine {
                     }
 
                     if (active.state === 'WAITING_FOR_REHIGH_RTP') {
+                        if (active.leg.no_reentry_on_sl_candle && active.slHitMinute === t) {
+                            currentOpenPnL += active.lockedPnL;
+                            currentClosePnL += active.lockedPnL;
+                            active.minutePnLMap.set(t, active.lockedPnL);
+                            continue;
+                        }
                         let newPeakFormed = false;
                         if (node.high > active.rehighPeak) {
                             active.rehighPeak = node.high;
@@ -1468,6 +1486,12 @@ class BacktestEngine {
                     }
 
                     if (active.state === 'WAITING_FOR_RELOW_RTP') {
+                        if (active.leg.no_reentry_on_sl_candle && active.slHitMinute === t) {
+                            currentOpenPnL += active.lockedPnL;
+                            currentClosePnL += active.lockedPnL;
+                            active.minutePnLMap.set(t, active.lockedPnL);
+                            continue;
+                        }
                         let newLowFormed = false;
                         if (node.low < active.relowLow) {
                             active.relowLow = node.low;
