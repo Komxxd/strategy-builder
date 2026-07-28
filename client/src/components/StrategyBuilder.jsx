@@ -2579,23 +2579,26 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  return l;
  });
 
- const totalPnlRupees = updatedLegs.reduce((sum, l) => sum + (l.pnlRupees || 0), 0);
- const totalOriginalValue = updatedLegs.reduce((sum, l) => {
- if (!l.original_traded_price) return sum;
- const multiplier = parseFloat(strategy.config?.quantity_multiplier) || 1;
- const quantity = (l.leg?.lots || 0) * (parseInt(l.instrument?.lotsize) || 1) * multiplier;
- return sum + (l.original_traded_price * quantity);
- }, 0);
+  const totalPnlRupees = updatedLegs.reduce((sum, l) => sum + (l.pnlRupees || 0), 0);
+  const calculatedOriginalValue = updatedLegs.reduce((sum, l) => {
+    const price = l.original_traded_price || l.entryPrice || 0;
+    if (!price) return sum;
+    const multiplier = parseFloat(strategy.config?.quantity_multiplier) || 1;
+    const quantity = (l.leg?.lots || 0) * (parseInt(l.instrument?.lotsize) || 1) * multiplier;
+    return sum + (price * quantity);
+  }, 0);
 
- const avgPnl = totalOriginalValue > 0 ? (totalPnlRupees / totalOriginalValue) * 100 : 0;
+  const totalOriginalValue = calculatedOriginalValue || strategy.totalOriginalValue || 0;
+  const finalPnlRupees = totalPnlRupees || strategy.totalPnlRupees || 0;
+  const avgPnl = totalOriginalValue > 0 ? (finalPnlRupees / totalOriginalValue) * 100 : (strategy.pnlPercent || 0);
 
- return {
- ...strategy,
- legs: updatedLegs,
- totalPnlRupees,
- totalOriginalValue,
- pnlPercent: avgPnl
- };
+  return {
+    ...strategy,
+    legs: updatedLegs,
+    totalPnlRupees: finalPnlRupees,
+    totalOriginalValue,
+    pnlPercent: avgPnl
+  };
  };
 
  // Tier 1 - Live Streaming: WebSocket initialization
@@ -2839,9 +2842,9 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  return activeTab ==='paper' ? isPaper : !isPaper;
  })
  .map(([id, strategyData]) => {
-  const isTerminal = ["EXITED","COMPLETED","FAILED","TERMINATED","STOPPED","CANCELLED","SQUARED_OFF"].includes(strategyData.status);
+  const isTerminal = ["COMPLETED","FAILED","TERMINATED","STOPPED","CANCELLED","SQUARED_OFF"].includes(strategyData.status);
  return (
- <Card key={id} className={`w-full border-border animate-in fade-in slide-in-from-bottom-4 duration-500 ${strategyData.config?.is_paper_trading ?'bg-blue-50/50' :'bg-orange-50/50'} ${isTerminal ?'opacity-60 grayscale' :''}`}>
+ <Card key={id} className={`w-full border-border animate-in fade-in slide-in-from-bottom-4 duration-500 ${strategyData.config?.is_paper_trading ?'bg-blue-50/50' :'bg-orange-50/50'} ${strategyData.status ==='EXITED' ?'opacity-80 grayscale' :''}`}>
  <CardContent className="p-3 space-y-2">
  <div
  className="flex flex-col xl:flex-row xl:items-center justify-between gap-3 cursor-pointer hover:bg-black/5 rounded-xl p-2 -m-2 transition-colors relative group"
@@ -2882,7 +2885,7 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  <EntryTimer entryTime={strategyData.config.entry_time} />
  )}
 
- {(strategyData?.status ==="IN_POSITION" || strategyData?.status ==="COMPLETED") && (
+ {(strategyData?.status ==="IN_POSITION" || strategyData?.status ==="COMPLETED" || strategyData?.status ==="EXITED") && (
  <div className="flex items-center gap-1.5 ml-1">
  <span className={`text-[11px] font-mono font-medium px-1.5 py-0.5 rounded border ${(strategyData.pnlPercent || 0) >= 0
  ?'bg-emerald-50 text-emerald-700 border-emerald-200'
@@ -2893,27 +2896,27 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  <span className="text-[10px] font-mono font-bold text-black bg-slate-50 border border-slate-200 px-1.5 py-0.5 rounded">
  Trade Value: ₹{(Number(strategyData.totalOriginalValue) || 0).toFixed(0)}
  </span>
- {strategyData.config?.overall_sl_enabled && strategyData.totalOriginalValue > 0 && (
+ {strategyData.config?.overall_sl_enabled && (
  <span className="text-[10px] font-mono font-medium text-red-500 bg-red-50 border border-red-100 px-1.5 py-0.5 rounded">
  SL: -₹{(() => {
- const total = strategyData.totalOriginalValue;
+ const total = Number(strategyData.totalOriginalValue) || 0;
  const multiplier = strategyData.config?.quantity_multiplier || 1;
  const val = (strategyData.config.overall_sl_value || 0) * multiplier;
  const amt = (strategyData.config.overall_sl_type ==='PERCENTAGE'
- ? total * (strategyData.config.overall_sl_value / 100)
+ ? total * ((strategyData.config.overall_sl_value || 0) / 100)
  : val);
  return amt.toFixed(2);
  })()}
  </span>
  )}
- {strategyData.config?.overall_target_enabled && strategyData.totalOriginalValue > 0 && (
+ {strategyData.config?.overall_target_enabled && (
  <span className="text-[10px] font-mono font-medium text-emerald-600 bg-emerald-50 border border-emerald-100 px-1.5 py-0.5 rounded">
  Tgt: +₹{(() => {
- const total = strategyData.totalOriginalValue;
+ const total = Number(strategyData.totalOriginalValue) || 0;
  const multiplier = strategyData.config?.quantity_multiplier || 1;
  const val = (strategyData.config.overall_target_value || 0) * multiplier;
  const amt = (strategyData.config.overall_target_type ==='PERCENTAGE'
- ? total * (strategyData.config.overall_target_value / 100)
+ ? total * ((strategyData.config.overall_target_value || 0) / 100)
  : val);
  return amt.toFixed(2);
  })()}

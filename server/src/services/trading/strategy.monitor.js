@@ -645,7 +645,8 @@ async function monitorStrategyLoop(strategyId, strategy) {
             strategy.status = "EXITED";
             updateStrategyInMemory(strategyId, {
                 status: "EXITED", exit_type: "LEGS_COMPLETED", final_pnl_percent: strategy.pnlPercent,
-                totalPnlRupees: strategy.totalPnlRupees, legs: strategy.legs
+                pnlPercent: strategy.pnlPercent, totalPnlRupees: strategy.totalPnlRupees,
+                totalOriginalValue: strategy.totalOriginalValue, legs: strategy.legs
             });
             return "TERMINATE";
         }

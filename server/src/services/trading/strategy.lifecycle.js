@@ -482,8 +482,10 @@ function stopStrategy(strategyId, reason) {
     updateStrategyInMemory(strategyId, {
         status: "EXITED",
         error: reason,
+        final_pnl_percent: strategy.pnlPercent || 0,
         pnlPercent: strategy.pnlPercent || 0,
         totalPnlRupees: strategy.totalPnlRupees || 0,
+        totalOriginalValue: strategy.totalOriginalValue || 0,
         legs: strategy.legs,
         _closedAt: new Date().toISOString()
     });

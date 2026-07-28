@@ -139,6 +139,9 @@ setInterval(runGlobalWebsocketSync, 1000);
 
 function updateStrategyInMemory(executionId, data) {
     const strategy = activeStrategies.get(executionId);
+    if (strategy) {
+        Object.assign(strategy, data);
+    }
     
     const existing = pendingDbUpdates.get(executionId) || { execution_details: {} };
     const updateData = { ...existing };
@@ -205,7 +208,7 @@ function addStrategyLog(strategyId, message, level = "INFO") {
         message.toUpperCase().includes("CHASE");
 
     if (isCriticalProcess) {
-        console.log(`[Log][${strategyId}] ${message}`);
+        setTimeout(runGlobalDbWriter, 0);
     }
 }
 
@@ -258,6 +261,7 @@ async function getStatus(strategyId) {
         logs: dbExec.execution_details?.logs || [],
         pnlPercent: dbExec.final_pnl_percent || 0,
         totalPnlRupees: dbExec.total_pnl_rupees || 0,
+        totalOriginalValue: dbExec.execution_details?.totalOriginalValue || 0,
         exitType: dbExec.exit_type
     };
 }
