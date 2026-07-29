@@ -6,7 +6,7 @@ import { Input } from'@/components/ui/input';
 import { Label } from'@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from'@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from'@/components/ui/tabs';
-import { StopCircle, Loader2, TrendingUp, Search, Timer, LayoutDashboard, Target, Save, Play, Plus, Trash2, ShieldCheck, Zap, Copy, MessageSquare, Ghost, X, Settings2, Clock, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, GripVertical, RefreshCw, Sliders, Eye, Database, Archive, Download, Upload } from'lucide-react';
+import { StopCircle, Loader2, TrendingUp, Search, Timer, LayoutDashboard, Target, Save, Play, Plus, Trash2, ShieldCheck, Zap, Copy, MessageSquare, Ghost, X, Settings2, Clock, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, GripVertical, RefreshCw, Sliders, Eye, Database, Archive, Download, Upload, FileText } from'lucide-react';
 import { Switch } from"@/components/ui/switch";
 import axios from'axios';
 import { io } from'socket.io-client';
@@ -14,6 +14,7 @@ import { StrategyLogs } from'./StrategyLogs';
 import { StrategyConfigModal } from'./StrategyConfigModal';
 import { ExecutionSettingsModal } from'./ExecutionSettingsModal';
 import { fetchBacktestDates, runBacktest, runCombinedBacktest, getBacktestStatus } from'../api';
+import { downloadElementAsPdf } from '../utils/pdfExport';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ||"http://localhost:5001/api";
 const SOCKET_URL = API_BASE_URL.replace(/\/api\/?$/,"");
@@ -2194,6 +2195,18 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  URL.revokeObjectURL(url);
  };
 
+ const handleDownloadPdfDirect = async (strategy) => {
+    try {
+      window.__pdfExportConfig = strategy.config;
+      const name = strategy.name || strategy.config?.name || 'Strategy';
+      await downloadElementAsPdf(null, name);
+    } catch (err) {
+      console.error('Failed to download PDF:', err);
+    } finally {
+      delete window.__pdfExportConfig;
+    }
+  };
+
  const handleUploadClick = () => {
  if (fileInputRef.current) {
  fileInputRef.current.click();
@@ -3555,9 +3568,18 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  variant="outline"
  className="h-8 xl:h-7 px-3 gap-1 rounded-md text-[11px] xl:text-[10px] font-medium border-slate-200 hover:bg-slate-50 text-slate-600 flex-1 xl:flex-none"
  onClick={() => handleDownloadStrategy(s)}
- title="Download Strategy"
+ title="Download JSON Strategy"
  >
- <Download className="h-3 w-3" /> Download
+ <Download className="h-3 w-3" /> JSON
+ </Button>
+ <Button
+ size="sm"
+ variant="outline"
+ className="h-8 xl:h-7 px-3 gap-1 rounded-md text-[11px] xl:text-[10px] font-medium border-indigo-200 hover:bg-indigo-50 text-indigo-700 flex-1 xl:flex-none"
+ onClick={() => handleDownloadPdfDirect(s)}
+ title="Download PDF"
+ >
+ <FileText className="h-3 w-3 text-indigo-600" /> PDF
  </Button>
  <Button
  size="sm"
