@@ -1,7 +1,7 @@
 /**
  * STRATEGY SWEEPER
  * ================
- * Runs every 60 seconds. After 3:30 PM IST, automatically transitions all
+ * Runs every 60 seconds. After 11:00 PM IST, automatically transitions all
  * EXITED strategies to COMPLETED and moves them to history, so the active
  * panel is clean at the end of the trading day.
  */
@@ -18,7 +18,7 @@ function getISTHourMinute() {
 
 async function sweepExitedStrategies() {
     const { hours, minutes } = getISTHourMinute();
-    const isPastMarketClose = hours > 15 || (hours === 15 && minutes >= 30);
+    const isPastMarketClose = hours >= 23;
     if (!isPastMarketClose) return;
 
     // 1. Sweep from in-memory activeStrategies map
