@@ -3046,7 +3046,7 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  </div>
  </div>
 
- {(collapsedSections[id] === true || strategyData?.status === "EXITED") && (strategyData?.status ==="IN_POSITION" || strategyData?.status ==="PAUSED" || isTerminal) ? (
+ {collapsedSections[id] === true && (strategyData?.status ==="IN_POSITION" || strategyData?.status ==="PAUSED" || isTerminal) ? (
  <div className="space-y-2 pt-2 border-t border-border mt-1">
  {/* Strategy Legs */}
 
@@ -3224,10 +3224,10 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  >
  <span className="text-[10px] font-medium uppercase text-muted-foreground group-hover:text-foreground transition-colors">Closed Legs</span>
  <Button variant="ghost" size="sm" className="h-4 w-4 p-0 shrink-0 text-muted-foreground group-hover:text-foreground">
- {collapsedSections[`${id}-closed`] === true ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+ {collapsedSections[`${id}-closed`] === false ? <ChevronDown className="h-3 w-3" /> : <ChevronUp className="h-3 w-3" />}
  </Button>
  </div>
- {(collapsedSections[`${id}-closed`] === true || strategyData?.status === "EXITED") && (
+ {collapsedSections[`${id}-closed`] !== false && (
  <div className="space-y-2 animate-in slide-in-from-top-2 duration-200">
  {strategyData.legs.map((l, idx) => l.exited && (
  <div key={idx} className="flex flex-col md:flex-row items-start md:items-center justify-between p-2.5 bg-muted/50 border border-border/50 rounded-xl opacity-90 gap-3">
