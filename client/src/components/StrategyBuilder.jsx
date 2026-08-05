@@ -2501,6 +2501,27 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  }
  };
 
+ const handleSwitchVirtual = async (id, targetVirtual) => {
+ if (!id) return;
+ const actionText = targetVirtual 
+ ? "switch this strategy to VIRTUAL mode? Open positions will be exited while background virtual monitoring continues." 
+ : "switch this strategy back from VIRTUAL mode? Active legs will be re-entered at current market prices.";
+ if (!confirm(`Are you sure you want to ${actionText}`)) return;
+ try {
+ setRunningStrategies(prev => {
+ const next = { ...prev };
+ if (next[id]) next[id] = { ...next[id], is_virtual: targetVirtual };
+ return next;
+ });
+ await axios.post(`${API_BASE_URL}/strategy/switch-virtual/${id}`, { is_virtual: targetVirtual });
+ fetchActive();
+ } catch (err) {
+ alert("Error switching virtual mode:" + (err.response?.data?.message || err.message));
+ fetchActive();
+ }
+ };
+
+
  const handleSquareOffLeg = async (id, legIndex) => {
  if (!id) return;
  if (!confirm("Are you sure you want to instantly square off this specific leg?")) return;
@@ -2879,9 +2900,10 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  <span className="text-[10px] font-mono text-black/60 ml-1.5">#{id.split('-')[0] || id}</span>
  </span>
 
- <span className={`text-[9px] font-black px-1.5 py-0.5 rounded uppercase ${strategyData.config?.is_paper_trading ?'bg-blue-100/80 text-blue-700 border border-blue-200' :'bg-orange-100/80 text-orange-700 border border-orange-200'}`}>
- {strategyData.status} • {strategyData.config?.is_paper_trading ?'PAPER' :'LIVE'} • {strategyData.config?.index}
+ <span className={`text-[9px] font-black px-1.5 py-0.5 rounded uppercase ${strategyData.is_virtual ? 'bg-purple-100/80 text-purple-700 border border-purple-200' : strategyData.config?.is_paper_trading ?'bg-blue-100/80 text-blue-700 border border-blue-200' :'bg-orange-100/80 text-orange-700 border border-orange-200'}`}>
+ {strategyData.status} • {strategyData.is_virtual ? 'VIRTUAL (MONITORING)' : (strategyData.config?.is_paper_trading ?'PAPER' :'LIVE')} • {strategyData.config?.index}
  </span>
+
  {strategyData.config?.quantity_multiplier > 1 && (
  <span className="text-[9px] font-black px-1.5 py-0.5 rounded uppercase bg-indigo-100/80 text-indigo-700 border border-indigo-200">
  {strategyData.config.quantity_multiplier}x QTY
@@ -2975,6 +2997,22 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  Square Off
  </Button>
  )}
+ {!isTerminal && (strategyData?.status === "IN_POSITION" || strategyData?.status === "WAITING") && (
+  <Button
+  size="sm"
+  variant="outline"
+  className={`h-8 px-3 gap-1 rounded-md text-[11px] font-medium border ${
+  strategyData.is_virtual
+  ? 'border-amber-200 bg-amber-50/50 hover:bg-amber-100 text-amber-700'
+  : 'border-purple-200 bg-purple-50/50 hover:bg-purple-100 text-purple-700'
+  }`}
+  onClick={() => handleSwitchVirtual(id, !strategyData.is_virtual)}
+  title={strategyData.is_virtual ? "Switch back from Virtual mode" : "Switch to Virtual background monitoring"}
+  >
+  <ShieldCheck className="h-3.5 w-3.5" />
+  {strategyData.is_virtual ? (strategyData.config?.is_paper_trading ? "Switch to Paper" : "Switch to Live") : "Switch to Virtual"}
+  </Button>
+  )}
  {strategyData?.status ==="PAUSED" && (
  <Button
  size="sm"
@@ -3019,7 +3057,7 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  className="flex items-center justify-between cursor-pointer group"
  onClick={() => setCollapsedSections(prev => ({ ...prev, [`${id}-running`]: prev[`${id}-running`] === true ? false : true }))}
  >
- <span className="text-[10px] font-medium uppercase text-muted-foreground group-hover:text-foreground transition-colors">Running Legs</span>
+ <span className="text-[10px] font-medium uppercase text-muted-foreground group-hover:text-foreground transition-colors">{strategyData.is_virtual ? "Virtual Monitoring Legs" : "Running Legs"}</span>
  <Button variant="ghost" size="sm" className="h-4 w-4 p-0 shrink-0 text-muted-foreground group-hover:text-foreground">
  {collapsedSections[`${id}-running`] === true ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
  </Button>

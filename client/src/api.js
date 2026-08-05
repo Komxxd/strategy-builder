@@ -190,3 +190,13 @@ export async function provisionWorkerNode() {
     });
     return res.json();
 }
+
+export async function switchVirtualMode(strategyId, is_virtual) {
+    const headers = await getHeaders();
+    const res = await fetch(`${API_BASE}/strategy/switch-virtual/${strategyId}`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ is_virtual }),
+    });
+    return res.json();
+}

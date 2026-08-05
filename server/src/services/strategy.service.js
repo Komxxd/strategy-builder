@@ -1,7 +1,7 @@
 const { activeStrategies, globalLtpMap, updateLtp, getLtpSecure, runGlobalDbWriter, updateStrategyInMemory, runGlobalWebsocketSync, addStrategyLog, getStatus } = require("./trading/strategy.state");
 const { withDbRetry, saveStrategy, updateStrategy, deleteStrategy, getUserStrategies, getActiveStrategies, getExecutionHistory, patchExecutionSettings, forceMoveToHistory } = require("./trading/strategy.crud");
 const { executeStrategy, startStrategy, stopStrategy, deleteStrategyExecution, initializeActiveStrategies } = require("./trading/strategy.engine");
-const { squareOffStrategy, squareOffLeg, resumeStrategy } = require("./trading/strategy.lifecycle");
+const { squareOffStrategy, squareOffLeg, resumeStrategy, switchVirtualMode } = require("./trading/strategy.lifecycle");
 
 /**
  * Legacy Compatibility Layer
@@ -41,5 +41,7 @@ module.exports = {
     // Lifecycle Transitions
     squareOffStrategy,
     squareOffLeg,
-    resumeStrategy
+    resumeStrategy,
+    switchVirtualMode
 };
+

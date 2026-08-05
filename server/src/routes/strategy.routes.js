@@ -135,6 +135,19 @@ router.post("/resume/:id", async (req, res) => {
     }
 });
 
+router.post("/switch-virtual/:id", async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const { is_virtual } = req.body;
+        await strategyService.switchVirtualMode(req.params.id, is_virtual === true || is_virtual === "true", userId);
+        res.json({ success: true, message: `Strategy switched to ${is_virtual ? 'Virtual' : 'Active'} mode` });
+    } catch (error) {
+        console.error("Error switching strategy virtual mode:", error.message);
+        res.status(500).json({ success: false, message: error.message || "Failed to switch virtual mode" });
+    }
+});
+
+
 router.get("/user", async (req, res) => {
     try {
         const userId = req.user.id;
