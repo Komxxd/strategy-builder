@@ -220,6 +220,7 @@ async function getStatus(strategyId) {
             strategy_id: s.strategy_id,
             status: s.status,
             config: s.config,
+            is_virtual: s.is_virtual === true,
             error: s.error,
             legs: s.legs || [],
             pnlPercent: s.pnlPercent || 0,
@@ -251,6 +252,7 @@ async function getStatus(strategyId) {
         id: dbExec.id,
         strategy_id: dbExec.strategy_id,
         status: dbExec.status,
+        is_virtual: dbExec.execution_details?.is_virtual === true,
         config: {
             ...(dbExec.execution_details?.config || {}),
             is_paper_trading: dbExec.is_paper_trading
@@ -265,6 +267,7 @@ async function getStatus(strategyId) {
         exitType: dbExec.exit_type
     };
 }
+
 
 module.exports = {
    activeStrategies,

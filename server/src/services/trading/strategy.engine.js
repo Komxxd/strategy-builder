@@ -155,6 +155,7 @@ async function initializeActiveStrategies() {
                 strategy_id: exec.strategy_id,
                 config: restoredConfig,
                 status: exec.status,
+                is_virtual: exec.execution_details?.is_virtual === true,
                 startTime: exec.started_at,
                 legs: exec.execution_details?.legs || [],
                 logs: exec.execution_details?.logs || [],
@@ -165,6 +166,7 @@ async function initializeActiveStrategies() {
                 totalOriginalValue: exec.execution_details?.totalOriginalValue || 0,
                 user_id: exec.user_id
             };
+
 
             activeStrategies.set(exec.id, runtimeStrategy);
             executeStrategy(exec.id);
