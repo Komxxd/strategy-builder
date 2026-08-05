@@ -2855,7 +2855,7 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  return activeTab ==='paper' ? isPaper : !isPaper;
  })
  .map(([id, strategyData]) => {
-  const isTerminal = ["COMPLETED","FAILED","TERMINATED","STOPPED","CANCELLED","SQUARED_OFF"].includes(strategyData.status);
+  const isTerminal = ["COMPLETED","FAILED","TERMINATED","STOPPED","CANCELLED","SQUARED_OFF","EXITED"].includes(strategyData.status);
  return (
  <Card key={id} className={`w-full border-border animate-in fade-in slide-in-from-bottom-4 duration-500 ${strategyData.config?.is_paper_trading ?'bg-blue-50/50' :'bg-orange-50/50'} ${strategyData.status ==='EXITED' ?'opacity-80 grayscale' :''}`}>
  <CardContent className="p-3 space-y-2">
