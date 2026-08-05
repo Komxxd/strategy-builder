@@ -137,8 +137,8 @@ function App() {
  // that makes socket listeners stack on every mount (bad in React Strict Mode dev).
  let cleanup = null;
 
- import('./api').then(({ initSocket }) => {
- const socket = initSocket();
+ import('./api').then(async ({ initSocket }) => {
+ const socket = await initSocket();
 
  // broker_status = Angel One API session (login/logout)
  const handleBrokerStatus = (data) => {

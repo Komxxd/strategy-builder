@@ -464,7 +464,7 @@ function pauseStrategy(strategyId, reason) {
     });
 
     const marketSocketService = require("../marketSocket.service");
-    marketSocketService.sendAlert(`Strategy PAUSED — ${reason}`, "error");
+    marketSocketService.sendAlertToUser(strategy.user_id, `Strategy PAUSED — ${reason}`, "error");
 }
 
 function stopStrategy(strategyId, reason) {
@@ -491,7 +491,7 @@ function stopStrategy(strategyId, reason) {
     });
 
     const marketSocketService = require("../marketSocket.service");
-    marketSocketService.sendAlert(`Strategy CLOSED — ${reason}`, "error");
+    marketSocketService.sendAlertToUser(strategy.user_id, `Strategy CLOSED — ${reason}`, "error");
 }
 
 async function squareOffStrategy(strategyId, userId) {
@@ -624,7 +624,7 @@ async function resumeStrategy(strategyId, userId) {
         addStrategyLog(strategyId, `Strategy RESUMED from PAUSED state. Monitoring restarted.`, "INFO");
     }
 
-    marketSocketService.sendAlert(`Strategy resumed — monitoring active`, "success");
+    marketSocketService.sendAlertToUser(strategy.user_id, `Strategy resumed — monitoring active`, "success");
     updateStrategyInMemory(strategyId, {
         status: strategy.status,
         error: null,

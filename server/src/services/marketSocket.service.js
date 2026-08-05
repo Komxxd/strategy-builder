@@ -395,6 +395,16 @@ function sendAlert(message, type = "error") {
 }
 
 /**
+ * Sends an alert message only to the specific user's connected frontend clients.
+ * @param {string} userId - The Supabase user ID
+ * @param {string} message
+ * @param {string} type - 'error' | 'success' | 'info'
+ */
+function sendAlertToUser(userId, message, type = "error") {
+    if (io && userId) io.to(`user:${userId}`).emit("strategy_alert", { message, type });
+}
+
+/**
  * Broadcasts a strategy-specific log to connected clients.
  * @param {string} strategyId
  * @param {Object} log - { time, message, levelBody }
@@ -410,6 +420,7 @@ module.exports = {
     syncSubscriptions,
     disconnectMarketSocket,
     sendAlert,
+    sendAlertToUser,
     sendStrategyLog,
     isSocketConnected: () => isConnected,
     emitApiStatus,

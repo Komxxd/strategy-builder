@@ -34,6 +34,14 @@ const authService = require("./services/auth.service");
 
 io.on("connection", (socket) => {
     console.log("Frontend connected:", socket.id);
+
+    // Join a user-scoped room so alerts/events can be sent to a specific user only
+    const userId = socket.handshake.auth?.userId;
+    if (userId) {
+        socket.join(`user:${userId}`);
+        console.log(`Frontend socket ${socket.id} joined room user:${userId}`);
+    }
+
     // Emit both statuses independently so the UI can show two separate pills
     socket.emit("broker_status", { connected: !!authService.getSession() });
     socket.emit("socket_status", { connected: marketSocketService.isSocketConnected() });

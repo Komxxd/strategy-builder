@@ -19,7 +19,7 @@ const marketSocketService = require("../marketSocket.service");
 const workerSocketService = require("../workerSocket.service");
 const sql = require("../../config/db");
 const sessionService = require("../session.service");
-const { getLtpSecure, getLtpWithRetry, addStrategyLog } = require("./strategy.state");
+const { getLtpSecure, getLtpWithRetry, addStrategyLog, activeStrategies } = require("./strategy.state");
 const { getISTTime, getISTExchangeFormat } = require("./strategy.time");
 const { roundToTick, getLimitOffsetAmt, computeStopLossExitPrices, resolveUniversalOrderParams } = require("./strategy.offset");
 const { checkOrderFillOnce, chaseOrderFill } = require("./strategy.chase");
@@ -297,6 +297,7 @@ async function placeStopLossWithRetry({ baseConfig, legSide, entryPrice, instrum
     let attempts = 3;
     let slOrder = null;
     let lastError = "";
+    const userId = strategyId ? activeStrategies.get(strategyId)?.user_id : null;
 
     while (attempts > 0) {
         try {
@@ -305,7 +306,7 @@ async function placeStopLossWithRetry({ baseConfig, legSide, entryPrice, instrum
             });
             if (slOrder?.orderid) {
                 if (attempts < 3) {
-                    marketSocketService.sendAlert(`SL order for ${instrument.symbol} successfully placed on attempt ${4 - attempts}.`, "success");
+                    marketSocketService.sendAlertToUser(userId, `SL order for ${instrument.symbol} successfully placed on attempt ${4 - attempts}.`, "success");
                     if (strategyId) addStrategyLog(strategyId, `SL order for ${instrument.symbol} placed on attempt ${4 - attempts}.`, "INFO");
                 } else {
                     if (strategyId) addStrategyLog(strategyId, `SL order for ${instrument.symbol} placed at trigger ₹${slOrder.triggerprice || '---'}.`, "INFO");
@@ -315,7 +316,7 @@ async function placeStopLossWithRetry({ baseConfig, legSide, entryPrice, instrum
         } catch (err) {
             lastError = err.message;
             console.error(`[SL Retry] Attempt ${4 - attempts} for ${instrument.symbol} failed:`, lastError);
-            marketSocketService.sendAlert(`SL placement failed for ${instrument.symbol} (Attempt ${4 - attempts}): ${lastError}`, "error");
+            marketSocketService.sendAlertToUser(userId, `SL placement failed for ${instrument.symbol} (Attempt ${4 - attempts}): ${lastError}`, "error");
             if (strategyId) addStrategyLog(strategyId, `SL placement FAILED for ${instrument.symbol} (Attempt ${4 - attempts}): ${lastError}`, "ERROR");
         }
 
@@ -325,7 +326,7 @@ async function placeStopLossWithRetry({ baseConfig, legSide, entryPrice, instrum
         }
     }
 
-    marketSocketService.sendAlert(`CRITICAL: Stop Loss order for ${instrument.symbol} FAILED after all attempts. Position is UNPROTECTED!`, "error");
+    marketSocketService.sendAlertToUser(userId, `CRITICAL: Stop Loss order for ${instrument.symbol} FAILED after all attempts. Position is UNPROTECTED!`, "error");
     if (strategyId) addStrategyLog(strategyId, `CRITICAL: Stop Loss order for ${instrument.symbol} FAILED after all attempts. Position is UNPROTECTED!`, "CRITICAL");
     return null;
 }

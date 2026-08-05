@@ -14,12 +14,14 @@ const getHeaders = async () => {
 
 let socket = null;
 
-export function initSocket() {
+export async function initSocket() {
     if (!socket) {
         const socketUrl = import.meta.env.VITE_API_BASE_URL
             ? import.meta.env.VITE_API_BASE_URL.replace(/\/api\/?$/, "")
             : "http://localhost:5001";
-        socket = io(socketUrl);
+        const { data: { session } } = await supabase.auth.getSession();
+        const userId = session?.user?.id || null;
+        socket = io(socketUrl, { auth: { userId } });
     }
     return socket;
 }
