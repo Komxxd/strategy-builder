@@ -2921,12 +2921,29 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  )}
 
  {(strategyData?.status ==="IN_POSITION" || strategyData?.status ==="COMPLETED" || strategyData?.status ==="EXITED") && (
- <div className="flex items-center gap-1.5 ml-1">
- <span className={`text-[11px] font-mono font-medium px-1.5 py-0.5 rounded border ${(strategyData.pnlPercent || 0) >= 0
- ?'bg-emerald-50 text-emerald-700 border-emerald-200'
- :'bg-red-50 text-red-700 border-red-200'
- }`}>
- PnL: {(Number(strategyData.pnlPercent) || 0) > 0 ?'+' :''}{(Number(strategyData.pnlPercent) || 0).toFixed(2)}% | {(Number(strategyData.totalPnlRupees) || 0) > 0 ?'+' :''}₹{(Number(strategyData.totalPnlRupees) || 0).toFixed(0)}
+  <div className="flex items-center gap-1.5 ml-1 flex-wrap">
+  {(() => {
+  const bookedRupees = (strategyData.legs || []).filter(l => l.exited).reduce((sum, l) => sum + (l.pnlRupees || l.bookedPnlRupees || 0), 0);
+  const activeVirtualRupees = (strategyData.legs || []).filter(l => !l.exited).reduce((sum, l) => sum + (l.currentActivePnlRupees || l.pnlRupees || 0), 0);
+  const totalRupees = Number(strategyData.totalPnlRupees) || (bookedRupees + activeVirtualRupees);
+  return (
+  <>
+  {bookedRupees !== 0 && (
+  <span className={`text-[10px] font-mono font-medium px-1.5 py-0.5 rounded border ${bookedRupees >= 0 ?'bg-emerald-50 text-emerald-700 border-emerald-200' :'bg-red-50 text-red-700 border-red-200'}`}>
+  Booked: {bookedRupees > 0 ?'+' :''}₹{bookedRupees.toFixed(0)}
+  </span>
+  )}
+  {strategyData.is_virtual && (
+  <span className={`text-[10px] font-mono font-medium px-1.5 py-0.5 rounded border ${activeVirtualRupees >= 0 ?'bg-purple-50 text-purple-700 border-purple-200' :'bg-pink-50 text-pink-700 border-pink-200'}`}>
+  Virtual: {activeVirtualRupees > 0 ?'+' :''}₹{activeVirtualRupees.toFixed(0)}
+  </span>
+  )}
+  <span className={`text-[11px] font-mono font-medium px-1.5 py-0.5 rounded border ${(strategyData.pnlPercent || 0) >= 0 ?'bg-emerald-50 text-emerald-700 border-emerald-200' :'bg-red-50 text-red-700 border-red-200'}`}>
+  Total PnL: {(Number(strategyData.pnlPercent) || 0) > 0 ?'+' :''}{(Number(strategyData.pnlPercent) || 0).toFixed(2)}% | {totalRupees > 0 ?'+' :''}₹{totalRupees.toFixed(0)}
+  </span>
+  </>
+  );
+  })()}
  </span>
  <span className="text-[10px] font-mono font-bold text-black bg-slate-50 border border-slate-200 px-1.5 py-0.5 rounded">
  Trade Value: ₹{(Number(strategyData.totalOriginalValue) || 0).toFixed(0)}
