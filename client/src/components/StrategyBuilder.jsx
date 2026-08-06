@@ -2941,9 +2941,19 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  {(strategyData?.status ==="IN_POSITION" || strategyData?.status ==="COMPLETED" || strategyData?.status ==="EXITED") && (
   <div className="flex items-center gap-1.5 ml-1 flex-wrap">
   {(() => {
-  const bookedRupees = (strategyData.legs || []).filter(l => l.exited).reduce((sum, l) => sum + (l.pnlRupees || l.bookedPnlRupees || 0), 0);
-  const activeVirtualRupees = (strategyData.legs || []).filter(l => !l.exited).reduce((sum, l) => sum + (l.currentActivePnlRupees || l.pnlRupees || 0), 0);
+  const isVirtualLeg = l => l.is_virtual_leg || l.is_virtual_monitoring || l.exitType?.includes("VIRTUAL");
+
+  const bookedRupees = (strategyData.legs || [])
+    .filter(l => l.exited && !isVirtualLeg(l))
+    .reduce((sum, l) => sum + (l.pnlRupees || l.bookedPnlRupees || 0), 0);
+
+  const activeVirtualRupees = (strategyData.legs || [])
+    .filter(l => isVirtualLeg(l) || strategyData.is_virtual)
+    .reduce((sum, l) => sum + (l.exited ? (l.pnlRupees || l.bookedPnlRupees || 0) : (l.currentActivePnlRupees || l.pnlRupees || 0)), 0);
+
+  const hasVirtualLegs = (strategyData.legs || []).some(l => isVirtualLeg(l)) || strategyData.is_virtual;
   const totalRupees = Number(strategyData.totalPnlRupees) || (bookedRupees + activeVirtualRupees);
+
   return (
   <>
   {bookedRupees !== 0 && (
@@ -2951,7 +2961,7 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
   Booked: {bookedRupees > 0 ?'+' :''}₹{bookedRupees.toFixed(0)}
   </span>
   )}
-  {strategyData.is_virtual && (
+  {hasVirtualLegs && (
   <span className={`text-[10px] font-mono font-medium px-1.5 py-0.5 rounded border ${activeVirtualRupees >= 0 ?'bg-purple-50 text-purple-700 border-purple-200' :'bg-pink-50 text-pink-700 border-pink-200'}`}>
   Virtual: {activeVirtualRupees > 0 ?'+' :''}₹{activeVirtualRupees.toFixed(0)}
   </span>
