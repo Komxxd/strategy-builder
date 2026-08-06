@@ -3280,17 +3280,17 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  <span className="text-black/30 text-[10px] font-mono">|</span>
  <span className="text-black text-[10px] font-mono">Price: {(l.exitSnapshot?.exitLtp || l.currentLtp || 0).toFixed(2)}</span>
  <span className="text-black/30 text-[10px] font-mono">|</span>
- <span className="text-black text-[10px] font-mono font-bold">Type: {l.exitType}</span>
+ <span className="text-black text-[10px] font-mono font-bold">Type: {l.exitType || (l.is_virtual_monitoring ? "VIRTUAL_MONITORING" : "CLOSED")}</span>
  {l.initialSlTriggerPrice != null && (
  <>
  <span className="text-muted-foreground text-[10px] font-mono">|</span>
  <span className="text-red-400 font-medium text-[10px] font-mono">Init SL: {Number(l.initialSlTriggerPrice).toFixed(1)}</span>
  </>
  )}
- {l.exitSnapshot?.slTriggerPrice != null && (
+ {(l.exitSnapshot?.slTriggerPrice != null || l.slTriggerPrice != null) && (
  <>
  <span className="text-muted-foreground text-[10px] font-mono">|</span>
- <span className="text-red-600 font-bold text-[10px] font-mono">Exit SL: {Number(l.exitSnapshot.slTriggerPrice).toFixed(1)}</span>
+ <span className="text-red-600 font-bold text-[10px] font-mono">Exit SL: {Number(l.exitSnapshot?.slTriggerPrice ?? l.slTriggerPrice).toFixed(1)}</span>
  </>
  )}
  {l.rtp != null && (
@@ -3305,19 +3305,18 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  <span className="text-purple-600 font-bold text-[10px] font-mono">MTP: {l.mtp.toFixed(2)}</span>
  </>
  )}
- {l.max_peak_price != null && l.max_peak_price > 0 && (
+ {(l.max_peak_price != null || l.peakPrice != null || l.exitSnapshot?.peakPrice != null) && (
  <>
  <span className="text-black/30 text-[10px] font-mono">|</span>
- <span className="text-indigo-600 font-bold text-[10px] font-mono uppercase">Trig Peak: {l.max_peak_price.toFixed(2)}</span>
+ <span className="text-indigo-600 font-bold text-[10px] font-mono uppercase">Trig Peak: {(l.max_peak_price || l.peakPrice || l.exitSnapshot?.peakPrice).toFixed(2)}</span>
  </>
  )}
- {l.max_low_price != null && l.max_low_price > 0 && (
+ {(l.max_low_price != null || l.exitSnapshot?.lowPrice != null) && (
  <>
  <span className="text-black/30 text-[10px] font-mono">|</span>
- <span className="text-pink-600 font-bold text-[10px] font-mono uppercase">Trig Low: {l.max_low_price.toFixed(2)}</span>
+ <span className="text-pink-600 font-bold text-[10px] font-mono uppercase">Trig Low: {(l.max_low_price || l.exitSnapshot?.lowPrice).toFixed(2)}</span>
  </>
  )}
- {/* Removed exitSnapshot peakPrice display */}
  </div>
  <div className="flex items-center gap-3 shrink-0">
  <span className={`text-[12px] font-mono font-medium ${(Number(l.pnlPercent) || 0) >= 0 ?'text-emerald-600' :'text-red-600'}`}>
@@ -3326,7 +3325,9 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  <span className={`text-[12px] font-mono font-medium ${(Number(l.pnlRupees) || 0) >= 0 ?'text-emerald-600' :'text-red-600'}`}>
  {(Number(l.pnlRupees) || 0) > 0 ?'+' :''}₹{(Number(l.pnlRupees) || 0).toFixed(2)}
  </span>
- <span className="px-2 py-0.5 text-[10px] font-bold bg-slate-200 text-black rounded uppercase">Closed</span>
+ <span className={`px-2 py-0.5 text-[10px] font-bold rounded uppercase ${(l.is_virtual_leg || l.is_virtual_monitoring || l.exitType?.includes("VIRTUAL")) ? "bg-purple-100 text-purple-800 border border-purple-200" : "bg-slate-200 text-black"}`}>
+ {(l.is_virtual_leg || l.is_virtual_monitoring || l.exitType?.includes("VIRTUAL")) ? "Virtual Closed" : "Closed"}
+ </span>
  </div>
  </div>
  </div>

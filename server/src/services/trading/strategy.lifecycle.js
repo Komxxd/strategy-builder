@@ -700,6 +700,13 @@ async function switchVirtualMode(strategyId, targetVirtual, userId) {
                 leg.exited = true;
                 leg.exitType = "SWITCHED_TO_VIRTUAL";
                 leg.exitTime = exitTime;
+                leg.exitSnapshot = {
+                    slTriggerPrice: leg.slTriggerPrice,
+                    initialSlTriggerPrice: leg.initialSlTriggerPrice,
+                    exitLtp: exitLtp,
+                    exitTime: exitTime,
+                    peakPrice: leg.peakPrice || leg.max_peak_price
+                };
                 leg.bookedPnlPoints = (leg.bookedPnlPoints || 0) + pnlPoints;
                 leg.bookedPnlRupees = (leg.bookedPnlRupees || 0) + activePnlRupees;
                 leg.currentActivePnlPoints = 0;
@@ -723,12 +730,19 @@ async function switchVirtualMode(strategyId, targetVirtual, userId) {
                     exited: false,
                     exitType: null,
                     isExiting: false,
+                    entryTime: leg.entryTime || exitTime,
                     entryPrice: leg.entryPrice, // Continuous entry price for "what-if" PnL
                     currentLtp: exitLtp,
                     last_tick_price: exitLtp,
                     initialSlTriggerPrice: leg.initialSlTriggerPrice,
                     slTriggerPrice: leg.slTriggerPrice,
                     peakPrice: leg.peakPrice,
+                    rtp: leg.rtp,
+                    mtp: leg.mtp,
+                    max_peak_price: leg.max_peak_price,
+                    max_low_price: leg.max_low_price,
+                    re_high_trigger_price: leg.re_high_trigger_price,
+                    re_low_trigger_price: leg.re_low_trigger_price,
                     candleMinute: leg.candleMinute,
                     candleHigh: leg.candleHigh,
                     candleLow: leg.candleLow,
@@ -768,16 +782,10 @@ async function switchVirtualMode(strategyId, targetVirtual, userId) {
 
         for (const leg of currentLegs) {
             if (!leg.exited && (leg.is_virtual_monitoring || leg.is_virtual_leg)) {
-                // 1. Mark the virtual monitoring leg as EXITED
-                leg.exited = true;
-                leg.state = "COMPLETED";
-                leg.exitType = config.is_paper_trading ? "SWITCHED_TO_PAPER" : "SWITCHED_TO_LIVE";
-                leg.exitTime = exitTime;
-
                 const instrument = leg.instrument;
                 if (!instrument) continue;
 
-                // 2. Fetch fresh LTP for re-entry
+                // 1. Fetch fresh market LTP at the moment of switching back
                 const currentLtp = await getLtpWithRetry({
                     exchange: instrument.exch_seg,
                     symboltoken: instrument.token,
@@ -786,6 +794,34 @@ async function switchVirtualMode(strategyId, targetVirtual, userId) {
                 });
 
                 const reEntryPrice = (currentLtp && currentLtp > 0) ? currentLtp : (leg.currentLtp || leg.entryPrice);
+
+                // 2. Mark the virtual monitoring leg as EXITED with the fresh market price
+                leg.exited = true;
+                leg.state = "COMPLETED";
+                leg.exitType = config.is_paper_trading ? "SWITCHED_TO_PAPER" : "SWITCHED_TO_LIVE";
+                leg.exitTime = exitTime;
+                leg.currentLtp = reEntryPrice;
+
+                if (leg.entryPrice) {
+                    const pnlPts = leg.leg.side === "BUY" ? (reEntryPrice - leg.entryPrice) : (leg.entryPrice - reEntryPrice);
+                    const multiplier = parseFloat(config.quantity_multiplier) || 1;
+                    const qty = leg.leg.lots * parseInt(leg.instrument?.lotsize || 1) * multiplier;
+                    leg.bookedPnlPoints = pnlPts;
+                    leg.bookedPnlRupees = pnlPts * qty;
+                    leg.pnlPoints = pnlPts;
+                    leg.pnlRupees = leg.bookedPnlRupees;
+                    if (leg.original_traded_price) {
+                        leg.pnlPercent = (pnlPts / leg.original_traded_price) * 100;
+                    }
+                }
+
+                leg.exitSnapshot = {
+                    slTriggerPrice: leg.slTriggerPrice,
+                    initialSlTriggerPrice: leg.initialSlTriggerPrice,
+                    exitLtp: reEntryPrice,
+                    exitTime: exitTime,
+                    peakPrice: leg.peakPrice || leg.max_peak_price
+                };
 
                 let liveOrderId = null;
                 let liveUniqueOrderId = null;
