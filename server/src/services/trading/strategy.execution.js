@@ -263,15 +263,27 @@ async function waitForOrderFillPrice(uniqueOrderId, connectionId, isPaperTrading
 }
 
 
-async function placeStopLossExitOrder({ baseConfig, legSide, entryPrice, instrument, lots, slType, slValue, slLimitMargin, slLimitMarginType = 'POINTS', connectionId }) {
-    const prices = computeStopLossExitPrices(
-        entryPrice,
-        legSide,
-        slType,
-        slValue,
-        slLimitMargin,
-        slLimitMarginType
-    );
+async function placeStopLossExitOrder({ baseConfig, legSide, entryPrice, instrument, lots, slType, slValue, slLimitMargin, slLimitMarginType = 'POINTS', connectionId, overrideSlTriggerPrice }) {
+    let prices = null;
+    if (overrideSlTriggerPrice && Number(overrideSlTriggerPrice) > 0) {
+        const trigger = Number(overrideSlTriggerPrice);
+        const rawMargin = Number(slLimitMargin || 0);
+        const margin = slLimitMarginType === 'PERCENTAGE' ? (trigger * (rawMargin / 100)) : rawMargin;
+        const limit = legSide === "BUY" ? trigger - margin : trigger + margin;
+        prices = {
+            trigger: roundToTick(trigger),
+            limit: roundToTick(limit)
+        };
+    } else {
+        prices = computeStopLossExitPrices(
+            entryPrice,
+            legSide,
+            slType,
+            slValue,
+            slLimitMargin,
+            slLimitMarginType
+        );
+    }
     if (!prices) return null;
 
     const slConfig = {
@@ -293,7 +305,7 @@ async function placeStopLossExitOrder({ baseConfig, legSide, entryPrice, instrum
  * If the first attempt to place an SL fails (e.g. network error),
  * this function will try up to 3 times before giving up.
  */
-async function placeStopLossWithRetry({ baseConfig, legSide, entryPrice, instrument, lots, slType, slValue, slLimitMargin, slLimitMarginType = 'POINTS', connectionId, strategyId }) {
+async function placeStopLossWithRetry({ baseConfig, legSide, entryPrice, instrument, lots, slType, slValue, slLimitMargin, slLimitMarginType = 'POINTS', connectionId, strategyId, overrideSlTriggerPrice }) {
     let attempts = 3;
     let slOrder = null;
     let lastError = "";
@@ -302,7 +314,7 @@ async function placeStopLossWithRetry({ baseConfig, legSide, entryPrice, instrum
     while (attempts > 0) {
         try {
             slOrder = await placeStopLossExitOrder({
-                baseConfig, legSide, entryPrice, instrument, lots, slType, slValue, slLimitMargin, slLimitMarginType, connectionId
+                baseConfig, legSide, entryPrice, instrument, lots, slType, slValue, slLimitMargin, slLimitMarginType, connectionId, overrideSlTriggerPrice
             });
             if (slOrder?.orderid) {
                 if (attempts < 3) {

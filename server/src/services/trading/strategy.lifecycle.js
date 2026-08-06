@@ -822,13 +822,13 @@ async function switchVirtualMode(strategyId, targetVirtual, userId) {
                     exitTime: exitTime,
                     peakPrice: leg.peakPrice || leg.max_peak_price
                 };
-
+                const existingSlTrigger = leg.slTriggerPrice || leg.initialSlTriggerPrice;
                 let liveOrderId = null;
                 let liveUniqueOrderId = null;
                 let executionEntryPrice = reEntryPrice;
                 let slOrderId = null;
                 let slUniqueOrderId = null;
-                let slTriggerPrice = null;
+                let slTriggerPrice = existingSlTrigger;
                 let slLimitPrice = null;
 
                 if (!config.is_paper_trading) {
@@ -882,7 +882,8 @@ async function switchVirtualMode(strategyId, targetVirtual, userId) {
                                         slLimitMargin: leg.leg.sl_limit_margin || 0,
                                         slLimitMarginType: leg.leg.sl_limit_margin_type || "POINTS",
                                         connectionId: config.connectionId,
-                                        strategyId
+                                        strategyId,
+                                        overrideSlTriggerPrice: existingSlTrigger
                                     });
                                     if (slOrder?.orderid) {
                                         slOrderId = slOrder.orderid;
@@ -903,7 +904,7 @@ async function switchVirtualMode(strategyId, targetVirtual, userId) {
                     addStrategyLog(strategyId, `Re-entered PAPER leg ${instrument.symbol} at ₹${reEntryPrice}`, "INFO");
                 }
 
-                // 3. Create a NEW Active Running Leg
+                // 3. Create a NEW Active Running Leg preserving virtual SL trigger prices
                 const newRunningLeg = {
                     leg: { ...leg.leg },
                     instrument: { ...instrument },
@@ -922,8 +923,8 @@ async function switchVirtualMode(strategyId, targetVirtual, userId) {
                     entryTime: getISTExchangeFormat(),
                     slOrderId: slOrderId,
                     slUniqueOrderId: slUniqueOrderId,
-                    slTriggerPrice: slTriggerPrice,
-                    initialSlTriggerPrice: slTriggerPrice,
+                    slTriggerPrice: slTriggerPrice || existingSlTrigger,
+                    initialSlTriggerPrice: leg.initialSlTriggerPrice || existingSlTrigger || slTriggerPrice,
                     slLimitPrice: slLimitPrice,
                     peakPrice: executionEntryPrice,
                     reentry_count: leg.reentry_count || 0,
