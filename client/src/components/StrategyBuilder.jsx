@@ -2944,10 +2944,9 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
   </>
   );
   })()}
- </span>
- <span className="text-[10px] font-mono font-bold text-black bg-slate-50 border border-slate-200 px-1.5 py-0.5 rounded">
- Trade Value: ₹{(Number(strategyData.totalOriginalValue) || 0).toFixed(0)}
- </span>
+  <span className="text-[10px] font-mono font-bold text-black bg-slate-50 border border-slate-200 px-1.5 py-0.5 rounded">
+  Trade Value: ₹{(Number(strategyData.totalOriginalValue) || 0).toFixed(0)}
+  </span>
  {strategyData.config?.overall_sl_enabled && (
  <span className="text-[10px] font-mono font-medium text-red-500 bg-red-50 border border-red-100 px-1.5 py-0.5 rounded">
  SL: -₹{(() => {
