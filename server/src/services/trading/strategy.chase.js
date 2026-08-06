@@ -55,6 +55,15 @@ async function checkOrderFillOnce(uniqueOrderId, connectionId, expectedQuantity 
  * @returns {number|null} Fill price, or null if not filled after 45s
  */
 async function chaseOrderFill({ orderId, uniqueOrderId, instrument, config, legSide, lots, connectionId, strategyId, baseLtp }) {
+    const { activeStrategies, addStrategyLog } = require("./strategy.state");
+    const activeStrat = strategyId ? activeStrategies.get(strategyId) : null;
+    const isVirtual = config?.is_virtual === true || activeStrat?.is_virtual === true;
+    const isPaperTrading = config?.is_paper_trading === true || isVirtual;
+
+    if (isPaperTrading) {
+        return baseLtp || 0;
+    }
+
     const { modifyOrderLocallyOrViaWorker, cancelOrder } = require("./strategy.execution");
     const expectedQuantity = lots * parseInt(instrument.lotsize);
     const INITIAL_WAIT_MS = 1000;

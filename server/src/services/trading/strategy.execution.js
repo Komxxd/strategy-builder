@@ -31,8 +31,11 @@ const { checkOrderFillOnce, chaseOrderFill } = require("./strategy.chase");
  * Helper function to cancel an order either via Worker Node or Locally
  */
 async function cancelOrder(config, variety, orderId) {
-    const connId = config.connectionId;
-    const isPaperTrading = config.is_paper_trading === true;
+    const connId = config?.connectionId;
+    const strategyId = config?.id || config?.strategyId;
+    const activeStrat = strategyId ? activeStrategies.get(strategyId) : null;
+    const isVirtual = config?.is_virtual === true || activeStrat?.is_virtual === true;
+    const isPaperTrading = config?.is_paper_trading === true || isVirtual;
 
     if (connId) {
         const creds = await sql`SELECT assigned_worker_id FROM public.user_broker_credentials WHERE user_id = ${connId}`;
@@ -65,8 +68,11 @@ async function cancelOrder(config, variety, orderId) {
  * Helper function to modify an order either via Worker Node or Locally
  */
 async function modifyOrderLocallyOrViaWorker(config, modifyParams) {
-    const connId = config.connectionId;
-    const isPaperTrading = config.is_paper_trading === true;
+    const connId = config?.connectionId;
+    const strategyId = config?.id || config?.strategyId;
+    const activeStrat = strategyId ? activeStrategies.get(strategyId) : null;
+    const isVirtual = config?.is_virtual === true || activeStrat?.is_virtual === true;
+    const isPaperTrading = config?.is_paper_trading === true || isVirtual;
 
     if (connId) {
         const creds = await sql`SELECT assigned_worker_id FROM public.user_broker_credentials WHERE user_id = ${connId}`;
@@ -99,8 +105,11 @@ async function modifyOrderLocallyOrViaWorker(config, modifyParams) {
  * The primary function to place an order (Entry or Exit).
  */
 async function placeOrder(config, instrument, connectionId) {
-    const isPaperTrading = config.is_paper_trading === true;
-    const connId = connectionId || config.connectionId;
+    const strategyId = config?.id || config?.strategyId;
+    const activeStrat = strategyId ? activeStrategies.get(strategyId) : null;
+    const isVirtual = config?.is_virtual === true || activeStrat?.is_virtual === true;
+    const isPaperTrading = config?.is_paper_trading === true || isVirtual;
+    const connId = connectionId || config?.connectionId;
 
     // We build the parameters exactly as the Broker (Angel One) expects them.
     const orderParams = {
@@ -345,7 +354,15 @@ async function placeStopLossWithRetry({ baseConfig, legSide, entryPrice, instrum
 
 async function placeExitOrder({ config, leg, instrument, exitType }) {
     if (leg.exited) return leg.exitOrderId;
-    if (leg.isExiting && !config.is_paper_trading) return leg.exitOrderId;
+
+    const strategyId = config?.id || config?.strategyId;
+    const activeStrat = strategyId ? activeStrategies.get(strategyId) : null;
+    const isVirtual = config?.is_virtual === true ||
+                      leg.is_virtual_monitoring === true ||
+                      leg.is_virtual_leg === true ||
+                      activeStrat?.is_virtual === true;
+
+    if (leg.isExiting && (!config.is_paper_trading && !isVirtual)) return leg.exitOrderId;
 
     if (!instrument) {
         console.log(`[Exit] Leg has no instrument (State: ${leg.state}). Marking as exited.`);
@@ -402,7 +419,7 @@ async function placeExitOrder({ config, leg, instrument, exitType }) {
     leg.isExiting = true;
 
     // FIX: If we are firing an active exit (Manual, Chase, local TSL fallback), cancel any pending exchange SL first!
-    if (leg.slOrderId && !config.is_paper_trading) {
+    if (leg.slOrderId && (!config.is_paper_trading && !isVirtual)) {
         try {
             console.log(`[Exit] Cancelling pending Stop-Loss order ${leg.slOrderId} for ${instrument.symbol} before market exit.`);
             await cancelOrder(config, "STOPLOSS", leg.slOrderId);
@@ -453,9 +470,30 @@ async function placeExitOrder({ config, leg, instrument, exitType }) {
         leg.exitType = exitType;
         leg.exitTime = getISTExchangeFormat();
 
-        if (config.is_paper_trading) {
+        if (config.is_paper_trading || isVirtual) {
             leg.exited = true;
             leg.isExiting = false;
+            leg.exitType = exitType;
+            leg.exitTime = getISTExchangeFormat();
+            leg.exitSnapshot = {
+                slTriggerPrice: leg.slTriggerPrice,
+                initialSlTriggerPrice: leg.initialSlTriggerPrice,
+                exitLtp: exitBaseLtp,
+                exitTime: leg.exitTime,
+                peakPrice: leg.peakPrice || leg.max_peak_price
+            };
+            if (leg.entryPrice && exitBaseLtp > 0) {
+                const pnlPts = leg.leg.side === "BUY" ? (exitBaseLtp - leg.entryPrice) : (leg.entryPrice - exitBaseLtp);
+                const multiplier = parseFloat(config.quantity_multiplier) || 1;
+                const qty = leg.leg.lots * parseInt(leg.instrument?.lotsize || 1) * multiplier;
+                leg.bookedPnlPoints = pnlPts;
+                leg.bookedPnlRupees = pnlPts * qty;
+                leg.pnlPoints = pnlPts;
+                leg.pnlRupees = leg.bookedPnlRupees;
+                if (leg.original_traded_price) {
+                    leg.pnlPercent = (pnlPts / leg.original_traded_price) * 100;
+                }
+            }
             return orderData.orderid;
         }
 

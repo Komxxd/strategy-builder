@@ -537,9 +537,11 @@ async function squareOffStrategy(strategyId, userId) {
 
     const { config } = strategy;
 
-    if (!config.is_paper_trading) {
+    const isVirtual = config.is_virtual === true || strategy.is_virtual === true;
+
+    if (!config.is_paper_trading && !isVirtual) {
         await Promise.all(strategy.legs.map(async (leg) => {
-            if (!leg.exited && leg.slOrderId) {
+            if (!leg.exited && leg.slOrderId && !leg.is_virtual_monitoring && !leg.is_virtual_leg) {
                 try {
                     await cancelOrder(config, "STOPLOSS", leg.slOrderId);
                 } catch (e) { }
