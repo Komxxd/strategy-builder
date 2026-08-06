@@ -122,8 +122,21 @@ async function runGlobalWebsocketSync() {
 
         if (strategy.status !== "IN_POSITION" || !strategy.legs) continue;
 
+        const REENTRY_WAITING_STATES = [
+            "WAITING_FOR_RECOST",
+            "WAITING_FOR_MNTM",
+            "WAITING_FOR_RE_ASAP",
+            "WAITING_FOR_LAZY",
+            "WAITING_FOR_RESL_MNTM",
+            "WAITING_FOR_RE_HIGH",
+            "WAITING_FOR_RE_LOW",
+            "WAITING_FOR_SIMPLE_MNTM",
+            "WAITING_FOR_FILL",
+            "WAITING_FOR_INTERNAL_FALLBACK"
+        ];
+
         for (const leg of strategy.legs) {
-            if ((leg.exited && leg.state !== "WAITING_FOR_RECOST") || !leg.instrument) continue;
+            if ((leg.exited && !REENTRY_WAITING_STATES.includes(leg.state)) || !leg.instrument) continue;
             const exch = leg.instrument.exch_seg;
             const token = leg.instrument.token;
 

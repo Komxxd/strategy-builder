@@ -2648,13 +2648,30 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  let next = { ...prev };
  let overallHasChanges = false;
 
+ const REENTRY_WAITING_STATES = [
+ "WAITING_FOR_RECOST",
+ "WAITING_FOR_MNTM",
+ "WAITING_FOR_RE_ASAP",
+ "WAITING_FOR_LAZY",
+ "WAITING_FOR_RESL_MNTM",
+ "WAITING_FOR_RE_HIGH",
+ "WAITING_FOR_RE_LOW",
+ "WAITING_FOR_SIMPLE_MNTM",
+ "WAITING_FOR_FILL",
+ "WAITING_FOR_INTERNAL_FALLBACK"
+ ];
+
  Object.keys(next).forEach(id => {
  const strategy = next[id];
  if (strategy.legs) {
  let strategyLegsChanged = false;
  const updatedLegs = strategy.legs.map(leg => {
- if (leg.instrument.token === data.token &&
- (leg.instrument.exch_seg === data.exchange || leg.instrument.exchange === data.exchange)) {
+ if (leg.instrument?.token === data.token &&
+ (leg.instrument?.exch_seg === data.exchange || leg.instrument?.exchange === data.exchange)) {
+ // Do NOT update LTP for exited legs that are not waiting for re-entry
+ if (leg.exited && !REENTRY_WAITING_STATES.includes(leg.state)) {
+ return leg;
+ }
  if (leg.currentLtp !== data.ltp) {
  strategyLegsChanged = true;
  return { ...leg, currentLtp: data.ltp };
@@ -2758,15 +2775,16 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
   // and then perform a local PnL recalculation to keep it snappy.
   const latestLegs = u.data.legs || [];
   const mergedStrategy = {
-  ...u.data,
-  legs: latestLegs.map(newLeg => {
-  // Try to find matching leg in our current memory to preserve its fast price
-  const existingLeg = existing.legs?.find(ex => ex.instrument.token === newLeg.instrument.token);
-  return {
-  ...newLeg,
-  currentLtp: existingLeg ? (existingLeg.currentLtp || newLeg.currentLtp) : newLeg.currentLtp
-  };
-  })
+    ...u.data,
+    legs: latestLegs.map(newLeg => {
+      const existingLeg = existing.legs?.find(ex => ex.instrument?.token === newLeg.instrument?.token);
+      const isClosedLeg = newLeg.exited && !REENTRY_WAITING_STATES.includes(newLeg.state);
+      const fixedLtp = newLeg.exitSnapshot?.exitLtp || newLeg.currentLtp;
+      return {
+        ...newLeg,
+        currentLtp: isClosedLeg ? (fixedLtp || 0) : (existingLeg ? (existingLeg.currentLtp || newLeg.currentLtp) : newLeg.currentLtp)
+      };
+    })
   };
   next[u.id] = recalculateStrategyPnL(mergedStrategy);
   hasChanges = true;

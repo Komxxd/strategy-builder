@@ -66,14 +66,18 @@ async function handleLegStopOut(leg, exitType, strategy, exchangeFillData = null
     // We still need the HH:mm format for slHitMinute (used for SL re-entry block)
     const slHitMinute = getISTTime().substring(0, 5);
 
+    const finalExitLtp = exchangeFillData?.exchangeFillPrice || leg.currentLtp;
     leg.exitSnapshot = {
         slTriggerPrice: leg.slTriggerPrice,
         initialSlTriggerPrice: leg.initialSlTriggerPrice,
-        exitLtp: leg.currentLtp,
+        exitLtp: finalExitLtp,
         exitTime: exitTime,
         peakPrice: leg.peakPrice
     };
     leg.exitTime = exitTime;
+    if (finalExitLtp) {
+        leg.currentLtp = finalExitLtp;
+    }
 
     // STEP 3: Clean up order IDs
     // We clear the SL order IDs because that order is now dead/executed.
