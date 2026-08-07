@@ -19,6 +19,20 @@ import { downloadElementAsPdf } from '../utils/pdfExport';
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ||"http://localhost:5001/api";
 const SOCKET_URL = API_BASE_URL.replace(/\/api\/?$/,"");
 
+// States in which an exited leg is still waiting for re-entry (used in multiple places)
+const REENTRY_WAITING_STATES = [
+  "WAITING_FOR_RECOST",
+  "WAITING_FOR_MNTM",
+  "WAITING_FOR_RE_ASAP",
+  "WAITING_FOR_LAZY",
+  "WAITING_FOR_RESL_MNTM",
+  "WAITING_FOR_RE_HIGH",
+  "WAITING_FOR_RE_LOW",
+  "WAITING_FOR_SIMPLE_MNTM",
+  "WAITING_FOR_FILL",
+  "WAITING_FOR_INTERNAL_FALLBACK"
+];
+
 // Removed interceptor, handled globally in App.jsx
 
 const DEFAULT_LEG = {
@@ -2647,19 +2661,6 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  setRunningStrategies(prev => {
  let next = { ...prev };
  let overallHasChanges = false;
-
- const REENTRY_WAITING_STATES = [
- "WAITING_FOR_RECOST",
- "WAITING_FOR_MNTM",
- "WAITING_FOR_RE_ASAP",
- "WAITING_FOR_LAZY",
- "WAITING_FOR_RESL_MNTM",
- "WAITING_FOR_RE_HIGH",
- "WAITING_FOR_RE_LOW",
- "WAITING_FOR_SIMPLE_MNTM",
- "WAITING_FOR_FILL",
- "WAITING_FOR_INTERNAL_FALLBACK"
- ];
 
  Object.keys(next).forEach(id => {
  const strategy = next[id];
