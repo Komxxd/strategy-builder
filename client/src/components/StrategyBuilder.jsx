@@ -2942,17 +2942,17 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  {(strategyData?.status ==="IN_POSITION" || strategyData?.status ==="COMPLETED" || strategyData?.status ==="EXITED") && (
   <div className="flex items-center gap-1.5 ml-1 flex-wrap">
   {(() => {
-  const isVirtualLeg = l => l.is_virtual_leg || l.is_virtual_monitoring || l.exitType?.includes("VIRTUAL");
+  const isVirtualLeg = l => l.is_virtual_leg || l.is_virtual_monitoring;
 
   const bookedRupees = (strategyData.legs || [])
     .filter(l => l.exited && !isVirtualLeg(l))
     .reduce((sum, l) => sum + (l.pnlRupees || l.bookedPnlRupees || 0), 0);
 
   const activeVirtualRupees = (strategyData.legs || [])
-    .filter(l => isVirtualLeg(l) || strategyData.is_virtual)
+    .filter(l => isVirtualLeg(l))
     .reduce((sum, l) => sum + (l.exited ? (l.pnlRupees || l.bookedPnlRupees || 0) : (l.currentActivePnlRupees || l.pnlRupees || 0)), 0);
 
-  const hasVirtualLegs = (strategyData.legs || []).some(l => isVirtualLeg(l)) || strategyData.is_virtual;
+  const hasVirtualLegs = (strategyData.legs || []).some(l => isVirtualLeg(l));
   const totalRupees = Number(strategyData.totalPnlRupees) || (bookedRupees + activeVirtualRupees);
 
   return (
@@ -3336,8 +3336,8 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  <span className={`text-[12px] font-mono font-medium ${(Number(l.pnlRupees) || 0) >= 0 ?'text-emerald-600' :'text-red-600'}`}>
  {(Number(l.pnlRupees) || 0) > 0 ?'+' :''}₹{(Number(l.pnlRupees) || 0).toFixed(2)}
  </span>
- <span className={`px-2 py-0.5 text-[10px] font-bold rounded uppercase ${(l.is_virtual_leg || l.is_virtual_monitoring || l.exitType?.includes("VIRTUAL")) ? "bg-purple-100 text-purple-800 border border-purple-200" : "bg-slate-200 text-black"}`}>
- {(l.is_virtual_leg || l.is_virtual_monitoring || l.exitType?.includes("VIRTUAL")) ? "Virtual Closed" : "Closed"}
+ <span className={`px-2 py-0.5 text-[10px] font-bold rounded uppercase ${(l.is_virtual_leg || l.is_virtual_monitoring) ? "bg-purple-100 text-purple-800 border border-purple-200" : "bg-slate-200 text-black"}`}>
+ {(l.is_virtual_leg || l.is_virtual_monitoring) ? "Virtual Closed" : "Closed"}
  </span>
  </div>
  </div>
