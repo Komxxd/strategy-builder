@@ -455,26 +455,17 @@ async function placeExitOrder({ config, leg, instrument, exitType }) {
         if (exitSide === "SELL") finalPrice = roundToTick(exitBaseLtp - offsetAmt).toString();
         else finalPrice = roundToTick(exitBaseLtp + offsetAmt).toString();
 
-        const closeConfig = {
-            ...config,
-            side: exitSide,
-            variety: "NORMAL",
-            ordertype: "LIMIT",
-            price: finalPrice,
-            lots: leg.leg.lots
-        };
-
-        const orderData = await placeOrder(closeConfig, instrument, config.connectionId);
-        leg.exitOrderId = orderData.orderid;
-        leg.exitUniqueOrderId = orderData.uniqueorderid;
-        leg.exitType = exitType;
-        leg.exitTime = getISTExchangeFormat();
-
+        // ── VIRTUAL / PAPER PATH ──────────────────────────────────────────────
+        // Short-circuit: do NOT send any order to the broker.
+        // Virtual strategies have no real positions, so there is nothing to close.
         if (config.is_paper_trading || isVirtual) {
-            leg.exited = true;
-            leg.isExiting = false;
+            const syntheticOrderId = `VIRTUAL_EXIT_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
+            leg.exitOrderId = syntheticOrderId;
+            leg.exitUniqueOrderId = syntheticOrderId;
             leg.exitType = exitType;
             leg.exitTime = getISTExchangeFormat();
+            leg.exited = true;
+            leg.isExiting = false;
             leg.exitSnapshot = {
                 slTriggerPrice: leg.slTriggerPrice,
                 initialSlTriggerPrice: leg.initialSlTriggerPrice,
@@ -494,8 +485,25 @@ async function placeExitOrder({ config, leg, instrument, exitType }) {
                     leg.pnlPercent = (pnlPts / leg.original_traded_price) * 100;
                 }
             }
-            return orderData.orderid;
+            console.log(`[Exit] Virtual/Paper exit simulated for ${instrument.symbol} at ₹${exitBaseLtp}. No order sent to exchange.`);
+            return syntheticOrderId;
         }
+
+        // ── LIVE PATH ─────────────────────────────────────────────────────────
+        const closeConfig = {
+            ...config,
+            side: exitSide,
+            variety: "NORMAL",
+            ordertype: "LIMIT",
+            price: finalPrice,
+            lots: leg.leg.lots
+        };
+
+        const orderData = await placeOrder(closeConfig, instrument, config.connectionId);
+        leg.exitOrderId = orderData.orderid;
+        leg.exitUniqueOrderId = orderData.uniqueorderid;
+        leg.exitType = exitType;
+        leg.exitTime = getISTExchangeFormat();
 
         // --- Verified Exit with Chase (Live Only) ---
         // Same 45s chase as entry: modify order every 1s with progressive offset from base LTP.
