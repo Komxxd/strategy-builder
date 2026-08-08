@@ -2483,9 +2483,7 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  [newId]: statusRes.data.data
  }));
 
- if (mode === 'virtual_paper') setActiveTab('virtual_paper');
- else if (mode === 'virtual_live') setActiveTab('virtual_live');
- else if (isPaper) setActiveTab('paper');
+ if (isPaper) setActiveTab('paper');
  else setActiveTab('live');
 
  fetchActive();
@@ -2832,12 +2830,7 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
 
   const filteredRunningStrategies = Object.entries(runningStrategies).filter(([_, strategyData]) => {
     const isPaper = !!strategyData.config?.is_paper_trading;
-    const isVirtual = !!strategyData.is_virtual;
-    if (activeTab === 'live') return !isPaper && !isVirtual;
-    if (activeTab === 'paper') return isPaper && !isVirtual;
-    if (activeTab === 'virtual_live') return !isPaper && isVirtual;
-    if (activeTab === 'virtual_paper') return isPaper && isVirtual;
-    return false;
+    return activeTab === 'paper' ? isPaper : !isPaper;
   });
 
   const cumulativeActivePnl = filteredRunningStrategies.reduce((sum, [_, s]) => sum + (Number(s.totalPnlRupees) || 0), 0);
@@ -2846,7 +2839,7 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
 
   // Update browser tab title with live overall PnL (live trading only)
   useEffect(() => {
-     if (activeTab !== 'live' && activeTab !== 'virtual_live') {
+     if (activeTab !== 'live') {
        document.title = 'Corequant';
        return;
      }
@@ -3384,12 +3377,15 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  </Card>
  );
  })}
- {filteredRunningStrategies.length === 0 && (
+ {Object.entries(runningStrategies).filter(([_, strategyData]) => {
+ const isPaper = !!strategyData.config?.is_paper_trading;
+ return activeTab ==='paper' ? isPaper : !isPaper;
+ }).length === 0 && (
  <div className="flex flex-col items-center justify-center p-12 bg-white border-2 border-dashed border-slate-200 rounded-[2rem] text-center">
  <div className="h-16 w-16 bg-slate-50 text-slate-300 rounded-2xl flex items-center justify-center mb-4">
  <Play className="h-8 w-8" />
  </div>
- <h3 className="text-sm font-medium text-slate-900">No {activeTab ==='paper' ?'Paper' : activeTab ==='live' ?'Live' : activeTab ==='virtual_paper' ?'Virtual Paper' :'Virtual Live'} Strategies Active</h3>
+ <h3 className="text-sm font-medium text-slate-900">No {activeTab ==='paper' ?'Paper' :'Live'} Strategies Active</h3>
  <p className="text-xs text-slate-500 mt-1">Deploy a strategy from your templates to see it here.</p>
  </div>
  )}
@@ -3399,18 +3395,12 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  )
  }
 
- <TabsList className="grid w-full grid-cols-4 mb-4 mt-8 h-10 bg-muted/50 p-1 rounded-lg">
- <TabsTrigger value="live" className="rounded-md font-medium text-[11px] data-[state=active]:bg-orange-600 data-[state=active]:text-white flex items-center gap-1.5 transition-all">
+ <TabsList className="grid w-full grid-cols-2 mb-4 mt-8 h-10 bg-muted/50 p-1 rounded-lg">
+ <TabsTrigger value="live" className="rounded-md font-medium text-[11px] data-[state=active]:bg-orange-600 data-[state=active]:text-white flex items-center gap-2 transition-all">
  <Zap className="h-4 w-4" /> Live Market
  </TabsTrigger>
- <TabsTrigger value="paper" className="rounded-md font-medium text-[11px] data-[state=active]:bg-blue-600 data-[state=active]:text-white flex items-center gap-1.5 transition-all">
+ <TabsTrigger value="paper" className="rounded-md font-medium text-[11px] data-[state=active]:bg-blue-600 data-[state=active]:text-white flex items-center gap-2 transition-all">
  <ShieldCheck className="h-4 w-4" /> Paper Trading
- </TabsTrigger>
- <TabsTrigger value="virtual_paper" className="rounded-md font-medium text-[11px] data-[state=active]:bg-indigo-600 data-[state=active]:text-white flex items-center gap-1.5 transition-all">
- <Eye className="h-4 w-4" /> Virtual Paper
- </TabsTrigger>
- <TabsTrigger value="virtual_live" className="rounded-md font-medium text-[11px] data-[state=active]:bg-purple-700 data-[state=active]:text-white flex items-center gap-1.5 transition-all">
- <Eye className="h-4 w-4" /> Virtual Live
  </TabsTrigger>
  </TabsList>
 
