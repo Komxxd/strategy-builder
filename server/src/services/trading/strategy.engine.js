@@ -66,10 +66,23 @@ async function startStrategy(strategyId, overrideIsPaperTrading, userId) {
 
     if (typeof overrideIsPaperTrading === 'object' && overrideIsPaperTrading !== null) {
         const mode = overrideIsPaperTrading.mode;
-        isVirtual = mode === 'virtual' || overrideIsPaperTrading.is_virtual === true;
-        isPaper = isVirtual || mode === 'paper' || overrideIsPaperTrading.is_paper_trading === true;
+        isVirtual = mode === 'virtual' || mode === 'virtual_paper' || mode === 'virtual_live' || overrideIsPaperTrading.is_virtual === true;
+        if (mode === 'virtual_live') {
+            isPaper = false;
+        } else if (mode === 'virtual_paper' || mode === 'virtual') {
+            isPaper = true;
+        } else if (mode === 'paper') {
+            isPaper = true;
+        } else if (mode === 'live') {
+            isPaper = false;
+        } else {
+            isPaper = overrideIsPaperTrading.is_paper_trading === true;
+        }
     } else if (typeof overrideIsPaperTrading === 'string') {
-        if (overrideIsPaperTrading === 'virtual') {
+        if (overrideIsPaperTrading === 'virtual_live') {
+            isVirtual = true;
+            isPaper = false;
+        } else if (overrideIsPaperTrading === 'virtual' || overrideIsPaperTrading === 'virtual_paper') {
             isVirtual = true;
             isPaper = true;
         } else if (overrideIsPaperTrading === 'paper' || overrideIsPaperTrading === 'true') {

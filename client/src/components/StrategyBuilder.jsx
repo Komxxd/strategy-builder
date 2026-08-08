@@ -2453,12 +2453,27 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  return;
  }
  try {
- const isVirtual = mode === 'virtual';
- const isPaper = isVirtual ? true : (mode === true || mode === 'paper');
+ let isVirtual = false;
+ let isPaper = false;
+
+ if (mode === 'virtual_paper') {
+ isVirtual = true;
+ isPaper = true;
+ } else if (mode === 'virtual_live') {
+ isVirtual = true;
+ isPaper = false;
+ } else if (mode === 'paper' || mode === true) {
+ isVirtual = false;
+ isPaper = true;
+ } else if (mode === 'live' || mode === false) {
+ isVirtual = false;
+ isPaper = false;
+ }
+
  const res = await axios.post(`${API_BASE_URL}/strategy/execute/${id}`, {
  is_paper_trading: isPaper,
  is_virtual: isVirtual,
- mode: isVirtual ? 'virtual' : (isPaper ? 'paper' : 'live')
+ mode: mode
  });
  const newId = res.data.strategy_id || res.data.execution_id;
  // Fetch initial status
@@ -2467,8 +2482,13 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  ...prev,
  [newId]: statusRes.data.data
  }));
+
+ if (mode === 'virtual_paper') setActiveTab('virtual_paper');
+ else if (mode === 'virtual_live') setActiveTab('virtual_live');
+ else if (isPaper) setActiveTab('paper');
+ else setActiveTab('live');
+
  fetchActive();
- // We no longer call fetchSavedStrategies() here because execution doesn't create a new template
  } catch (err) {
  alert("Error executing strategy:" + err.message);
  }
@@ -2810,21 +2830,26 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  return () => clearInterval(interval);
  }, [Object.keys(runningStrategies).length, isConnected]);
 
- const filteredRunningStrategies = Object.entries(runningStrategies).filter(([_, strategyData]) => {
- const isPaper = !!strategyData.config?.is_paper_trading;
- return activeTab ==='paper' ? isPaper : !isPaper;
- });
+  const filteredRunningStrategies = Object.entries(runningStrategies).filter(([_, strategyData]) => {
+    const isPaper = !!strategyData.config?.is_paper_trading;
+    const isVirtual = !!strategyData.is_virtual;
+    if (activeTab === 'live') return !isPaper && !isVirtual;
+    if (activeTab === 'paper') return isPaper && !isVirtual;
+    if (activeTab === 'virtual_live') return !isPaper && isVirtual;
+    if (activeTab === 'virtual_paper') return isPaper && isVirtual;
+    return false;
+  });
 
- const cumulativeActivePnl = filteredRunningStrategies.reduce((sum, [_, s]) => sum + (Number(s.totalPnlRupees) || 0), 0);
- const cumulativeActiveValue = filteredRunningStrategies.reduce((sum, [_, s]) => sum + (Number(s.totalOriginalValue) || 0), 0);
- const cumulativeActivePnlPercent = cumulativeActiveValue > 0 ? (cumulativeActivePnl / cumulativeActiveValue) * 100 : 0;
+  const cumulativeActivePnl = filteredRunningStrategies.reduce((sum, [_, s]) => sum + (Number(s.totalPnlRupees) || 0), 0);
+  const cumulativeActiveValue = filteredRunningStrategies.reduce((sum, [_, s]) => sum + (Number(s.totalOriginalValue) || 0), 0);
+  const cumulativeActivePnlPercent = cumulativeActiveValue > 0 ? (cumulativeActivePnl / cumulativeActiveValue) * 100 : 0;
 
- // Update browser tab title with live overall PnL (live trading only)
- useEffect(() => {
-    if (activeTab !== 'live') {
-      document.title = 'Corequant';
-      return;
-    }
+  // Update browser tab title with live overall PnL (live trading only)
+  useEffect(() => {
+     if (activeTab !== 'live' && activeTab !== 'virtual_live') {
+       document.title = 'Corequant';
+       return;
+     }
     if (filteredRunningStrategies.length > 0) {
       const sign = cumulativeActivePnl >= 0 ? '+' : '';
       const pnlStr = `${sign}₹${cumulativeActivePnl.toFixed(0)}`;
@@ -3359,15 +3384,12 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  </Card>
  );
  })}
- {Object.entries(runningStrategies).filter(([_, strategyData]) => {
- const isPaper = !!strategyData.config?.is_paper_trading;
- return activeTab ==='paper' ? isPaper : !isPaper;
- }).length === 0 && (
+ {filteredRunningStrategies.length === 0 && (
  <div className="flex flex-col items-center justify-center p-12 bg-white border-2 border-dashed border-slate-200 rounded-[2rem] text-center">
  <div className="h-16 w-16 bg-slate-50 text-slate-300 rounded-2xl flex items-center justify-center mb-4">
  <Play className="h-8 w-8" />
  </div>
- <h3 className="text-sm font-medium text-slate-900">No {activeTab ==='paper' ?'Paper' :'Live'} Strategies Active</h3>
+ <h3 className="text-sm font-medium text-slate-900">No {activeTab ==='paper' ?'Paper' : activeTab ==='live' ?'Live' : activeTab ==='virtual_paper' ?'Virtual Paper' :'Virtual Live'} Strategies Active</h3>
  <p className="text-xs text-slate-500 mt-1">Deploy a strategy from your templates to see it here.</p>
  </div>
  )}
@@ -3377,12 +3399,18 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  )
  }
 
- <TabsList className="grid w-full grid-cols-2 mb-4 mt-8 h-10 bg-muted/50 p-1 rounded-lg">
- <TabsTrigger value="live" className="rounded-md font-medium text-[11px] data-[state=active]:bg-orange-600 data-[state=active]:text-white flex items-center gap-2 transition-all">
+ <TabsList className="grid w-full grid-cols-4 mb-4 mt-8 h-10 bg-muted/50 p-1 rounded-lg">
+ <TabsTrigger value="live" className="rounded-md font-medium text-[11px] data-[state=active]:bg-orange-600 data-[state=active]:text-white flex items-center gap-1.5 transition-all">
  <Zap className="h-4 w-4" /> Live Market
  </TabsTrigger>
- <TabsTrigger value="paper" className="rounded-md font-medium text-[11px] data-[state=active]:bg-blue-600 data-[state=active]:text-white flex items-center gap-2 transition-all">
+ <TabsTrigger value="paper" className="rounded-md font-medium text-[11px] data-[state=active]:bg-blue-600 data-[state=active]:text-white flex items-center gap-1.5 transition-all">
  <ShieldCheck className="h-4 w-4" /> Paper Trading
+ </TabsTrigger>
+ <TabsTrigger value="virtual_paper" className="rounded-md font-medium text-[11px] data-[state=active]:bg-indigo-600 data-[state=active]:text-white flex items-center gap-1.5 transition-all">
+ <Eye className="h-4 w-4" /> Virtual Paper
+ </TabsTrigger>
+ <TabsTrigger value="virtual_live" className="rounded-md font-medium text-[11px] data-[state=active]:bg-purple-700 data-[state=active]:text-white flex items-center gap-1.5 transition-all">
+ <Eye className="h-4 w-4" /> Virtual Live
  </TabsTrigger>
  </TabsList>
 
@@ -3882,9 +3910,9 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  <p className="text-xs text-slate-600 text-center mb-1">
  How would you like to deploy <strong>{selectedStrategyForDeploy.name || selectedStrategyForDeploy.config?.name ||'Strategy'}</strong>?
  </p>
- <div className="grid grid-cols-3 gap-2">
+ <div className="grid grid-cols-2 gap-3">
  <Button
- className="w-full h-10 rounded-lg text-xs font-bold gap-1.5 bg-blue-600 hover:bg-blue-700 text-white transition-all active:scale-[0.98] px-2"
+ className="w-full h-10 rounded-lg text-xs font-bold gap-2 bg-blue-600 hover:bg-blue-700 text-white transition-all active:scale-[0.98]"
  onClick={() => {
  handleExecute(selectedStrategyForDeploy.id, 'paper');
  setDeployModalOpen(false);
@@ -3893,7 +3921,7 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  <ShieldCheck className="h-4 w-4 shrink-0" /> Paper
  </Button>
  <Button
- className="w-full h-10 rounded-lg text-xs font-bold gap-1.5 bg-orange-600 hover:bg-orange-700 text-white transition-all active:scale-[0.98] px-2"
+ className="w-full h-10 rounded-lg text-xs font-bold gap-2 bg-orange-600 hover:bg-orange-700 text-white transition-all active:scale-[0.98]"
  onClick={() => {
  handleExecute(selectedStrategyForDeploy.id, 'live');
  setDeployModalOpen(false);
@@ -3902,13 +3930,22 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  <Zap className="h-4 w-4 shrink-0" /> Live
  </Button>
  <Button
- className="w-full h-10 rounded-lg text-xs font-bold gap-1.5 bg-purple-600 hover:bg-purple-700 text-white transition-all active:scale-[0.98] px-2"
+ className="w-full h-10 rounded-lg text-xs font-bold gap-2 bg-indigo-600 hover:bg-indigo-700 text-white transition-all active:scale-[0.98]"
  onClick={() => {
- handleExecute(selectedStrategyForDeploy.id, 'virtual');
+ handleExecute(selectedStrategyForDeploy.id, 'virtual_paper');
  setDeployModalOpen(false);
  }}
  >
- <Eye className="h-4 w-4 shrink-0" /> Virtual
+ <Eye className="h-4 w-4 shrink-0" /> Virtual Paper
+ </Button>
+ <Button
+ className="w-full h-10 rounded-lg text-xs font-bold gap-2 bg-purple-700 hover:bg-purple-800 text-white transition-all active:scale-[0.98]"
+ onClick={() => {
+ handleExecute(selectedStrategyForDeploy.id, 'virtual_live');
+ setDeployModalOpen(false);
+ }}
+ >
+ <Eye className="h-4 w-4 shrink-0" /> Virtual Live
  </Button>
  </div>
  </CardContent>
