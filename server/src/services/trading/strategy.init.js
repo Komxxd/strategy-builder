@@ -12,6 +12,7 @@ async function handleInitialEntry(strategyId, strategy) {
     strategy.entryAttempted = true;
 
     const { config } = strategy;
+    const isVirtualStrategy = strategy.is_virtual === true || config.is_virtual === true;
 
     try {
         // 1. Get Spot Price to identify ATM Strike
@@ -97,7 +98,27 @@ async function handleInitialEntry(strategyId, strategy) {
                 throw new Error(`CRITICAL: Cannot place entry order for ${item.instrument.symbol}. LTP missing.`);
             }
 
-            if (isSimpleMntm) {
+            if (isVirtualStrategy) {
+                if (isSimpleMntm) {
+                    roundedMntmTarget = calculateMomentumTarget(instLtp, item.leg);
+                    legState = "WAITING_FOR_SIMPLE_MNTM";
+                    addStrategyLog(strategyId, `[VIRTUAL] Simple Mntm enabled for ${item.instrument.symbol}. Snapshot: ₹${instLtp}. Waiting for Target: ₹${roundedMntmTarget}...`, "INFO");
+                    orderData = {
+                        orderid: `VIRTUAL-SIMPLE-${Date.now()}_${idx}`,
+                        uniqueorderid: `UVIRTUAL-SIMPLE-${Date.now()}_${idx}`,
+                        mntmTargetPrice: roundedMntmTarget,
+                        baseOtp: instLtp
+                    };
+                } else {
+                    finalPrice = instLtp.toString();
+                    legState = "VIRTUAL_MONITORING";
+                    orderData = {
+                        orderid: `VIRTUAL-${Date.now()}_${idx}`,
+                        uniqueorderid: `UVIRTUAL-${Date.now()}_${idx}`
+                    };
+                    addStrategyLog(strategyId, `[VIRTUAL] Initial entry created for ${item.instrument.symbol} at ₹${instLtp}. Virtual monitoring active.`, "INFO");
+                }
+            } else if (isSimpleMntm) {
                 roundedMntmTarget = calculateMomentumTarget(instLtp, item.leg);
                 const offsetAmt = getLimitOffsetAmt(roundedMntmTarget, config);
 
@@ -155,9 +176,11 @@ async function handleInitialEntry(strategyId, strategy) {
                 simpleMntmEnabled: isSimpleMntm,
                 legIndex: idx,
                 state: legState,
-                original_traded_price: parseFloat(finalPrice) || 0,
+                is_virtual_monitoring: isVirtualStrategy,
+                is_virtual_leg: isVirtualStrategy,
+                original_traded_price: parseFloat(finalPrice) || instLtp || 0,
                 initialLtp: instLtp,
-                base_otp: parseFloat(finalPrice) || 0,
+                base_otp: parseFloat(finalPrice) || instLtp || 0,
                 recost_trigger_price: null,
                 reentry_count: 0,
                 last_tick_price: null,
@@ -165,8 +188,11 @@ async function handleInitialEntry(strategyId, strategy) {
                 bookedPnlRupees: 0,
                 currentActivePnlPoints: 0,
                 currentActivePnlRupees: 0,
-                entryPrice: null,
-                currentLtp: null,
+                entryPrice: (isVirtualStrategy && !isSimpleMntm) ? instLtp : null,
+                entryTime: (isVirtualStrategy && !isSimpleMntm) ? getISTExchangeFormat() : null,
+                peakPrice: (isVirtualStrategy && !isSimpleMntm) ? instLtp : null,
+                tslReferencePrice: (isVirtualStrategy && !isSimpleMntm) ? instLtp : null,
+                currentLtp: instLtp,
                 pnlPercent: 0,
                 pnlPoints: 0,
                 pnlRupees: 0,
@@ -175,11 +201,27 @@ async function handleInitialEntry(strategyId, strategy) {
                 slTriggerPrice: null,
                 slLimitPrice: null
             };
+
+            if (isVirtualStrategy && leg.entryPrice && config.variety === "STOPLOSS" && leg.leg.sl_enabled !== false) {
+                const prices = computeStopLossExitPrices(
+                    leg.entryPrice,
+                    leg.leg.side,
+                    leg.leg.sl_type || "PERCENTAGE",
+                    leg.leg.stop_loss,
+                    getLimitOffsetAmt(leg.entryPrice, config),
+                    config.entry_limit_offset_type || 'POINTS'
+                );
+                leg.slTriggerPrice = prices?.trigger || null;
+                leg.initialSlTriggerPrice = prices?.trigger || null;
+                leg.slLimitPrice = prices?.limit || null;
+            }
+
             strategy.legs.push(leg);
             return leg;
         }));
 
         await Promise.all(placedLegs.map(async (leg) => {
+            if (isVirtualStrategy) return;
             if (leg.uniqueOrderId) {
                 if (leg.state === "WAITING_FOR_SIMPLE_MNTM") return;
                 if (leg.state === "WAITING_FOR_INTERNAL_FALLBACK") return;
@@ -321,8 +363,10 @@ async function handleInitialEntry(strategyId, strategy) {
         }));
 
         strategy.status = "IN_POSITION";
+        if (isVirtualStrategy) strategy.is_virtual = true;
         updateStrategyInMemory(strategyId, {
             status: "IN_POSITION",
+            is_virtual: isVirtualStrategy,
             order_id: strategy.legs.map(l => l.orderId),
             entry_price: strategy.legs.map(l => l.entryPrice),
             instrument: strategy.legs.map(l => l.instrument)

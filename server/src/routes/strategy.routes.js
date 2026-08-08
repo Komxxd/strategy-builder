@@ -71,9 +71,9 @@ router.delete("/delete/:id", async (req, res) => {
 
 router.post("/execute/:id", async (req, res) => {
     try {
-        const { is_paper_trading } = req.body;
+        const { is_paper_trading, is_virtual, mode } = req.body;
         const userId = req.user.id;
-        const strategyId = await strategyService.startStrategy(req.params.id, is_paper_trading, userId);
+        const strategyId = await strategyService.startStrategy(req.params.id, { is_paper_trading, is_virtual, mode }, userId);
         res.json({ success: true, strategy_id: strategyId });
     } catch (error) {
         console.error("Error starting strategy:", error.message);

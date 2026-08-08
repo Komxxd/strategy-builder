@@ -61,23 +61,42 @@ async function startStrategy(strategyId, overrideIsPaperTrading, userId) {
     const [template] = await withDbRetry(() => sql`SELECT * FROM strategies WHERE id = ${strategyId} AND user_id = ${userId} LIMIT 1`);
     if (!template) throw new Error("Strategy template not found");
 
-    // FIX: Coerce to strict boolean. Prevents "true" (string) !== true (boolean) mismatch
-    // that would route a paper trade into live execution.
-    const isPaper = overrideIsPaperTrading === true || overrideIsPaperTrading === "true"
-        ? true
-        : (overrideIsPaperTrading === false || overrideIsPaperTrading === "false" ? false : (template.config.is_paper_trading === true));
+    let isPaper = false;
+    let isVirtual = false;
+
+    if (typeof overrideIsPaperTrading === 'object' && overrideIsPaperTrading !== null) {
+        const mode = overrideIsPaperTrading.mode;
+        isVirtual = mode === 'virtual' || overrideIsPaperTrading.is_virtual === true;
+        isPaper = isVirtual || mode === 'paper' || overrideIsPaperTrading.is_paper_trading === true;
+    } else if (typeof overrideIsPaperTrading === 'string') {
+        if (overrideIsPaperTrading === 'virtual') {
+            isVirtual = true;
+            isPaper = true;
+        } else if (overrideIsPaperTrading === 'paper' || overrideIsPaperTrading === 'true') {
+            isPaper = true;
+        } else if (overrideIsPaperTrading === 'live' || overrideIsPaperTrading === 'false') {
+            isPaper = false;
+        }
+    } else {
+        isPaper = overrideIsPaperTrading === true;
+        isVirtual = false;
+    }
 
     const runtimeConfig = {
         ...template.config,
         is_paper_trading: isPaper,
+        is_virtual: isVirtual,
         connectionId: userId
     };
 
-    // FIX: Store is_paper_trading as a top-level column so it NEVER gets lost 
-    // even if execution_details fails to persist during DB write timeouts.
+    const executionDetails = {
+        config: runtimeConfig,
+        is_virtual: isVirtual
+    };
+
     const [execution] = await withDbRetry(() => sql`
         INSERT INTO strategy_executions (strategy_id, status, is_paper_trading, execution_details, user_id)
-        VALUES (${template.id}, 'WAITING', ${isPaper}, ${sql.json({ config: runtimeConfig })}, ${userId})
+        VALUES (${template.id}, 'WAITING', ${isPaper}, ${sql.json(executionDetails)}, ${userId})
         RETURNING *
     `);
 
@@ -86,6 +105,7 @@ async function startStrategy(strategyId, overrideIsPaperTrading, userId) {
         strategy_id: template.id,
         config: runtimeConfig,
         status: "WAITING",
+        is_virtual: isVirtual,
         user_id: userId,
         entryAttempted: false,
         startTime: new Date(),

@@ -2447,13 +2447,19 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  }
  };
 
- const handleExecute = async (id, isPaper) => {
+ const handleExecute = async (id, mode) => {
  if (!isConnected) {
  alert("Please connect to Angel One to execute strategies.");
  return;
  }
  try {
- const res = await axios.post(`${API_BASE_URL}/strategy/execute/${id}`, { is_paper_trading: isPaper });
+ const isVirtual = mode === 'virtual';
+ const isPaper = isVirtual ? true : (mode === true || mode === 'paper');
+ const res = await axios.post(`${API_BASE_URL}/strategy/execute/${id}`, {
+ is_paper_trading: isPaper,
+ is_virtual: isVirtual,
+ mode: isVirtual ? 'virtual' : (isPaper ? 'paper' : 'live')
+ });
  const newId = res.data.strategy_id || res.data.execution_id;
  // Fetch initial status
  const statusRes = await axios.get(`${API_BASE_URL}/strategy/status/${newId}`);
@@ -3876,24 +3882,33 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  <p className="text-xs text-slate-600 text-center mb-1">
  How would you like to deploy <strong>{selectedStrategyForDeploy.name || selectedStrategyForDeploy.config?.name ||'Strategy'}</strong>?
  </p>
- <div className="grid grid-cols-2 gap-3">
+ <div className="grid grid-cols-3 gap-2">
  <Button
- className="w-full h-10 rounded-lg text-xs font-bold gap-2 bg-blue-600 hover:bg-blue-700 text-white transition-all active:scale-[0.98]"
+ className="w-full h-10 rounded-lg text-xs font-bold gap-1.5 bg-blue-600 hover:bg-blue-700 text-white transition-all active:scale-[0.98] px-2"
  onClick={() => {
- handleExecute(selectedStrategyForDeploy.id, true);
+ handleExecute(selectedStrategyForDeploy.id, 'paper');
  setDeployModalOpen(false);
  }}
  >
- <ShieldCheck className="h-4 w-4" /> Paper
+ <ShieldCheck className="h-4 w-4 shrink-0" /> Paper
  </Button>
  <Button
- className="w-full h-10 rounded-lg text-xs font-bold gap-2 bg-orange-600 hover:bg-orange-700 text-white transition-all active:scale-[0.98]"
+ className="w-full h-10 rounded-lg text-xs font-bold gap-1.5 bg-orange-600 hover:bg-orange-700 text-white transition-all active:scale-[0.98] px-2"
  onClick={() => {
- handleExecute(selectedStrategyForDeploy.id, false);
+ handleExecute(selectedStrategyForDeploy.id, 'live');
  setDeployModalOpen(false);
  }}
  >
- <Zap className="h-4 w-4" /> Live
+ <Zap className="h-4 w-4 shrink-0" /> Live
+ </Button>
+ <Button
+ className="w-full h-10 rounded-lg text-xs font-bold gap-1.5 bg-purple-600 hover:bg-purple-700 text-white transition-all active:scale-[0.98] px-2"
+ onClick={() => {
+ handleExecute(selectedStrategyForDeploy.id, 'virtual');
+ setDeployModalOpen(false);
+ }}
+ >
+ <Eye className="h-4 w-4 shrink-0" /> Virtual
  </Button>
  </div>
  </CardContent>
