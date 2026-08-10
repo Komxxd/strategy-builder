@@ -2808,9 +2808,12 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
       ) || existing.legs?.[idx];
       const isClosedLeg = newLeg.exited && !REENTRY_WAITING_STATES.includes(newLeg.state);
       const fixedLtp = newLeg.exitSnapshot?.exitLtp || newLeg.currentLtp;
+      // Only carry over existingLeg's LTP if that existing leg is itself live (not frozen/exited).
+      // This prevents a previously-exited leg's frozen exit price from bleeding into a waiting leg that shares the same legIndex/token.
+      const existingIsLive = existingLeg && !(existingLeg.exited && !REENTRY_WAITING_STATES.includes(existingLeg.state));
       return {
         ...newLeg,
-        currentLtp: isClosedLeg ? (fixedLtp || 0) : (existingLeg ? (existingLeg.currentLtp || newLeg.currentLtp) : newLeg.currentLtp)
+        currentLtp: isClosedLeg ? (fixedLtp || 0) : (existingIsLive ? (existingLeg.currentLtp || newLeg.currentLtp) : newLeg.currentLtp)
       };
     })
   };
