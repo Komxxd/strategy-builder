@@ -866,7 +866,8 @@ async function switchVirtualMode(strategyId, targetVirtual, userId) {
                             lots: leg.leg.lots,
                             connectionId: config.connectionId,
                             strategyId,
-                            baseLtp: reEntryPrice
+                            baseLtp: reEntryPrice,
+                            forceLive: true  // strategy.is_virtual is still true in-memory during this transition
                         });
 
                         if (fillPrice) {

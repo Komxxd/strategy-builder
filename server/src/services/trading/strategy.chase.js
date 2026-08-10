@@ -54,13 +54,15 @@ async function checkOrderFillOnce(uniqueOrderId, connectionId, expectedQuantity 
  * @param {number} baseLtp - The LTP at the time the order was placed (used as base for progressive modifications)
  * @returns {number|null} Fill price, or null if not filled after 45s
  */
-async function chaseOrderFill({ orderId, uniqueOrderId, instrument, config, legSide, lots, connectionId, strategyId, baseLtp }) {
+async function chaseOrderFill({ orderId, uniqueOrderId, instrument, config, legSide, lots, connectionId, strategyId, baseLtp, forceLive = false }) {
     const { activeStrategies, addStrategyLog } = require("./strategy.state");
     const activeStrat = strategyId ? activeStrategies.get(strategyId) : null;
     const isVirtual = config?.is_virtual === true || activeStrat?.is_virtual === true;
     const isPaperTrading = config?.is_paper_trading === true || isVirtual;
 
-    if (isPaperTrading) {
+    // forceLive bypasses the paper check — used when switching Virtual→Live
+    // where the in-memory strategy is still flagged virtual during the transition.
+    if (isPaperTrading && !forceLive) {
         return baseLtp || 0;
     }
 
