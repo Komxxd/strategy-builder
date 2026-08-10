@@ -2801,8 +2801,11 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
   const latestLegs = u.data.legs || [];
   const mergedStrategy = {
     ...u.data,
-    legs: latestLegs.map(newLeg => {
-      const existingLeg = existing.legs?.find(ex => ex.instrument?.token === newLeg.instrument?.token);
+    legs: latestLegs.map((newLeg, idx) => {
+      const existingLeg = existing.legs?.find(ex => 
+          (ex.uniqueOrderId && newLeg.uniqueOrderId && ex.uniqueOrderId === newLeg.uniqueOrderId) ||
+          (ex.instrument?.token === newLeg.instrument?.token && !!ex.is_virtual_monitoring === !!newLeg.is_virtual_monitoring && !!ex.is_virtual_leg === !!newLeg.is_virtual_leg && ex.legIndex === newLeg.legIndex)
+      ) || existing.legs?.[idx];
       const isClosedLeg = newLeg.exited && !REENTRY_WAITING_STATES.includes(newLeg.state);
       const fixedLtp = newLeg.exitSnapshot?.exitLtp || newLeg.currentLtp;
       return {
