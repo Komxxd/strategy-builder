@@ -2452,17 +2452,10 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  alert("Please connect to Angel One to execute strategies.");
  return;
  }
- try {
  let isVirtual = false;
  let isPaper = false;
 
- if (mode === 'virtual_paper') {
- isVirtual = true;
- isPaper = true;
- } else if (mode === 'virtual_live') {
- isVirtual = true;
- isPaper = false;
- } else if (mode === 'paper' || mode === true) {
+ if (mode === 'paper' || mode === true) {
  isVirtual = false;
  isPaper = true;
  } else if (mode === 'live' || mode === false) {
@@ -2470,6 +2463,7 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  isPaper = false;
  }
 
+ try {
  const res = await axios.post(`${API_BASE_URL}/strategy/execute/${id}`, {
  is_paper_trading: isPaper,
  is_virtual: isVirtual,
@@ -2587,7 +2581,7 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  [id]: res.data.data
  }));
  } catch (err) {
- alert("Error resuming strategy:" + (err.response?.data?.message || err.message));
+ alert("Error resuming strategy:" + err.response?.data?.message || err.message);
  }
  };
 
@@ -3906,9 +3900,9 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  <p className="text-xs text-slate-600 text-center mb-1">
  How would you like to deploy <strong>{selectedStrategyForDeploy.name || selectedStrategyForDeploy.config?.name ||'Strategy'}</strong>?
  </p>
- <div className="grid grid-cols-2 gap-3">
+ <div className="flex gap-3">
  <Button
- className="w-full h-10 rounded-lg text-xs font-bold gap-2 bg-blue-600 hover:bg-blue-700 text-white transition-all active:scale-[0.98]"
+ className="flex-1 h-10 rounded-lg text-xs font-bold gap-2 bg-blue-600 hover:bg-blue-700 text-white transition-all active:scale-[0.98]"
  onClick={() => {
  handleExecute(selectedStrategyForDeploy.id, 'paper');
  setDeployModalOpen(false);
@@ -3917,31 +3911,13 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  <ShieldCheck className="h-4 w-4 shrink-0" /> Paper
  </Button>
  <Button
- className="w-full h-10 rounded-lg text-xs font-bold gap-2 bg-orange-600 hover:bg-orange-700 text-white transition-all active:scale-[0.98]"
+ className="flex-1 h-10 rounded-lg text-xs font-bold gap-2 bg-orange-600 hover:bg-orange-700 text-white transition-all active:scale-[0.98]"
  onClick={() => {
  handleExecute(selectedStrategyForDeploy.id, 'live');
  setDeployModalOpen(false);
  }}
  >
  <Zap className="h-4 w-4 shrink-0" /> Live
- </Button>
- <Button
- className="w-full h-10 rounded-lg text-xs font-bold gap-2 bg-indigo-600 hover:bg-indigo-700 text-white transition-all active:scale-[0.98]"
- onClick={() => {
- handleExecute(selectedStrategyForDeploy.id, 'virtual_paper');
- setDeployModalOpen(false);
- }}
- >
- <Eye className="h-4 w-4 shrink-0" /> Virtual Paper
- </Button>
- <Button
- className="w-full h-10 rounded-lg text-xs font-bold gap-2 bg-purple-700 hover:bg-purple-800 text-white transition-all active:scale-[0.98]"
- onClick={() => {
- handleExecute(selectedStrategyForDeploy.id, 'virtual_live');
- setDeployModalOpen(false);
- }}
- >
- <Eye className="h-4 w-4 shrink-0" /> Virtual Live
  </Button>
  </div>
  </CardContent>
