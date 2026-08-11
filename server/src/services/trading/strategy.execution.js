@@ -109,7 +109,14 @@ async function placeOrder(config, instrument, connectionId) {
     const activeStrat = strategyId ? activeStrategies.get(strategyId) : null;
     const isVirtual = config?.is_virtual === true || activeStrat?.is_virtual === true;
     const isPaperTrading = config?.is_paper_trading === true || isVirtual;
-    const connId = connectionId || config?.connectionId;
+    // Resolve connId: prefer explicit arg, then config, then fall back to active strategy's user_id.
+    // This prevents orders from silently leaking to the master server when connectionId is missing.
+    const connId = connectionId || config?.connectionId || activeStrat?.user_id || null;
+
+    if (!connId && !isPaperTrading) {
+        console.error(`[placeOrder] CRITICAL: Cannot determine connectionId for ${instrument?.symbol}. strategyId=${strategyId}. Refusing to place order from master server.`);
+        throw new Error(`MISSING_CONN_ID: Cannot place live order for ${instrument?.symbol} — connectionId is not set. Order blocked to prevent master server IP rejection.`);
+    }
 
     // We build the parameters exactly as the Broker (Angel One) expects them.
     const orderParams = {

@@ -20,11 +20,17 @@ const sql = postgres(connectionString, {
        connections need more headroom, especially under load.
      - max_lifetime: 300 — Force reconnect every 5 minutes. Prevents long-lived connections 
        from going stale behind Supavisor's proxy layer.
+     - prepare: false — CRITICAL for PgBouncer transaction-mode poolers (Supabase port 6543).
+       The postgres.js client creates named prepared statements by default. PgBouncer in 
+       transaction mode does not preserve these statements across connection handoffs, causing
+       "prepared statement does not exist" errors under concurrent load. Disabling prepared
+       statements forces simple query protocol, which is fully compatible with the pooler.
     */
     max: 5, 
     idle_timeout: 0,
     connect_timeout: 30,
     max_lifetime: 300,
+    prepare: false,
     
     // FORCE IPv4 ONLY: This fixes the ENETUNREACH error on DigitalOcean
     socket: (options) => {

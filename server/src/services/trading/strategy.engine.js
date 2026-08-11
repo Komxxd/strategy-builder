@@ -174,13 +174,16 @@ async function initializeActiveStrategies() {
                 continue;
             }
 
-            // FIX: Reconstruct config with guaranteed is_paper_trading from the 
-            // dedicated column. This prevents paper strategies from going live 
-            // after a server restart when execution_details was not yet persisted.
+            // FIX: Reconstruct config with guaranteed values from dedicated DB columns.
+            // - is_paper_trading: prevents paper strategies going live after restart.
+            // - connectionId: always sourced from exec.user_id (a non-null dedicated column)
+            //   rather than relying on it surviving inside the execution_details JSON blob.
+            //   This is the root cause of orders leaking to the master server after restarts.
             const baseConfig = exec.execution_details?.config || exec.strategy_template_config;
             const restoredConfig = {
                 ...baseConfig,
-                is_paper_trading: exec.is_paper_trading === true
+                is_paper_trading: exec.is_paper_trading === true,
+                connectionId: exec.user_id
             };
 
             const runtimeStrategy = {
