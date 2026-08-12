@@ -59,8 +59,8 @@ async function saveStrategy(config, userId) {
     const name = config.name || `Strategy ${new Date().toLocaleTimeString()}`;
 
     const [data] = await sql`
-        INSERT INTO strategies (name, config, status, user_id)
-        VALUES (${name}, ${sql.json(cleanConfig)}, 'INACTIVE', ${userId})
+        INSERT INTO strategies (name, config, status, user_id, folder_id)
+        VALUES (${name}, ${sql.json(cleanConfig)}, 'INACTIVE', ${userId}, ${config.folder_id || null})
         RETURNING *
     `;
     return data;
@@ -87,7 +87,7 @@ async function updateStrategy(strategyId, config, userId) {
 
     const [data] = await sql`
         UPDATE strategies 
-        SET name = ${name}, config = ${sql.json(cleanConfig)}, updated_at = NOW()
+        SET name = ${name}, config = ${sql.json(cleanConfig)}, folder_id = ${config.folder_id || null}, updated_at = NOW()
         WHERE id = ${strategyId} AND user_id = ${userId}
         RETURNING *
     `;
@@ -230,6 +230,29 @@ async function forceMoveToHistory(executionId, userId) {
     return true;
 }
 
+async function moveStrategy(strategyId, folderId, userId) {
+    const [data] = await withDbRetry(() => sql`
+        UPDATE strategies
+        SET folder_id = ${folderId || null}, updated_at = NOW()
+        WHERE id = ${strategyId} AND user_id = ${userId}
+        RETURNING *
+    `);
+    if (!data) throw new Error("Strategy not found");
+    return data;
+}
+
+async function moveStrategies(strategyIds, folderId, userId) {
+    if (!strategyIds || !strategyIds.length) return [];
+    
+    const data = await withDbRetry(() => sql`
+        UPDATE strategies
+        SET folder_id = ${folderId || null}, updated_at = NOW()
+        WHERE id IN ${sql(strategyIds)} AND user_id = ${userId}
+        RETURNING *
+    `);
+    return data;
+}
+
 module.exports = {
    withDbRetry,
    saveStrategy,
@@ -240,5 +263,7 @@ module.exports = {
    getActiveStrategies,
    getExecutionHistory,
    patchExecutionSettings,
-   forceMoveToHistory
+   forceMoveToHistory,
+   moveStrategy,
+   moveStrategies
 };

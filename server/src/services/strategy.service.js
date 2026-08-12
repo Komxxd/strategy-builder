@@ -1,5 +1,5 @@
 const { activeStrategies, globalLtpMap, updateLtp, getLtpSecure, runGlobalDbWriter, updateStrategyInMemory, runGlobalWebsocketSync, addStrategyLog, getStatus } = require("./trading/strategy.state");
-const { withDbRetry, saveStrategy, updateStrategy, deleteStrategy, getUserStrategies, getActiveStrategies, getExecutionHistory, patchExecutionSettings, forceMoveToHistory } = require("./trading/strategy.crud");
+const { withDbRetry, saveStrategy, updateStrategy, deleteStrategy, getUserStrategies, getActiveStrategies, getExecutionHistory, patchExecutionSettings, forceMoveToHistory, moveStrategy, moveStrategies } = require("./trading/strategy.crud");
 const { executeStrategy, startStrategy, stopStrategy, deleteStrategyExecution, initializeActiveStrategies } = require("./trading/strategy.engine");
 const { squareOffStrategy, squareOffLeg, resumeStrategy, switchVirtualMode } = require("./trading/strategy.lifecycle");
 
@@ -42,6 +42,8 @@ module.exports = {
     squareOffStrategy,
     squareOffLeg,
     resumeStrategy,
-    switchVirtualMode
+    switchVirtualMode,
+    moveStrategy,
+    moveStrategies
 };
 

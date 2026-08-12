@@ -6,7 +6,8 @@ import { Input } from'@/components/ui/input';
 import { Label } from'@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from'@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from'@/components/ui/tabs';
-import { StopCircle, Loader2, TrendingUp, Search, Timer, LayoutDashboard, Target, Save, Play, Plus, Trash2, ShieldCheck, Zap, Copy, MessageSquare, Ghost, X, Settings2, Clock, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, GripVertical, RefreshCw, Sliders, Eye, Database, Archive, Download, Upload, FileText } from'lucide-react';
+import { StopCircle, Loader2, TrendingUp, Search, Timer, LayoutDashboard, Target, Save, Play, Plus, Trash2, ShieldCheck, Zap, Copy, MessageSquare, Ghost, X, Settings2, Clock, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, GripVertical, RefreshCw, Sliders, Eye, Database, Archive, Download, Upload, FileText, FolderPlus, Check, MoreVertical } from'lucide-react';
+import { FolderTree } from './FolderTree';
 import { Switch } from"@/components/ui/switch";
 import axios from'axios';
 import { io } from'socket.io-client';
@@ -2164,6 +2165,7 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  const [loading, setLoading] = useState(false);
  const [runningStrategies, setRunningStrategies] = useState({}); // { id: data }
  const [savedStrategies, setSavedStrategies] = useState([]);
+ const [folders, setFolders] = useState([]);
  const [editingId, setEditingId] = useState(null);
  const [activeTab, setActiveTab] = useState('live');
  const [logWindowOpen, setLogWindowOpen] = useState(false);
@@ -2182,11 +2184,25 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  const [selectedForCombined, setSelectedForCombined] = useState([]);
  const [deployModalOpen, setDeployModalOpen] = useState(false);
  const [selectedStrategyForDeploy, setSelectedStrategyForDeploy] = useState(null);
+ const [folderModalOpen, setFolderModalOpen] = useState(false);
+ const [folderModalData, setFolderModalData] = useState(null);
+ const [folderNameInput, setFolderNameInput] = useState('');
+ const [moveStrategiesModalOpen, setMoveStrategiesModalOpen] = useState(false);
+ const [moveTargetFolderId, setMoveTargetFolderId] = useState(null);
  const [availableDates, setAvailableDates] = useState([]);
  const [dateRange, setDateRange] = useState({ from: null, to: null });
  const [activeDateInput, setActiveDateInput] = useState('from');
  const [loadingDates, setLoadingDates] = useState(false);
  const [isBacktesting, setIsBacktesting] = useState(false);
+ const [activeMenuId, setActiveMenuId] = useState(null);
+
+ useEffect(() => {
+   const handleClickOutside = () => {
+     if (activeMenuId) setActiveMenuId(null);
+   };
+   document.addEventListener('click', handleClickOutside);
+   return () => document.removeEventListener('click', handleClickOutside);
+ }, [activeMenuId]);
 
  const fileInputRef = useRef(null);
 
@@ -2368,6 +2384,86 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  }
  };
 
+ const fetchFolders = async () => {
+ try {
+ const res = await axios.get(`${API_BASE_URL}/folders`);
+ setFolders(res.data?.data || []);
+ } catch (err) {
+ console.error("Error fetching folders:", err);
+ }
+ };
+
+ const handleCreateFolder = (parentId = null) => {
+ setFolderModalData({ mode: 'create', parent_id: parentId });
+ setFolderNameInput('');
+ setFolderModalOpen(true);
+ };
+
+ const handleRenameFolder = (folder) => {
+ setFolderModalData({ mode: 'rename', folder });
+ setFolderNameInput(folder.name);
+ setFolderModalOpen(true);
+ };
+
+ const submitFolderModal = async () => {
+ const name = folderNameInput.trim();
+ if (!name) return;
+ 
+ try {
+ if (folderModalData?.mode === 'create') {
+ await axios.post(`${API_BASE_URL}/folders`, { name, parent_id: folderModalData.parent_id });
+ } else if (folderModalData?.mode === 'rename' && folderModalData.folder) {
+ if (name === folderModalData.folder.name) {
+ setFolderModalOpen(false);
+ return;
+ }
+ await axios.put(`${API_BASE_URL}/folders/${folderModalData.folder.id}`, { 
+ name, 
+ parent_id: folderModalData.folder.parent_id 
+ });
+ }
+ fetchFolders();
+ setFolderModalOpen(false);
+ } catch (err) {
+ alert(err.response?.data?.message || "Failed to save folder");
+ }
+ };
+
+ const handleDeleteFolder = async (folderId) => {
+ if (!window.confirm("Are you sure you want to delete this folder? Strategies inside will be moved to the root.")) return;
+ try {
+ await axios.delete(`${API_BASE_URL}/folders/${folderId}`);
+ fetchFolders();
+ fetchSavedStrategies();
+ } catch (err) {
+ alert(err.response?.data?.message || "Failed to delete folder");
+ }
+ };
+
+ const handleMoveStrategy = async (strategyId, folderId) => {
+ try {
+ await axios.patch(`${API_BASE_URL}/strategy/move/${strategyId}`, { folder_id: folderId });
+ fetchSavedStrategies();
+ } catch (err) {
+ alert(err.response?.data?.message || "Failed to move strategy");
+ }
+ };
+
+ const handleMoveMultipleStrategies = async () => {
+ try {
+ await axios.patch(`${API_BASE_URL}/strategy/move-multiple`, {
+ strategy_ids: selectedForCombined,
+ folder_id: moveTargetFolderId
+ });
+ fetchSavedStrategies();
+ setMoveStrategiesModalOpen(false);
+ setSelectedForCombined([]); // clear selection
+ setMoveTargetFolderId(null);
+ } catch (err) {
+ alert(err.response?.data?.message || "Failed to move strategies");
+ }
+ };
+
  const fetchActive = async () => {
  try {
  const res = await axios.get(`${API_BASE_URL}/strategy/active`);
@@ -2385,6 +2481,7 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
 
  React.useEffect(() => {
  fetchSavedStrategies();
+ fetchFolders();
  }, []);
 
  React.useEffect(() => {
@@ -2854,6 +2951,244 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
       document.title = 'Corequant';
     };
   }, [cumulativeActivePnl, filteredRunningStrategies.length, activeTab]);
+
+  const renderStrategyRow = (s, level = 0) => (
+ <div
+ key={s.id}
+ className="grid grid-cols-1 xl:grid-cols-12 gap-2 xl:gap-4 px-4 py-3 xl:items-center hover:bg-muted/50 transition-colors cursor-grab active:cursor-grabbing bg-card mobile-strategy-row"
+ style={{ paddingLeft: `${Math.min(level, 4) * 12 + 16}px` }}
+ draggable
+ onDragStart={(e) => {
+ e.dataTransfer.effectAllowed ='move';
+ e.dataTransfer.setData('text/plain', s.id);
+ setTimeout(() => { if (e.target && e.target.classList) e.target.classList.add('opacity-40'); }, 0);
+ }}
+ onDragEnd={(e) => {
+ if (e.target && e.target.classList) {
+ e.target.classList.remove('opacity-40');
+ e.target.classList.remove('border-t-2','border-b-2','border-primary','bg-muted/30');
+ }
+ }}
+ onDragOver={(e) => {
+ e.preventDefault();
+ e.dataTransfer.dropEffect ='move';
+ if (e.currentTarget) {
+ const rect = e.currentTarget.getBoundingClientRect();
+ const isTopHalf = e.clientY < rect.top + rect.height / 2;
+ e.currentTarget.classList.remove('border-t-2','border-b-2','border-primary');
+ e.currentTarget.classList.add(isTopHalf ?'border-t-2' :'border-b-2','border-primary');
+ }
+ }}
+ onDragEnter={(e) => {
+ e.preventDefault();
+ if (e.currentTarget && e.currentTarget.classList) e.currentTarget.classList.add('bg-muted/30');
+ }}
+ onDragLeave={(e) => {
+ if (e.currentTarget && e.currentTarget.classList) {
+ e.currentTarget.classList.remove('bg-muted/30','border-t-2','border-b-2','border-primary');
+ }
+ }}
+ onDrop={(e) => {
+ e.preventDefault();
+ if (e.currentTarget && e.currentTarget.classList) {
+ e.currentTarget.classList.remove('bg-muted/30','border-t-2','border-b-2','border-primary');
+ }
+ const sourceId = e.dataTransfer.getData('text/plain');
+ if (!sourceId || sourceId === s.id) return;
+
+ // Determine precise drop location
+ const rect = e.currentTarget.getBoundingClientRect();
+ const isTopHalf = e.clientY < rect.top + rect.height / 2;
+
+ setSavedStrategies(prev => {
+ const sourceIndex = prev.findIndex(item => item.id === sourceId);
+ if (sourceIndex === -1) return prev;
+
+ const next = [...prev];
+ const [movedItem] = next.splice(sourceIndex, 1);
+
+ // adjusted index after moving the item out
+ let adjustedTargetIndex = next.findIndex(item => item.id === s.id);
+ if (adjustedTargetIndex === -1) return prev; // Fallback
+
+ // Insert before or after
+ const insertIndex = isTopHalf ? adjustedTargetIndex : adjustedTargetIndex + 1;
+ next.splice(insertIndex, 0, movedItem);
+
+ localStorage.setItem('custom_strategy_order', JSON.stringify(next.map(item => item.id)));
+ return next;
+ });
+ }}
+ >
+ <div className="col-span-1 xl:col-span-1 flex items-center justify-between xl:justify-center" onClick={(e) => e.stopPropagation()}>
+ <span className="xl:hidden text-[10px] uppercase font-medium text-black tracking-wider">Combine</span>
+ <input
+ type="checkbox"
+ className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+ checked={selectedForCombined.includes(s.id)}
+ onChange={(e) => {
+ if (e.target.checked) {
+ setSelectedForCombined(prev => [...prev, s.id]);
+ } else {
+ setSelectedForCombined(prev => prev.filter(id => id !== s.id));
+ }
+ }}
+ />
+ </div>
+ <div className="col-span-1 xl:col-span-2 font-medium text-[12px] flex items-start xl:items-center gap-2">
+ <div className="p-1 rounded text-black hover:text-black transition-colors mt-0.5 xl:mt-0 cursor-grab">
+ <GripVertical className="h-4 w-4 shrink-0" />
+ </div>
+ <div>
+ {s.name || s.config?.name ||'Unnamed Strategy'}
+ <div className="text-[9px] font-mono text-black font-normal mt-0.5">ID: {s.id.split('-')[0] || s.id}</div>
+ </div>
+ </div>
+ <div className="col-span-1 xl:col-span-2 font-mono text-[11px] xl:text-[10px] text-black xl:text-black flex xl:block items-center justify-between">
+ <span className="xl:hidden text-[10px] uppercase font-medium text-black tracking-wider">Created</span>
+ <span>{new Date(s.created_at).toLocaleDateString()} {new Date(s.created_at).toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' })}</span>
+ </div>
+ <div className="col-span-1 xl:col-span-1 font-medium text-[12px] xl:text-[10px] flex xl:block items-center justify-between">
+ <span className="xl:hidden text-[10px] uppercase font-medium text-black tracking-wider">Index</span>
+ <span>{s.config?.index}</span>
+ </div>
+ <div className="col-span-1 xl:col-span-2 flex xl:block items-center justify-between">
+ <span className="xl:hidden text-[10px] uppercase font-medium text-black tracking-wider pr-4">Type</span>
+ <div className="flex flex-wrap items-center gap-1">
+ <span className="px-1.5 py-0.5 rounded text-[10px] xl:text-[9px] font-medium bg-slate-100 text-black text-right xl:text-left line-clamp-2">
+ {s.config?.legs?.map((l) =>`${l.side} ${l.option_type} (${l.lots * (s.config?.quantity_multiplier || 1)}L)`).join(' |') ||'---'}
+ </span>
+ {s.config?.quantity_multiplier > 1 && (
+ <span className="px-1.5 py-0.5 rounded text-[10px] xl:text-[9px] font-black bg-indigo-100 text-indigo-700 border border-indigo-200">
+ x{s.config.quantity_multiplier}
+ </span>
+ )}
+ {(() => {
+ const activeExecs = Object.values(runningStrategies).filter(exec => exec.strategy_id === s.id && exec.status !=='TERMINATED' && exec.status !=='FAILED');
+ const paperCount = activeExecs.filter(e => e.config?.is_paper_trading).length;
+ const liveCount = activeExecs.filter(e => !e.config?.is_paper_trading).length;
+
+ return (
+ <>
+ {paperCount > 0 && (
+ <span className="px-1.5 py-0.5 rounded text-[10px] xl:text-[9px] font-black bg-blue-100 text-blue-700 border border-blue-200">
+ {paperCount} Paper
+ </span>
+ )}
+ {liveCount > 0 && (
+ <span className="px-1.5 py-0.5 rounded text-[10px] xl:text-[9px] font-black bg-orange-100 text-orange-700 border border-orange-200">
+ {liveCount} Live
+ </span>
+ )}
+ </>
+ );
+ })()}
+ </div>
+ </div>
+ <div className="col-span-1 xl:col-span-4 text-right mt-2 xl:mt-0 pt-3 xl:pt-0 border-t border-dashed border-gray-100 xl:border-none">
+ <div className="flex flex-nowrap items-center justify-start gap-1 w-fit ml-0 xl:ml-auto">
+ <Button
+ size="sm"
+ variant="outline"
+ className="h-8 xl:h-7 px-2 rounded-md text-[11px] xl:text-[10px] flex-1 xl:flex-none border-indigo-200 bg-indigo-50/50 text-indigo-700 hover:bg-indigo-100 gap-1 font-bold"
+ onClick={() => {
+ setSelectedStrategyForExecution(s);
+ setExecutionModalOpen(true);
+ }}
+ title="Execution Settings"
+ >
+ <Sliders className="h-3 w-3" /> Settings
+ </Button>
+ <Button
+ size="sm"
+ variant="outline"
+ className="h-8 xl:h-7 px-2 rounded-md text-[11px] xl:text-[10px] flex-1 xl:flex-none border-cyan-200 bg-cyan-50/50 text-cyan-700 hover:bg-cyan-100 gap-1 font-bold"
+ onClick={() => {
+ setSelectedStrategyForBacktest(s);
+ setBacktestModalOpen(true);
+ if (s.config?.backtest_from_date && s.config?.backtest_to_date) {
+ setDateRange({ from: s.config.backtest_from_date, to: s.config.backtest_to_date });
+ } else {
+ setDateRange({ from: null, to: null });
+ }
+ fetchDates(s.config?.index ||'NIFTY');
+ }}
+ title="Run Backtest"
+ >
+ <Database className="h-3 w-3" /> Backtest
+ </Button>
+ <Button
+ size="sm"
+ className={`h-8 xl:h-7 px-2 gap-1 rounded-md text-[11px] xl:text-[10px] font-medium flex-1 xl:flex-none ${!isConnected ?'opacity-50 grayscale cursor-not-allowed' :''}`}
+ onClick={() => {
+ setSelectedStrategyForDeploy(s);
+ setDeployModalOpen(true);
+ }}
+ disabled={!isConnected}
+ title={!isConnected ?"Please connect to Angel One to execute strategies" :""}
+ >
+ <Play className="h-3 w-3 fill-current" /> Deploy
+ </Button>
+ <Button
+ size="sm"
+ variant="outline"
+ className="h-8 xl:h-7 px-2 gap-1 rounded-md text-[11px] xl:text-[10px] font-medium border-slate-200 hover:bg-slate-50 text-slate-600 flex-1 xl:flex-none"
+ onClick={() => {
+ setViewConfig(s.config);
+ setViewStrategyName(s.name || s.config?.name ||'Strategy');
+ setConfigWindowOpen(true);
+ }}
+ >
+ <Eye className="h-3 w-3" /> View
+ </Button>
+ <Button
+ size="sm"
+ variant="outline"
+ className="h-8 xl:h-7 px-2 rounded-md text-[11px] xl:text-[10px] flex-1 xl:flex-none"
+ onClick={() => handleEdit(s)}
+ >
+ Edit
+ </Button>
+ <div className="relative">
+   <Button
+     size="sm"
+     variant="ghost"
+     className="h-8 xl:h-7 w-8 xl:w-7 p-0 rounded-md text-slate-500 hover:bg-slate-100 flex-none"
+     onClick={(e) => {
+       e.stopPropagation();
+       setActiveMenuId(activeMenuId === s.id ? null : s.id);
+     }}
+   >
+     <MoreVertical className="h-4 w-4" />
+   </Button>
+   {activeMenuId === s.id && (
+     <div className="absolute right-0 top-full mt-1 w-32 bg-white border border-slate-200 shadow-xl rounded-md z-[100] flex flex-col py-1 overflow-hidden" onClick={(e) => e.stopPropagation()}>
+       <button
+         className="w-full text-left px-3 py-2 text-[11px] font-medium text-slate-600 hover:bg-slate-50 flex items-center gap-2"
+         onClick={() => { handleDownloadStrategy(s); setActiveMenuId(null); }}
+       >
+         <Download className="h-3 w-3" /> JSON
+       </button>
+       <button
+         className="w-full text-left px-3 py-2 text-[11px] font-medium text-indigo-600 hover:bg-indigo-50 flex items-center gap-2"
+         onClick={() => { handleDownloadPdfDirect(s); setActiveMenuId(null); }}
+       >
+         <FileText className="h-3 w-3" /> PDF
+       </button>
+       <div className="h-px bg-slate-100 my-1 w-full" />
+       <button
+         className="w-full text-left px-3 py-2 text-[11px] font-medium text-red-600 hover:bg-red-50 flex items-center gap-2"
+         onClick={() => { handleDelete(s.id); setActiveMenuId(null); }}
+       >
+         <Trash2 className="h-3 w-3" /> Delete
+       </button>
+     </div>
+   )}
+ </div>
+ </div>
+ </div>
+ </div>
+  );
 
  return (
  <div className="space-y-4">
@@ -3432,6 +3767,19 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  Simulate Portfolio ({selectedForCombined.length})
  </Button>
  )}
+ {selectedForCombined.length > 0 && (
+ <Button
+ size="sm"
+ variant="outline"
+ className="h-8 gap-1 rounded-md text-[10px] font-medium border-indigo-200 hover:bg-indigo-50 text-indigo-700 animate-in zoom-in-95"
+ onClick={(e) => {
+ e.stopPropagation();
+ setMoveStrategiesModalOpen(true);
+ }}
+ >
+ <FolderPlus className="h-3 w-3" /> Move ({selectedForCombined.length})
+ </Button>
+ )}
  <Button
  variant="outline"
  size="sm"
@@ -3440,6 +3788,15 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  title="Upload Strategy"
  >
  <Upload className="h-3 w-3" /> Upload
+ </Button>
+ <Button
+ variant="outline"
+ size="sm"
+ className="h-8 gap-1 rounded-md text-[10px] font-medium border-slate-200 hover:bg-slate-50 text-slate-600"
+ onClick={(e) => { e.stopPropagation(); handleCreateFolder(); }}
+ title="New Folder"
+ >
+ <FolderPlus className="h-3 w-3" /> New Folder
  </Button>
  <div className="relative w-full md:w-64" onClick={e => e.stopPropagation()}>
  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
@@ -3464,243 +3821,22 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  <div className="col-span-3">Name</div>
  <div className="col-span-2">Date Created</div>
  <div className="col-span-1">Index</div>
- <div className="col-span-3">Type</div>
- <div className="col-span-3 text-right">Actions</div>
+ <div className="col-span-2">Type</div>
+ <div className="col-span-4 text-right">Actions</div>
  </div>
  <div className="divide-y border-t flex flex-col">
- {savedStrategies
- .filter(s => {
- const name = (s.name || s.config?.name ||'').toLowerCase();
- const id = (s.id ||'').toLowerCase();
- const search = searchTerm.toLowerCase();
- return name.includes(search) || id.includes(search);
- })
- .map((s) => (
- <div
- key={s.id}
- className="grid grid-cols-1 xl:grid-cols-12 gap-2 xl:gap-4 px-4 py-3 xl:items-center hover:bg-muted/50 transition-colors cursor-grab active:cursor-grabbing bg-card mobile-strategy-row"
- draggable
- onDragStart={(e) => {
- e.dataTransfer.effectAllowed ='move';
- e.dataTransfer.setData('text/plain', s.id);
- setTimeout(() => { if (e.target && e.target.classList) e.target.classList.add('opacity-40'); }, 0);
- }}
- onDragEnd={(e) => {
- if (e.target && e.target.classList) {
- e.target.classList.remove('opacity-40');
- e.target.classList.remove('border-t-2','border-b-2','border-primary','bg-muted/30');
- }
- }}
- onDragOver={(e) => {
- e.preventDefault();
- e.dataTransfer.dropEffect ='move';
- if (e.currentTarget) {
- const rect = e.currentTarget.getBoundingClientRect();
- const isTopHalf = e.clientY < rect.top + rect.height / 2;
- e.currentTarget.classList.remove('border-t-2','border-b-2','border-primary');
- e.currentTarget.classList.add(isTopHalf ?'border-t-2' :'border-b-2','border-primary');
- }
- }}
- onDragEnter={(e) => {
- e.preventDefault();
- if (e.currentTarget && e.currentTarget.classList) e.currentTarget.classList.add('bg-muted/30');
- }}
- onDragLeave={(e) => {
- if (e.currentTarget && e.currentTarget.classList) {
- e.currentTarget.classList.remove('bg-muted/30','border-t-2','border-b-2','border-primary');
- }
- }}
- onDrop={(e) => {
- e.preventDefault();
- if (e.currentTarget && e.currentTarget.classList) {
- e.currentTarget.classList.remove('bg-muted/30','border-t-2','border-b-2','border-primary');
- }
- const sourceId = e.dataTransfer.getData('text/plain');
- if (!sourceId || sourceId === s.id) return;
-
- // Determine precise drop location
- const rect = e.currentTarget.getBoundingClientRect();
- const isTopHalf = e.clientY < rect.top + rect.height / 2;
-
- setSavedStrategies(prev => {
- const sourceIndex = prev.findIndex(item => item.id === sourceId);
- if (sourceIndex === -1) return prev;
-
- const next = [...prev];
- const [movedItem] = next.splice(sourceIndex, 1);
-
- // adjusted index after moving the item out
- let adjustedTargetIndex = next.findIndex(item => item.id === s.id);
- if (adjustedTargetIndex === -1) return prev; // Fallback
-
- // Insert before or after
- const insertIndex = isTopHalf ? adjustedTargetIndex : adjustedTargetIndex + 1;
- next.splice(insertIndex, 0, movedItem);
-
- localStorage.setItem('custom_strategy_order', JSON.stringify(next.map(item => item.id)));
- return next;
- });
- }}
- >
- <div className="col-span-1 xl:col-span-1 flex items-center justify-between xl:justify-center" onClick={(e) => e.stopPropagation()}>
- <span className="xl:hidden text-[10px] uppercase font-medium text-black tracking-wider">Combine</span>
- <input
- type="checkbox"
- className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
- checked={selectedForCombined.includes(s.id)}
- onChange={(e) => {
- if (e.target.checked) {
- setSelectedForCombined(prev => [...prev, s.id]);
- } else {
- setSelectedForCombined(prev => prev.filter(id => id !== s.id));
- }
- }}
+ <FolderTree
+ folders={folders}
+ strategies={savedStrategies}
+ onDropStrategy={handleMoveStrategy}
+ onDeleteFolder={handleDeleteFolder}
+ onRenameFolder={handleRenameFolder}
+ onCreateFolder={handleCreateFolder}
+ onToggleCombine={setSelectedForCombined}
+ selectedForCombined={selectedForCombined}
+ renderStrategyRow={renderStrategyRow}
+ searchTerm={searchTerm}
  />
- </div>
- <div className="col-span-1 xl:col-span-2 font-medium text-[12px] flex items-start xl:items-center gap-2">
- <div className="p-1 rounded text-black hover:text-black transition-colors mt-0.5 xl:mt-0">
- <GripVertical className="h-4 w-4 shrink-0" />
- </div>
- <div>
- {s.name || s.config?.name ||'Unnamed Strategy'}
- <div className="text-[9px] font-mono text-black font-normal mt-0.5">ID: {s.id.split('-')[0] || s.id}</div>
- </div>
- </div>
- <div className="col-span-1 xl:col-span-2 font-mono text-[11px] xl:text-[10px] text-black xl:text-black flex xl:block items-center justify-between">
- <span className="xl:hidden text-[10px] uppercase font-medium text-black tracking-wider">Created</span>
- <span>{new Date(s.created_at).toLocaleDateString()} {new Date(s.created_at).toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' })}</span>
- </div>
- <div className="col-span-1 xl:col-span-1 font-medium text-[12px] xl:text-[10px] flex xl:block items-center justify-between">
- <span className="xl:hidden text-[10px] uppercase font-medium text-black tracking-wider">Index</span>
- <span>{s.config?.index}</span>
- </div>
- <div className="col-span-1 xl:col-span-3 flex xl:block items-center justify-between">
- <span className="xl:hidden text-[10px] uppercase font-medium text-black tracking-wider pr-4">Type</span>
- <div className="flex flex-wrap items-center gap-1">
- <span className="px-1.5 py-0.5 rounded text-[10px] xl:text-[9px] font-medium bg-slate-100 text-black text-right xl:text-left line-clamp-2">
- {s.config?.legs?.map((l) =>`${l.side} ${l.option_type} (${l.lots * (s.config?.quantity_multiplier || 1)}L)`).join(' |') ||'---'}
- </span>
- {s.config?.quantity_multiplier > 1 && (
- <span className="px-1.5 py-0.5 rounded text-[10px] xl:text-[9px] font-black bg-indigo-100 text-indigo-700 border border-indigo-200">
- x{s.config.quantity_multiplier}
- </span>
- )}
- {(() => {
- const activeExecs = Object.values(runningStrategies).filter(exec => exec.strategy_id === s.id && exec.status !=='TERMINATED' && exec.status !=='FAILED');
- const paperCount = activeExecs.filter(e => e.config?.is_paper_trading).length;
- const liveCount = activeExecs.filter(e => !e.config?.is_paper_trading).length;
-
- return (
- <>
- {paperCount > 0 && (
- <span className="px-1.5 py-0.5 rounded text-[10px] xl:text-[9px] font-black bg-blue-100 text-blue-700 border border-blue-200">
- {paperCount} Paper
- </span>
- )}
- {liveCount > 0 && (
- <span className="px-1.5 py-0.5 rounded text-[10px] xl:text-[9px] font-black bg-orange-100 text-orange-700 border border-orange-200">
- {liveCount} Live
- </span>
- )}
- </>
- );
- })()}
- </div>
- </div>
- <div className="col-span-1 xl:col-span-3 text-right mt-2 xl:mt-0 pt-3 xl:pt-0 border-t border-dashed border-gray-100 xl:border-none">
- <div className="flex flex-wrap items-center justify-start xl:justify-end gap-1.5 w-full">
- <Button
- size="sm"
- variant="outline"
- className="h-8 xl:h-7 px-2.5 rounded-md text-[11px] xl:text-[10px] flex-1 xl:flex-none border-indigo-200 bg-indigo-50/50 text-indigo-700 hover:bg-indigo-100 gap-1 font-bold"
- onClick={() => {
- setSelectedStrategyForExecution(s);
- setExecutionModalOpen(true);
- }}
- title="Execution Settings"
- >
- <Sliders className="h-3 w-3" /> Settings
- </Button>
- <Button
- size="sm"
- variant="outline"
- className="h-8 xl:h-7 px-2.5 rounded-md text-[11px] xl:text-[10px] flex-1 xl:flex-none border-cyan-200 bg-cyan-50/50 text-cyan-700 hover:bg-cyan-100 gap-1 font-bold"
- onClick={() => {
- setSelectedStrategyForBacktest(s);
- setBacktestModalOpen(true);
- if (s.config?.backtest_from_date && s.config?.backtest_to_date) {
- setDateRange({ from: s.config.backtest_from_date, to: s.config.backtest_to_date });
- } else {
- setDateRange({ from: null, to: null });
- }
- fetchDates(s.config?.index ||'NIFTY');
- }}
- title="Run Backtest"
- >
- <Database className="h-3 w-3" /> Backtest
- </Button>
- <Button
- size="sm"
- className={`h-8 xl:h-7 px-3 gap-1 rounded-md text-[11px] xl:text-[10px] font-medium flex-1 xl:flex-none ${!isConnected ?'opacity-50 grayscale cursor-not-allowed' :''}`}
- onClick={() => {
- setSelectedStrategyForDeploy(s);
- setDeployModalOpen(true);
- }}
- disabled={!isConnected}
- title={!isConnected ?"Please connect to Angel One to execute strategies" :""}
- >
- <Play className="h-3 w-3 fill-current" /> Deploy
- </Button>
- <Button
- size="sm"
- variant="outline"
- className="h-8 xl:h-7 px-3 gap-1 rounded-md text-[11px] xl:text-[10px] font-medium border-slate-200 hover:bg-slate-50 text-slate-600 flex-1 xl:flex-none"
- onClick={() => {
- setViewConfig(s.config);
- setViewStrategyName(s.name || s.config?.name ||'Strategy');
- setConfigWindowOpen(true);
- }}
- >
- <Eye className="h-3 w-3" /> View
- </Button>
- <Button
- size="sm"
- variant="outline"
- className="h-8 xl:h-7 px-2.5 rounded-md text-[11px] xl:text-[10px] flex-1 xl:flex-none"
- onClick={() => handleEdit(s)}
- >
- Edit
- </Button>
- <Button
- size="sm"
- variant="outline"
- className="h-8 xl:h-7 px-3 gap-1 rounded-md text-[11px] xl:text-[10px] font-medium border-slate-200 hover:bg-slate-50 text-slate-600 flex-1 xl:flex-none"
- onClick={() => handleDownloadStrategy(s)}
- title="Download JSON Strategy"
- >
- <Download className="h-3 w-3" /> JSON
- </Button>
- <Button
- size="sm"
- variant="outline"
- className="h-8 xl:h-7 px-3 gap-1 rounded-md text-[11px] xl:text-[10px] font-medium border-indigo-200 hover:bg-indigo-50 text-indigo-700 flex-1 xl:flex-none"
- onClick={() => handleDownloadPdfDirect(s)}
- title="Download PDF"
- >
- <FileText className="h-3 w-3 text-indigo-600" /> PDF
- </Button>
- <Button
- size="sm"
- variant="ghost"
- className="h-8 xl:h-7 px-3 rounded-md text-[11px] xl:text-[10px] text-destructive hover:text-destructive hover:bg-red-50 flex-none"
- onClick={() => handleDelete(s.id)}
- >
- <Trash2 className="h-4 w-4 xl:h-3 xl:w-3" />
- </Button>
- </div>
- </div>
- </div>
- ))}
  </div>
  </div>
  </CardContent>
@@ -3924,6 +4060,106 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  </Card>
  </div>
  )}
+ {folderModalOpen && (
+ <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-in fade-in duration-200" onClick={(e) => { if (e.target === e.currentTarget) setFolderModalOpen(false); }}>
+ <Card className="w-[320px] bg-slate-50 border-none shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+ <CardHeader className="p-3 border-b bg-white relative">
+ <div className="flex items-center justify-between">
+ <div className="flex items-center gap-2">
+ <FolderPlus className="h-4 w-4 text-primary" />
+ <CardTitle className="text-xs font-black uppercase tracking-wider text-black m-0 p-0 leading-none">
+ {folderModalData?.mode === 'create' ? 'Create Folder' : 'Rename Folder'}
+ </CardTitle>
+ </div>
+ <Button variant="ghost" size="icon" className="h-6 w-6 rounded-full hover:bg-slate-200" onClick={() => setFolderModalOpen(false)}>
+ <X className="h-3 w-3" />
+ </Button>
+ </div>
+ </CardHeader>
+ <CardContent className="p-4 bg-white flex flex-col gap-4">
+ <div className="space-y-2">
+ <Label htmlFor="folderName" className="text-[10px] font-bold uppercase text-slate-500">Folder Name</Label>
+ <Input
+ id="folderName"
+ type="text"
+ placeholder="e.g. My Options Strategies"
+ className="h-8 text-xs focus-visible:ring-1"
+ value={folderNameInput}
+ onChange={(e) => setFolderNameInput(e.target.value)}
+ onKeyDown={(e) => {
+ if (e.key === 'Enter') submitFolderModal();
+ if (e.key === 'Escape') setFolderModalOpen(false);
+ }}
+ autoFocus
+ />
+ </div>
+ <Button
+ className="w-full h-8 rounded-md text-xs font-bold gap-2 bg-primary hover:bg-primary/90 text-primary-foreground transition-all active:scale-[0.98]"
+ onClick={submitFolderModal}
+ disabled={!folderNameInput.trim()}
+ >
+ <Save className="h-3 w-3 shrink-0" /> Save Folder
+ </Button>
+ </CardContent>
+ </Card>
+ </div>
+ )}
+ {moveStrategiesModalOpen && (
+ <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-in fade-in duration-200" onClick={(e) => { if (e.target === e.currentTarget) setMoveStrategiesModalOpen(false); }}>
+ <Card className="w-[320px] bg-slate-50 border-none shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+ <CardHeader className="p-3 border-b bg-white relative">
+ <div className="flex items-center justify-between">
+ <div className="flex items-center gap-2">
+ <FolderPlus className="h-4 w-4 text-primary" />
+ <CardTitle className="text-xs font-black uppercase tracking-wider text-black m-0 p-0 leading-none">
+ Move Strategies
+ </CardTitle>
+ </div>
+ <Button variant="ghost" size="icon" className="h-6 w-6 rounded-full hover:bg-slate-200" onClick={() => setMoveStrategiesModalOpen(false)}>
+ <X className="h-3 w-3" />
+ </Button>
+ </div>
+ </CardHeader>
+ <CardContent className="p-4 bg-white flex flex-col gap-4">
+ <div className="space-y-2">
+ <Label className="text-[10px] font-bold uppercase text-slate-500">Select Destination Folder</Label>
+ <div className="flex flex-col gap-1 max-h-[200px] overflow-y-auto pr-1">
+ <div
+ className={`p-2 text-xs rounded border cursor-pointer flex items-center justify-between transition-colors ${moveTargetFolderId === null ? 'bg-indigo-50 border-indigo-200' : 'bg-white border-slate-200 hover:bg-slate-50'}`}
+ onClick={() => setMoveTargetFolderId(null)}
+ >
+ <div className="flex items-center gap-2">
+ <FolderPlus className={`h-4 w-4 ${moveTargetFolderId === null ? 'text-indigo-600' : 'text-slate-400'}`} />
+ <span className={moveTargetFolderId === null ? 'font-bold text-indigo-700' : 'text-slate-600'}>Root (No Folder)</span>
+ </div>
+ {moveTargetFolderId === null && <Check className="h-4 w-4 text-indigo-600" />}
+ </div>
+ {folders.map(f => (
+ <div
+ key={f.id}
+ className={`p-2 text-xs rounded border cursor-pointer flex items-center justify-between transition-colors ${moveTargetFolderId === f.id ? 'bg-indigo-50 border-indigo-200' : 'bg-white border-slate-200 hover:bg-slate-50'}`}
+ onClick={() => setMoveTargetFolderId(f.id)}
+ >
+ <div className="flex items-center gap-2">
+ <FolderPlus className={`h-4 w-4 ${moveTargetFolderId === f.id ? 'text-indigo-600' : 'text-slate-400'}`} />
+ <span className={moveTargetFolderId === f.id ? 'font-bold text-indigo-700' : 'text-slate-600'}>{f.name}</span>
+ </div>
+ {moveTargetFolderId === f.id && <Check className="h-4 w-4 text-indigo-600" />}
+ </div>
+ ))}
+ </div>
+ </div>
+ <Button
+ className="w-full h-8 rounded-md text-xs font-bold gap-2 bg-primary hover:bg-primary/90 text-primary-foreground transition-all active:scale-[0.98]"
+ onClick={handleMoveMultipleStrategies}
+ >
+ <Save className="h-3 w-3 shrink-0" /> Move {selectedForCombined.length} Strategies
+ </Button>
+ </CardContent>
+ </Card>
+ </div>
+ )}
+
 
  </Tabs>
  </div >
