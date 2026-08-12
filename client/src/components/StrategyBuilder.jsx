@@ -3020,8 +3020,9 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  });
  }}
  >
- <div className="col-span-1 xl:col-span-1 flex items-center justify-between xl:justify-center" onClick={(e) => e.stopPropagation()}>
- <span className="xl:hidden text-[10px] uppercase font-medium text-black tracking-wider">Combine</span>
+ <div className="col-span-1 xl:col-span-3 flex flex-col xl:flex-row gap-2 xl:gap-2">
+ <div className="flex xl:hidden items-center justify-between" onClick={(e) => e.stopPropagation()}>
+ <span className="text-[10px] uppercase font-medium text-black tracking-wider">Combine</span>
  <input
  type="checkbox"
  className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
@@ -3035,13 +3036,28 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  }}
  />
  </div>
- <div className="col-span-1 xl:col-span-2 font-medium text-[12px] flex items-start xl:items-center gap-2">
+ <div className="font-medium text-[12px] flex items-start xl:items-center gap-2">
+ <div className="hidden xl:flex items-center h-full mr-1" onClick={(e) => e.stopPropagation()}>
+ <input
+ type="checkbox"
+ className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+ checked={selectedForCombined.includes(s.id)}
+ onChange={(e) => {
+ if (e.target.checked) {
+ setSelectedForCombined(prev => [...prev, s.id]);
+ } else {
+ setSelectedForCombined(prev => prev.filter(id => id !== s.id));
+ }
+ }}
+ />
+ </div>
  <div className="p-1 rounded text-black hover:text-black transition-colors mt-0.5 xl:mt-0 cursor-grab">
  <GripVertical className="h-4 w-4 shrink-0" />
  </div>
  <div>
  {s.name || s.config?.name ||'Unnamed Strategy'}
  <div className="text-[9px] font-mono text-black font-normal mt-0.5">ID: {s.id.split('-')[0] || s.id}</div>
+ </div>
  </div>
  </div>
  <div className="col-span-1 xl:col-span-2 font-mono text-[11px] xl:text-[10px] text-black xl:text-black flex xl:block items-center justify-between">
@@ -3816,14 +3832,6 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  {!collapsedSections['saved-strategies'] && (
  <CardContent className="p-0 animate-in fade-in slide-in-from-top-2 duration-200">
  <div className="flex flex-col w-full">
- {/* Desktop Header */}
- <div className="hidden lg:grid lg:grid-cols-12 gap-4 px-4 py-2 bg-muted text-black border-b text-[10px] font-black uppercase tracking-wider items-center">
- <div className="col-span-3">Name</div>
- <div className="col-span-2">Date Created</div>
- <div className="col-span-1">Index</div>
- <div className="col-span-2">Type</div>
- <div className="col-span-4 text-right">Actions</div>
- </div>
  <div className="divide-y border-t flex flex-col">
  <FolderTree
  folders={folders}

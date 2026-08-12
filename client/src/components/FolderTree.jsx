@@ -176,7 +176,7 @@ const FolderNode = ({
                 className="hidden xl:grid xl:grid-cols-12 gap-4 px-4 py-2 bg-slate-50/50 text-slate-500 border-b text-[9px] font-black uppercase tracking-wider items-center"
                 style={{ paddingLeft: `${Math.min(level + 1, 4) * 12 + 16}px` }}
               >
-                <div className="col-span-3">Name</div>
+                <div className="col-span-3 pl-[52px]">Name</div>
                 <div className="col-span-2">Date Created</div>
                 <div className="col-span-1">Index</div>
                 <div className="col-span-2">Type</div>
@@ -259,6 +259,16 @@ export const FolderTree = ({
         }}
         onDrop={handleRootDrop}
       >
+        {/* Root Strategies Header */}
+        {rootStrategies.length > 0 && (
+          <div className="hidden xl:grid xl:grid-cols-12 gap-4 px-4 py-2 bg-slate-50/50 text-slate-500 border-b border-t text-[9px] font-black uppercase tracking-wider items-center">
+            <div className="col-span-3 pl-[52px]">Name</div>
+            <div className="col-span-2">Date Created</div>
+            <div className="col-span-1">Index</div>
+            <div className="col-span-2">Type</div>
+            <div className="col-span-4 text-right">Actions</div>
+          </div>
+        )}
         {rootStrategies
           .filter(s => {
             if (!searchTerm) return true;
