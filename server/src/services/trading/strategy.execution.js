@@ -37,6 +37,10 @@ async function cancelOrder(config, variety, orderId) {
     const isVirtual = config?.is_virtual === true || activeStrat?.is_virtual === true;
     const isPaperTrading = config?.is_paper_trading === true || isVirtual;
 
+    if (isPaperTrading) {
+        return { status: true, message: "PAPER TRADE CANCELLED" };
+    }
+
     if (connId) {
         const creds = await sql`SELECT assigned_worker_id FROM public.user_broker_credentials WHERE user_id = ${connId}`;
         if (creds.length > 0 && creds[0].assigned_worker_id) {
@@ -56,10 +60,6 @@ async function cancelOrder(config, variety, orderId) {
         }
     }
 
-    if (isPaperTrading) {
-        return { status: true, message: "PAPER TRADE CANCELLED" };
-    }
-
     const api = await getAuthorizedInstance(connId);
     return await api.cancelOrder({ variety, orderid: orderId });
 }
@@ -73,6 +73,10 @@ async function modifyOrderLocallyOrViaWorker(config, modifyParams) {
     const activeStrat = strategyId ? activeStrategies.get(strategyId) : null;
     const isVirtual = config?.is_virtual === true || activeStrat?.is_virtual === true;
     const isPaperTrading = config?.is_paper_trading === true || isVirtual;
+
+    if (isPaperTrading) {
+        return { status: true, message: "PAPER TRADE MODIFIED" };
+    }
 
     if (connId) {
         const creds = await sql`SELECT assigned_worker_id FROM public.user_broker_credentials WHERE user_id = ${connId}`;
@@ -91,10 +95,6 @@ async function modifyOrderLocallyOrViaWorker(config, modifyParams) {
             
             return await workerSocketService.modifyTradeOnWorker(workerId, tradePayload);
         }
-    }
-
-    if (isPaperTrading) {
-        return { status: true, message: "PAPER TRADE MODIFIED" };
     }
 
     const api = await getAuthorizedInstance(connId);
@@ -142,6 +142,15 @@ async function placeOrder(config, instrument, connectionId) {
     try {
         console.log(`[${new Date().toISOString()}] Placing order:`, orderParams);
         
+        // --- CASE A: PAPER TRADING (Local Fallback) ---
+        if (isPaperTrading) {
+            console.log(`[${new Date().toISOString()}] PAPER ORDER (Local):`, orderParams);
+            return {
+                orderid: `PAPER_${Date.now()}_${Math.floor(Math.random() * 10000)}`,
+                uniqueorderid: `UPAPER_${Date.now()}_${Math.floor(Math.random() * 10000)}`
+            };
+        }
+
         // CHECK 1: DOES THIS USER HAVE A WORKER NODE ASSIGNED?
         if (connId) {
             const creds = await sql`SELECT assigned_worker_id FROM public.user_broker_credentials WHERE user_id = ${connId}`;
@@ -167,15 +176,6 @@ async function placeOrder(config, instrument, connectionId) {
         }
 
         // FALLBACK: Execute locally from the Master Server
-        
-        // --- CASE A: PAPER TRADING (Local Fallback) ---
-        if (isPaperTrading) {
-            console.log(`[${new Date().toISOString()}] PAPER ORDER (Local):`, orderParams);
-            return {
-                orderid: `PAPER_${Date.now()}_${Math.floor(Math.random() * 10000)}`,
-                uniqueorderid: `UPAPER_${Date.now()}_${Math.floor(Math.random() * 10000)}`
-            };
-        }
 
         // --- CASE B: LIVE TRADING (Local Fallback) ---
         const api = await getAuthorizedInstance(connId);

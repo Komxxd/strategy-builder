@@ -7,11 +7,13 @@ const { getAuthorizedInstance } = require("../../config/smartapi");
  * Handles re-entry for "RE HIGH" mode.
  */
 async function handleReentryHigh({ leg, config, strategyId, addStrategyLog, currentTick, isMtpPlacement = false }) {
+    const isVirtual = config?.is_virtual === true || leg.is_virtual_leg === true;
+    const isPaperTrading = config?.is_paper_trading === true || isVirtual;
     // 1. Setup the basic details
     const side = leg.leg.side;
     const rtp = leg.re_high_trigger_price; 
     const currentPrice = currentTick || leg.currentLtp;
-    const offsetAmt = config.is_paper_trading ? 0 : getLimitOffsetAmt(rtp, config);
+    const offsetAmt = isPaperTrading ? 0 : getLimitOffsetAmt(rtp, config);
 
     // 2. Decide the Target Price (MTP or RTP)
     let targetPrice = rtp;
@@ -128,14 +130,16 @@ async function handleReentryHigh({ leg, config, strategyId, addStrategyLog, curr
  * Modifies an existing re-entry order if the peak price changes.
  */
 async function modifyReentryOrder({ leg, config, strategyId, addStrategyLog, newRtp }) {
-    if (config.is_paper_trading) {
+    const isVirtual = config?.is_virtual === true || leg.is_virtual_leg === true;
+    const isPaperTrading = config?.is_paper_trading === true || isVirtual;
+    if (isPaperTrading) {
         leg.re_high_trigger_price = newRtp;
         addStrategyLog(strategyId, `[PAPER] Moved RE-HIGH Resting Limit to ₹${newRtp}`, "INFO");
         return;
     }
 
     try {
-        const offsetAmt = config.is_paper_trading ? 0 : getLimitOffsetAmt(newRtp, config);
+        const offsetAmt = isPaperTrading ? 0 : getLimitOffsetAmt(newRtp, config);
         const side = leg.leg.side;
         const newPrice = side === "BUY" ? roundToTick(newRtp + offsetAmt) : roundToTick(newRtp - offsetAmt);
 
@@ -166,13 +170,15 @@ async function modifyReentryOrder({ leg, config, strategyId, addStrategyLog, new
  * Background helper to watch for fills and redeploy SL.
  */
 async function monitorReentryFill(leg, config, strategyId, addStrategyLog, orderDetails = null) {
+    const isVirtual = config?.is_virtual === true || leg.is_virtual_leg === true;
+    const isPaperTrading = config?.is_paper_trading === true || isVirtual;
     const { waitForOrderFillPrice } = require("./strategy.execution");
     
     try {
         const fill = await waitForOrderFillPrice(
             leg.uniqueOrderId,
             config.connectionId,
-            config.is_paper_trading === true,
+            isPaperTrading,
             leg.instrument,
             28800000, 
             1000,

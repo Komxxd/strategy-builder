@@ -6,6 +6,8 @@ const { placeOrder } = require("./strategy.execution");
 const marketService = require("../market.service");
 
 async function handleLazyLeg({ leg, config, strategyId, addStrategyLog }) {
+    const isVirtual = config?.is_virtual === true || leg.is_virtual_leg === true;
+    const isPaperTrading = config?.is_paper_trading === true || isVirtual;
     try {
         let indexToken = "99926000", indexExchange = "NSE";
         if (config.index === "BANKNIFTY") indexToken = "99926009";
@@ -40,7 +42,7 @@ async function handleLazyLeg({ leg, config, strategyId, addStrategyLog }) {
             leg.state = "WAITING_FOR_SIMPLE_MNTM";
             addStrategyLog(strategyId, `[LAZY LEG] ${targetInstrument.symbol} waiting for Momentum @ ₹${leg.mntmTargetPrice}`, "INFO");
         } else {
-            if (config.is_paper_trading) {
+            if (isPaperTrading) {
                 leg.entryPrice = instLtp;
                 leg.entryTime = getISTExchangeFormat();
                 leg.original_traded_price = instLtp;
