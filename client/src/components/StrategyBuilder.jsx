@@ -3513,14 +3513,14 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  {l.initialSlTriggerPrice != null && (
  <>
  <span className="text-muted-foreground text-[10px] font-mono">|</span>
- <span className="text-slate-500 font-medium text-[10px] font-mono">Init SL: {Number(l.initialSlTriggerPrice).toFixed(1)}</span>
+ <span className="text-slate-500 font-medium text-[10px] font-mono">Init SL: {Number(l.initialSlTriggerPrice).toFixed(2)}</span>
  </>
  )}
  {l.slTriggerPrice != null && (
  <>
  <span className="text-muted-foreground text-[10px] font-mono">|</span>
  <span className={`text-[10px] font-mono font-black ${Number(l.slTriggerPrice) !== Number(l.initialSlTriggerPrice) ?'text-indigo-600 animate-pulse' :'text-slate-800'}`}>
- Now SL: {Number(l.slTriggerPrice).toFixed(1)}
+ Now SL: {Number(l.slTriggerPrice).toFixed(2)}
  </span>
  </>
  )}
@@ -3670,13 +3670,13 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  {l.initialSlTriggerPrice != null && (
  <>
  <span className="text-muted-foreground text-[10px] font-mono">|</span>
- <span className="text-red-400 font-medium text-[10px] font-mono">Init SL: {Number(l.initialSlTriggerPrice).toFixed(1)}</span>
+ <span className="text-red-400 font-medium text-[10px] font-mono">Init SL: {Number(l.initialSlTriggerPrice).toFixed(2)}</span>
  </>
  )}
  {(l.exitSnapshot?.slTriggerPrice != null || l.slTriggerPrice != null) && (
  <>
  <span className="text-muted-foreground text-[10px] font-mono">|</span>
- <span className="text-red-600 font-bold text-[10px] font-mono">Exit SL: {Number(l.exitSnapshot?.slTriggerPrice ?? l.slTriggerPrice).toFixed(1)}</span>
+ <span className="text-red-600 font-bold text-[10px] font-mono">Exit SL: {Number(l.exitSnapshot?.slTriggerPrice ?? l.slTriggerPrice).toFixed(2)}</span>
  </>
  )}
  {l.rtp != null && (
