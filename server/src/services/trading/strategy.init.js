@@ -231,10 +231,12 @@ async function handleInitialEntry(strategyId, strategy) {
                     setTimeout(async () => {
                         try {
                             const { waitForOrderFillPrice } = require("./strategy.execution");
+                            const isVirtual = config?.is_virtual === true || leg.is_virtual_leg === true;
+                            const isPaperTrading = config?.is_paper_trading === true || isVirtual;
                             const fillPrice = await waitForOrderFillPrice(
                                 leg.uniqueOrderId,
                                 config.connectionId,
-                                config.is_paper_trading === true,
+                                isPaperTrading,
                                 leg.instrument,
                                 28800000, // 8 hours timeout for live momentum limit orders
                                 2000,
@@ -303,10 +305,12 @@ async function handleInitialEntry(strategyId, strategy) {
                         baseLtp: leg.initialLtp
                     });
                 } else {
+                    const isVirtual = config?.is_virtual === true || leg.is_virtual_leg === true;
+                    const isPaperTrading = config?.is_paper_trading === true || isVirtual;
                     fillPrice = await waitForOrderFillPrice(
                         leg.uniqueOrderId,
                         config.connectionId,
-                        config.is_paper_trading === true,
+                        isPaperTrading,
                         leg.instrument,
                         60000,
                         2000,

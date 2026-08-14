@@ -121,7 +121,9 @@ async function monitorStrategyLoop(strategyId, strategy) {
                             const { waitForOrderFillPrice } = require("./strategy.execution");
                             setTimeout(async () => {
                                 try {
-                                    const fill = await waitForOrderFillPrice(leg.uniqueOrderId, config.connectionId, config.is_paper_trading === true, leg.instrument, 28800000, 1000);
+                                    const isVirtual = config?.is_virtual === true || leg.is_virtual_leg === true;
+                                    const isPaperTrading = config?.is_paper_trading === true || isVirtual;
+                                    const fill = await waitForOrderFillPrice(leg.uniqueOrderId, config.connectionId, isPaperTrading, leg.instrument, 28800000, 1000);
                                     if (fill) {
                                         leg.entryPrice = fill;
                                         leg.entryTime = getISTExchangeFormat();
@@ -572,7 +574,9 @@ async function monitorStrategyLoop(strategyId, strategy) {
          * If you are trading with REAL money, we check the actual exchange order status.
          * If the SL was hit directly on the broker's platform, we sync that into our system.
          */
-        if (config.variety === "STOPLOSS" && config.is_paper_trading !== true) {
+        const isVirtualStrat = config?.is_virtual === true;
+        const isPaperTrade = config?.is_paper_trading === true || isVirtualStrat;
+        if (config.variety === "STOPLOSS" && !isPaperTrade) {
             for (const leg of strategy.legs) {
                 // We only check legs that are active and have an order ID.
                 if (leg.exited || leg.state === "WAITING_FOR_RECOST" || !leg.slUniqueOrderId || leg.exchangeSlProcessed) continue;

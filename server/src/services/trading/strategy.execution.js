@@ -382,7 +382,8 @@ async function placeExitOrder({ config, leg, instrument, exitType }) {
 
     // FIX: Do not place an exit order if the leg never actually entered (e.g. waiting for RTP/MTP)
     if (!leg.entryPrice) {
-        if (leg.orderId && !config.is_paper_trading) {
+        const isPaperTrading = config?.is_paper_trading === true || isVirtual;
+        if (leg.orderId && !isPaperTrading) {
             console.log(`[Exit] Leg ${instrument.symbol} has orderId ${leg.orderId} but no entry price. Attempting cancellation...`);
             try {
                 // Try to cancel as NORMAL first
