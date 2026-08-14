@@ -669,9 +669,6 @@ async function switchVirtualMode(strategyId, targetVirtual, userId) {
         return true; // Already in target mode
     }
 
-    // UPDATE the config so downstream re-entry monitors know the mode
-    strategy.config.is_virtual = targetVirtual;
-
     const exitTime = getISTExchangeFormat();
 
     if (targetVirtual) {
@@ -777,6 +774,8 @@ async function switchVirtualMode(strategyId, targetVirtual, userId) {
 
         strategy.legs = [...currentLegs, ...virtualLegsToPush];
         strategy.is_virtual = true;
+        // Set config AFTER broker exits have already been placed
+        strategy.config.is_virtual = true;
 
         updateStrategyInMemory(strategyId, {
             is_virtual: true,
@@ -788,6 +787,8 @@ async function switchVirtualMode(strategyId, targetVirtual, userId) {
         return true;
     } else {
         // --- SWITCHING BACK FROM VIRTUAL MODE ---
+        // Clear the virtual flag immediately so real broker orders are placed below
+        strategy.config.is_virtual = false;
         addStrategyLog(strategyId, `Switching strategy back from VIRTUAL mode. Re-entering active legs...`, "INFO");
 
         const currentLegs = [...(strategy.legs || [])];
