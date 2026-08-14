@@ -366,7 +366,7 @@ async function monitorStrategyLoop(strategyId, strategy) {
                 leg.last_tick_price = leg.currentLtp;
 
                 // 3. PnL Updates
-                if (leg.entryPrice && leg.state === "ACTIVE") {
+                if (leg.entryPrice && (leg.state === "ACTIVE" || leg.state === "VIRTUAL_MONITORING")) {
                     if (leg.peakPrice === undefined || leg.peakPrice === null) leg.peakPrice = leg.entryPrice;
                     if (leg.leg.side === "BUY") {
                         if (leg.currentLtp > leg.peakPrice) leg.peakPrice = leg.currentLtp;
@@ -457,8 +457,8 @@ async function monitorStrategyLoop(strategyId, strategy) {
 
         // Leg Monitoring (TSL/SL)
         for (const leg of strategy.legs) {
-            if (leg.exited || leg.state === "WAITING_FOR_RECOST") continue;
-
+            if (leg.exited || leg.state === "WAITING_FOR_RECOST" || !leg.entryPrice) continue;
+            if (leg.state !== "ACTIVE" && leg.state !== "VIRTUAL_MONITORING") continue;
             const evalResult = evaluateLegLimits({ leg, config, strategyId, addStrategyLog, isMinuteClose });
             
             // Debug TSL re-entry

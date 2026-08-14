@@ -663,6 +663,9 @@ async function switchVirtualMode(strategyId, targetVirtual, userId) {
         return true; // Already in target mode
     }
 
+    // UPDATE the config so downstream re-entry monitors know the mode
+    strategy.config.is_virtual = targetVirtual;
+
     const exitTime = getISTExchangeFormat();
 
     if (targetVirtual) {
@@ -785,7 +788,7 @@ async function switchVirtualMode(strategyId, targetVirtual, userId) {
         const newActiveLegsToPush = [];
 
         for (const leg of currentLegs) {
-            if (!leg.exited && (leg.is_virtual_monitoring || leg.is_virtual_leg)) {
+            if (!leg.exited && leg.entryPrice) {
                 const instrument = leg.instrument;
                 if (!instrument) continue;
 
@@ -960,6 +963,7 @@ async function switchVirtualMode(strategyId, targetVirtual, userId) {
 
         strategy.legs = [...currentLegs, ...newActiveLegsToPush];
         strategy.is_virtual = false;
+        strategy.config.is_virtual = false;
 
         updateStrategyInMemory(strategyId, {
             is_virtual: false,
