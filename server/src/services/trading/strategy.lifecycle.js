@@ -124,7 +124,8 @@ async function handleLegStopOut(leg, exitType, strategy, exchangeFillData = null
             slTriggerPrice: null,
             slLimitPrice: null,
             slHitMinute: slHitMinute,
-            exchangeSlProcessed: false
+            exchangeSlProcessed: false,
+            is_virtual_leg: config.is_virtual === true
         };
         strategy.legs.push(newLeg);
         return;
@@ -195,7 +196,8 @@ async function handleLegStopOut(leg, exitType, strategy, exchangeFillData = null
             rtp: newRtp,
             mtp: leg.leg.recost_mntm_enabled ? finalMtp : null,
             slHitMinute: slHitMinute,
-            exchangeSlProcessed: false
+            exchangeSlProcessed: false,
+            is_virtual_leg: config.is_virtual === true
         };
         strategy.legs.push(newLeg);
         return;
@@ -284,7 +286,8 @@ async function handleLegStopOut(leg, exitType, strategy, exchangeFillData = null
             slLimitPrice: null,
             rtp: newRtp,
             mtp: finalMtp,
-            exchangeSlProcessed: false
+            exchangeSlProcessed: false,
+            is_virtual_leg: config.is_virtual === true
         };
         strategy.legs.push(newLeg);
         return;
@@ -342,7 +345,8 @@ async function handleLegStopOut(leg, exitType, strategy, exchangeFillData = null
             slLimitPrice: null,
             rtp: triggerPrice,
             mtp: null,
-            exchangeSlProcessed: false
+            exchangeSlProcessed: false,
+            is_virtual_leg: config.is_virtual === true
         };
         strategy.legs.push(newLeg);
         return;
@@ -401,7 +405,8 @@ async function handleLegStopOut(leg, exitType, strategy, exchangeFillData = null
             slLimitPrice: null,
             rtp: triggerPrice,
             mtp: null,
-            exchangeSlProcessed: false
+            exchangeSlProcessed: false,
+            is_virtual_leg: config.is_virtual === true
         };
         strategy.legs.push(newLeg);
         return;
@@ -437,7 +442,8 @@ async function handleLegStopOut(leg, exitType, strategy, exchangeFillData = null
             slTriggerPrice: null,
             slLimitPrice: null,
             slHitMinute: slHitMinute,
-            exchangeSlProcessed: false
+            exchangeSlProcessed: false,
+            is_virtual_leg: config.is_virtual === true
         };
         strategy.legs.push(newLeg);
     } else {
