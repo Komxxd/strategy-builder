@@ -377,6 +377,10 @@ async function placeExitOrder({ config, leg, instrument, exitType }) {
         leg.isExiting = false;
         leg.exitType = exitType || "SKIPPED_NO_INSTRUMENT";
         leg.exitTime = getISTExchangeFormat();
+        if (isVirtual) {
+            leg.is_virtual_leg = true;
+            leg.is_virtual_monitoring = true;
+        }
         return null;
     }
 
@@ -420,6 +424,10 @@ async function placeExitOrder({ config, leg, instrument, exitType }) {
             leg.isExiting = false;
             leg.exitType = exitType || "SKIPPED_NO_ENTRY";
             leg.exitTime = getISTExchangeFormat();
+            if (isVirtual) {
+                leg.is_virtual_leg = true;
+                leg.is_virtual_monitoring = true;
+            }
             return null;
         }
     }
@@ -474,6 +482,10 @@ async function placeExitOrder({ config, leg, instrument, exitType }) {
             leg.exitTime = getISTExchangeFormat();
             leg.exited = true;
             leg.isExiting = false;
+            if (isVirtual) {
+                leg.is_virtual_leg = true;
+                leg.is_virtual_monitoring = true;
+            }
             leg.exitSnapshot = {
                 slTriggerPrice: leg.slTriggerPrice,
                 initialSlTriggerPrice: leg.initialSlTriggerPrice,

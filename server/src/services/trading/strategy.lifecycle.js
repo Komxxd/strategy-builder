@@ -679,8 +679,8 @@ async function switchVirtualMode(strategyId, targetVirtual, userId) {
         const virtualLegsToPush = [];
 
         for (const leg of currentLegs) {
-            if (!leg.exited && leg.entryPrice) {
-                // 1. If strategy is Live, cancel exchange SL order and execute broker exit order
+            if (!leg.exited) {
+                // 1. If strategy is Live, cancel ANY exchange orders
                 if (!config.is_paper_trading) {
                     if (leg.slOrderId) {
                         try {
@@ -690,85 +690,155 @@ async function switchVirtualMode(strategyId, targetVirtual, userId) {
                             console.warn(`[SwitchVirtual] Failed to cancel SL order ${leg.slOrderId}: ${e.message}`);
                         }
                     }
-                    try {
-                        await placeExitOrder({ config, leg, instrument: leg.instrument, exitType: "SWITCHED_TO_VIRTUAL" });
-                    } catch (e) {
-                        console.error(`[SwitchVirtual] Error exiting live leg ${leg.instrument?.symbol}: ${e.message}`);
+                    if (!leg.entryPrice && leg.orderId) {
+                        try {
+                            try {
+                                await cancelOrder(config, "NORMAL", leg.orderId);
+                            } catch (e) {
+                                await cancelOrder(config, "STOPLOSS", leg.orderId);
+                            }
+                            leg.orderId = null;
+                        } catch (e) {
+                            console.warn(`[SwitchVirtual] Failed to cancel entry order ${leg.orderId}: ${e.message}`);
+                        }
                     }
                 }
 
-                // 2. Book PnL for the current active leg up to currentLtp
-                const exitLtp = leg.currentLtp || leg.entryPrice;
-                const pnlPoints = leg.leg.side === "BUY" ? (exitLtp - leg.entryPrice) : (leg.entryPrice - exitLtp);
-                const multiplier = parseFloat(config.quantity_multiplier) || 1;
-                const quantity = leg.leg.lots * parseInt(leg.instrument?.lotsize || 1) * multiplier;
-                const activePnlRupees = pnlPoints * quantity;
+                if (leg.entryPrice) {
+                    if (!config.is_paper_trading) {
+                        try {
+                            await placeExitOrder({ config, leg, instrument: leg.instrument, exitType: "SWITCHED_TO_VIRTUAL" });
+                        } catch (e) {
+                            console.error(`[SwitchVirtual] Error exiting live leg ${leg.instrument?.symbol}: ${e.message}`);
+                        }
+                    }
 
-                leg.state = "COMPLETED";
-                leg.exited = true;
-                leg.exitType = "SWITCHED_TO_VIRTUAL";
-                leg.exitTime = exitTime;
-                leg.exitSnapshot = {
-                    slTriggerPrice: leg.slTriggerPrice,
-                    initialSlTriggerPrice: leg.initialSlTriggerPrice,
-                    exitLtp: exitLtp,
-                    exitTime: exitTime,
-                    peakPrice: leg.peakPrice || leg.max_peak_price
-                };
-                leg.bookedPnlPoints = (leg.bookedPnlPoints || 0) + pnlPoints;
-                leg.bookedPnlRupees = (leg.bookedPnlRupees || 0) + activePnlRupees;
-                leg.currentActivePnlPoints = 0;
-                leg.currentActivePnlRupees = 0;
-                leg.pnlPoints = leg.bookedPnlRupees;
-                leg.pnlRupees = leg.bookedPnlRupees;
-                if (leg.original_traded_price) {
-                    leg.pnlPercent = (leg.pnlPoints / leg.original_traded_price) * 100;
+                    // 2. Book PnL for the current active leg up to currentLtp
+                    const exitLtp = leg.currentLtp || leg.entryPrice;
+                    const pnlPoints = leg.leg.side === "BUY" ? (exitLtp - leg.entryPrice) : (leg.entryPrice - exitLtp);
+                    const multiplier = parseFloat(config.quantity_multiplier) || 1;
+                    const quantity = leg.leg.lots * parseInt(leg.instrument?.lotsize || 1) * multiplier;
+                    const activePnlRupees = pnlPoints * quantity;
+
+                    leg.state = "COMPLETED";
+                    leg.exited = true;
+                    leg.exitType = "SWITCHED_TO_VIRTUAL";
+                    leg.exitTime = exitTime;
+                    leg.exitSnapshot = {
+                        slTriggerPrice: leg.slTriggerPrice,
+                        initialSlTriggerPrice: leg.initialSlTriggerPrice,
+                        exitLtp: exitLtp,
+                        exitTime: exitTime,
+                        peakPrice: leg.peakPrice || leg.max_peak_price
+                    };
+                    leg.bookedPnlPoints = (leg.bookedPnlPoints || 0) + pnlPoints;
+                    leg.bookedPnlRupees = (leg.bookedPnlRupees || 0) + activePnlRupees;
+                    leg.currentActivePnlPoints = 0;
+                    leg.currentActivePnlRupees = 0;
+                    leg.pnlPoints = leg.bookedPnlRupees;
+                    leg.pnlRupees = leg.bookedPnlRupees;
+                    if (leg.original_traded_price) {
+                        leg.pnlPercent = (leg.pnlPoints / leg.original_traded_price) * 100;
+                    }
+
+                    // 3. Create a NEW Virtual Monitoring Leg to continue background monitoring
+                    const virtualLeg = {
+                        leg: { ...leg.leg },
+                        instrument: leg.instrument ? { ...leg.instrument } : null,
+                        orderId: `VIRTUAL-${Date.now()}`,
+                        uniqueOrderId: `VIRTUAL-${Date.now()}`,
+                        state: "VIRTUAL_MONITORING",
+                        is_virtual_monitoring: true,
+                        is_virtual_leg: true,
+                        legIndex: leg.legIndex,
+                        exited: false,
+                        exitType: null,
+                        isExiting: false,
+                        entryTime: leg.entryTime || exitTime,
+                        entryPrice: leg.entryPrice, // Continuous entry price for "what-if" PnL
+                        currentLtp: exitLtp,
+                        last_tick_price: exitLtp,
+                        initialSlTriggerPrice: leg.initialSlTriggerPrice,
+                        slTriggerPrice: leg.slTriggerPrice,
+                        slLimitPrice: leg.slLimitPrice,
+                        tslReferencePrice: leg.tslReferencePrice,
+                        peakPrice: leg.peakPrice,
+                        rtp: leg.rtp,
+                        mtp: leg.mtp,
+                        max_peak_price: leg.max_peak_price,
+                        max_low_price: leg.max_low_price,
+                        re_high_trigger_price: leg.re_high_trigger_price,
+                        re_low_trigger_price: leg.re_low_trigger_price,
+                        candleMinute: leg.candleMinute,
+                        candleHigh: leg.candleHigh,
+                        candleLow: leg.candleLow,
+                        reentry_count: leg.reentry_count || 0,
+                        original_traded_price: leg.original_traded_price || leg.entryPrice,
+                        base_otp: leg.base_otp || leg.entryPrice,
+                        bookedPnlPoints: 0,
+                        bookedPnlRupees: 0,
+                        currentActivePnlPoints: 0,
+                        currentActivePnlRupees: 0,
+                        pnlPercent: 0,
+                        pnlPoints: 0,
+                        pnlRupees: 0
+                    };
+
+                    virtualLegsToPush.push(virtualLeg);
+                } else {
+                    const oldState = leg.state;
+                    
+                    leg.state = "COMPLETED";
+                    leg.exited = true;
+                    leg.exitType = "SWITCHED_TO_VIRTUAL";
+                    leg.exitTime = exitTime;
+
+                    const virtualLeg = {
+                        leg: { ...leg.leg },
+                        instrument: leg.instrument ? { ...leg.instrument } : null,
+                        orderId: `VIRTUAL-${Date.now()}`,
+                        uniqueOrderId: `VIRTUAL-${Date.now()}`,
+                        // If it was waiting for a limit fill (ACTIVE), just assume it enters virtually at LTP now to prevent stalling.
+                        // Otherwise, preserve the waiting state.
+                        state: oldState === "ACTIVE" ? "VIRTUAL_MONITORING" : oldState,
+                        is_virtual_monitoring: true,
+                        is_virtual_leg: true,
+                        legIndex: leg.legIndex,
+                        exited: false,
+                        exitType: null,
+                        isExiting: false,
+                        entryTime: oldState === "ACTIVE" ? exitTime : null,
+                        entryPrice: oldState === "ACTIVE" ? leg.currentLtp : null,
+                        currentLtp: leg.currentLtp,
+                        last_tick_price: leg.last_tick_price,
+                        initialSlTriggerPrice: leg.initialSlTriggerPrice,
+                        slTriggerPrice: leg.slTriggerPrice,
+                        slLimitPrice: leg.slLimitPrice,
+                        tslReferencePrice: leg.tslReferencePrice,
+                        peakPrice: leg.peakPrice,
+                        rtp: leg.rtp,
+                        mtp: leg.mtp,
+                        max_peak_price: leg.max_peak_price,
+                        max_low_price: leg.max_low_price,
+                        re_high_trigger_price: leg.re_high_trigger_price,
+                        re_low_trigger_price: leg.re_low_trigger_price,
+                        candleMinute: leg.candleMinute,
+                        candleHigh: leg.candleHigh,
+                        candleLow: leg.candleLow,
+                        reentry_count: leg.reentry_count || 0,
+                        original_traded_price: leg.original_traded_price,
+                        base_otp: leg.base_otp,
+                        bookedPnlPoints: 0,
+                        bookedPnlRupees: 0,
+                        currentActivePnlPoints: 0,
+                        currentActivePnlRupees: 0,
+                        pnlPercent: 0,
+                        pnlPoints: 0,
+                        pnlRupees: 0
+                    };
+                    
+                    virtualLegsToPush.push(virtualLeg);
                 }
-
-                // 3. Create a NEW Virtual Monitoring Leg to continue background monitoring
-                const virtualLeg = {
-                    leg: { ...leg.leg },
-                    instrument: leg.instrument ? { ...leg.instrument } : null,
-                    orderId: `VIRTUAL-${Date.now()}`,
-                    uniqueOrderId: `VIRTUAL-${Date.now()}`,
-                    state: "VIRTUAL_MONITORING",
-                    is_virtual_monitoring: true,
-                    is_virtual_leg: true,
-                    legIndex: leg.legIndex,
-                    exited: false,
-                    exitType: null,
-                    isExiting: false,
-                    entryTime: leg.entryTime || exitTime,
-                    entryPrice: leg.entryPrice, // Continuous entry price for "what-if" PnL
-                    currentLtp: exitLtp,
-                    last_tick_price: exitLtp,
-                    initialSlTriggerPrice: leg.initialSlTriggerPrice,
-                    slTriggerPrice: leg.slTriggerPrice,
-                    slLimitPrice: leg.slLimitPrice,
-                    tslReferencePrice: leg.tslReferencePrice,
-                    peakPrice: leg.peakPrice,
-                    rtp: leg.rtp,
-                    mtp: leg.mtp,
-                    max_peak_price: leg.max_peak_price,
-                    max_low_price: leg.max_low_price,
-                    re_high_trigger_price: leg.re_high_trigger_price,
-                    re_low_trigger_price: leg.re_low_trigger_price,
-                    candleMinute: leg.candleMinute,
-                    candleHigh: leg.candleHigh,
-                    candleLow: leg.candleLow,
-                    reentry_count: leg.reentry_count || 0,
-                    original_traded_price: leg.original_traded_price || leg.entryPrice,
-                    base_otp: leg.base_otp || leg.entryPrice,
-                    bookedPnlPoints: 0,
-                    bookedPnlRupees: 0,
-                    currentActivePnlPoints: 0,
-                    currentActivePnlRupees: 0,
-                    pnlPercent: 0,
-                    pnlPoints: 0,
-                    pnlRupees: 0
-                };
-
-                virtualLegsToPush.push(virtualLeg);
             }
         }
 
@@ -795,7 +865,7 @@ async function switchVirtualMode(strategyId, targetVirtual, userId) {
         const newActiveLegsToPush = [];
 
         for (const leg of currentLegs) {
-            if (!leg.exited && leg.entryPrice) {
+            if (!leg.exited) {
                 const instrument = leg.instrument;
                 if (!instrument) continue;
 
@@ -807,16 +877,16 @@ async function switchVirtualMode(strategyId, targetVirtual, userId) {
                     currentLtp: leg.currentLtp || 0
                 });
 
-                const reEntryPrice = (currentLtp && currentLtp > 0) ? currentLtp : (leg.currentLtp || leg.entryPrice);
-
-                // 2. Mark the virtual monitoring leg as EXITED with the fresh market price
-                leg.exited = true;
-                leg.state = "COMPLETED";
-                leg.exitType = config.is_paper_trading ? "SWITCHED_TO_PAPER" : "SWITCHED_TO_LIVE";
-                leg.exitTime = exitTime;
-                leg.currentLtp = reEntryPrice;
-
                 if (leg.entryPrice) {
+                    const reEntryPrice = (currentLtp && currentLtp > 0) ? currentLtp : (leg.currentLtp || leg.entryPrice);
+
+                    // 2. Mark the virtual monitoring leg as EXITED with the fresh market price
+                    leg.exited = true;
+                    leg.state = "COMPLETED";
+                    leg.exitType = config.is_paper_trading ? "SWITCHED_TO_PAPER" : "SWITCHED_TO_LIVE";
+                    leg.exitTime = exitTime;
+                    leg.currentLtp = reEntryPrice;
+
                     const pnlPts = leg.leg.side === "BUY" ? (reEntryPrice - leg.entryPrice) : (leg.entryPrice - reEntryPrice);
                     const multiplier = parseFloat(config.quantity_multiplier) || 1;
                     const qty = leg.leg.lots * parseInt(leg.instrument?.lotsize || 1) * multiplier;
@@ -827,144 +897,197 @@ async function switchVirtualMode(strategyId, targetVirtual, userId) {
                     if (leg.original_traded_price) {
                         leg.pnlPercent = (pnlPts / leg.original_traded_price) * 100;
                     }
-                }
 
-                leg.exitSnapshot = {
-                    slTriggerPrice: leg.slTriggerPrice,
-                    initialSlTriggerPrice: leg.initialSlTriggerPrice,
-                    exitLtp: reEntryPrice,
-                    exitTime: exitTime,
-                    peakPrice: leg.peakPrice || leg.max_peak_price
-                };
-                const existingSlTrigger = leg.slTriggerPrice || leg.initialSlTriggerPrice;
-                let liveOrderId = null;
-                let liveUniqueOrderId = null;
-                let executionEntryPrice = reEntryPrice;
-                let slOrderId = null;
-                let slUniqueOrderId = null;
-                let slTriggerPrice = existingSlTrigger;
-                let slLimitPrice = null;
+                    leg.exitSnapshot = {
+                        slTriggerPrice: leg.slTriggerPrice,
+                        initialSlTriggerPrice: leg.initialSlTriggerPrice,
+                        exitLtp: reEntryPrice,
+                        exitTime: exitTime,
+                        peakPrice: leg.peakPrice || leg.max_peak_price
+                    };
+                    const existingSlTrigger = leg.slTriggerPrice || leg.initialSlTriggerPrice;
+                    let liveOrderId = null;
+                    let liveUniqueOrderId = null;
+                    let executionEntryPrice = reEntryPrice;
+                    let slOrderId = null;
+                    let slUniqueOrderId = null;
+                    let slTriggerPrice = existingSlTrigger;
+                    let slLimitPrice = null;
 
-                if (!config.is_paper_trading) {
-                    // LIVE strategy: place real entry order on broker
-                    try {
-                        const entrySide = leg.leg.side;
-                        const offsetAmt = getLimitOffsetAmt(reEntryPrice, config);
-                        const finalPrice = entrySide === "BUY"
-                            ? roundToTick(reEntryPrice + offsetAmt).toString()
-                            : roundToTick(reEntryPrice - offsetAmt).toString();
+                    if (!config.is_paper_trading) {
+                        // LIVE strategy: place real entry order on broker
+                        try {
+                            const entrySide = leg.leg.side;
+                            const offsetAmt = getLimitOffsetAmt(reEntryPrice, config);
+                            const finalPrice = entrySide === "BUY"
+                                ? roundToTick(reEntryPrice + offsetAmt).toString()
+                                : roundToTick(reEntryPrice - offsetAmt).toString();
 
-                        const entryConfig = {
-                            ...config,
-                            side: entrySide,
-                            variety: "NORMAL",
-                            ordertype: "LIMIT",
-                            price: finalPrice,
-                            lots: leg.leg.lots
-                        };
+                            const entryConfig = {
+                                ...config,
+                                side: entrySide,
+                                variety: "NORMAL",
+                                ordertype: "LIMIT",
+                                price: finalPrice,
+                                lots: leg.leg.lots
+                            };
 
-                        const orderData = await placeOrder(entryConfig, instrument, config.connectionId);
-                        liveOrderId = orderData.orderid;
-                        liveUniqueOrderId = orderData.uniqueorderid;
+                            const orderData = await placeOrder(entryConfig, instrument, config.connectionId);
+                            liveOrderId = orderData.orderid;
+                            liveUniqueOrderId = orderData.uniqueorderid;
 
-                        const fillPrice = await chaseOrderFill({
-                            orderId: orderData.orderid,
-                            uniqueOrderId: orderData.uniqueorderid,
-                            instrument,
-                            config,
-                            legSide: entrySide,
-                            lots: leg.leg.lots,
-                            connectionId: config.connectionId,
-                            strategyId,
-                            baseLtp: reEntryPrice,
-                            forceLive: true  // strategy.is_virtual is still true in-memory during this transition
-                        });
+                            const fillPrice = await chaseOrderFill({
+                                orderId: orderData.orderid,
+                                uniqueOrderId: orderData.uniqueorderid,
+                                instrument,
+                                config,
+                                legSide: entrySide,
+                                lots: leg.leg.lots,
+                                connectionId: config.connectionId,
+                                strategyId,
+                                baseLtp: reEntryPrice,
+                                forceLive: true  // strategy.is_virtual is still true in-memory during this transition
+                            });
 
-                        if (fillPrice) {
-                            executionEntryPrice = fillPrice;
-                            addStrategyLog(strategyId, `Re-entered LIVE leg ${instrument.symbol} at ₹${fillPrice}`, "INFO");
+                            if (fillPrice) {
+                                executionEntryPrice = fillPrice;
+                                addStrategyLog(strategyId, `Re-entered LIVE leg ${instrument.symbol} at ₹${fillPrice}`, "INFO");
 
-                            if (config.variety === "STOPLOSS" && leg.leg.sl_type) {
-                                try {
-                                    const slOrder = await placeStopLossWithRetry({
-                                        baseConfig: config,
-                                        legSide: entrySide,
-                                        entryPrice: fillPrice,
-                                        instrument,
-                                        lots: leg.leg.lots,
-                                        slType: leg.leg.sl_type,
-                                        slValue: leg.leg.sl_value,
-                                        slLimitMargin: leg.leg.sl_limit_margin || 0,
-                                        slLimitMarginType: leg.leg.sl_limit_margin_type || "POINTS",
-                                        connectionId: config.connectionId,
-                                        strategyId,
-                                        overrideSlTriggerPrice: existingSlTrigger
-                                    });
-                                    if (slOrder?.orderid) {
-                                        slOrderId = slOrder.orderid;
-                                        slUniqueOrderId = slOrder.uniqueorderid;
-                                        slLimitPrice = slOrder.price;
-                                        slTriggerPrice = slOrder.triggerprice;
+                                if (config.variety === "STOPLOSS" && leg.leg.sl_type) {
+                                    try {
+                                        const slOrder = await placeStopLossWithRetry({
+                                            baseConfig: config,
+                                            legSide: entrySide,
+                                            entryPrice: fillPrice,
+                                            instrument,
+                                            lots: leg.leg.lots,
+                                            slType: leg.leg.sl_type,
+                                            slValue: leg.leg.sl_value,
+                                            slLimitMargin: leg.leg.sl_limit_margin || 0,
+                                            slLimitMarginType: leg.leg.sl_limit_margin_type || "POINTS",
+                                            connectionId: config.connectionId,
+                                            strategyId,
+                                            overrideSlTriggerPrice: existingSlTrigger
+                                        });
+                                        if (slOrder?.orderid) {
+                                            slOrderId = slOrder.orderid;
+                                            slUniqueOrderId = slOrder.uniqueorderid;
+                                            slLimitPrice = slOrder.price;
+                                            slTriggerPrice = slOrder.triggerprice;
+                                        }
+                                    } catch (slErr) {
+                                        console.error(`[SwitchVirtual] Failed to re-place SL for ${instrument.symbol}: ${slErr.message}`);
                                     }
-                                } catch (slErr) {
-                                    console.error(`[SwitchVirtual] Failed to re-place SL for ${instrument.symbol}: ${slErr.message}`);
                                 }
                             }
+                        } catch (err) {
+                            console.error(`[SwitchVirtual] Live re-entry failed for ${instrument.symbol}: ${err.message}`);
+                            addStrategyLog(strategyId, `Live re-entry FAILED for ${instrument.symbol}: ${err.message}`, "ERROR");
                         }
-                    } catch (err) {
-                        console.error(`[SwitchVirtual] Live re-entry failed for ${instrument.symbol}: ${err.message}`);
-                        addStrategyLog(strategyId, `Live re-entry FAILED for ${instrument.symbol}: ${err.message}`, "ERROR");
+                    } else {
+                        addStrategyLog(strategyId, `Re-entered PAPER leg ${instrument.symbol} at ₹${reEntryPrice}`, "INFO");
                     }
+
+                    // 3. Create a NEW Active Running Leg preserving virtual SL trigger prices
+                    const newRunningLeg = {
+                        leg: { ...leg.leg },
+                        instrument: { ...instrument },
+                        orderId: liveOrderId || `PAPER-${Date.now()}`,
+                        uniqueOrderId: liveUniqueOrderId || `UPAPER-${Date.now()}`,
+                        state: "ACTIVE",
+                        is_virtual_monitoring: false,
+                        is_virtual_leg: false,
+                        legIndex: leg.legIndex,
+                        exited: false,
+                        exitType: null,
+                        isExiting: false,
+                        entryPrice: executionEntryPrice,
+                        currentLtp: reEntryPrice,
+                        last_tick_price: reEntryPrice,
+                        entryTime: getISTExchangeFormat(),
+                        slOrderId: slOrderId,
+                        slUniqueOrderId: slUniqueOrderId,
+                        slTriggerPrice: slTriggerPrice || existingSlTrigger,
+                        initialSlTriggerPrice: leg.initialSlTriggerPrice || existingSlTrigger || slTriggerPrice,
+                        slLimitPrice: slLimitPrice,
+                        tslReferencePrice: leg.tslReferencePrice,
+                        peakPrice: Math.max(executionEntryPrice, leg.peakPrice || 0),
+                        rtp: leg.rtp,
+                        mtp: leg.mtp,
+                        max_peak_price: Math.max(executionEntryPrice, leg.max_peak_price || 0),
+                        max_low_price: leg.max_low_price ? Math.min(executionEntryPrice, leg.max_low_price) : executionEntryPrice,
+                        re_high_trigger_price: leg.re_high_trigger_price,
+                        re_low_trigger_price: leg.re_low_trigger_price,
+                        candleMinute: leg.candleMinute,
+                        candleHigh: leg.candleHigh,
+                        candleLow: leg.candleLow,
+                        reentry_count: leg.reentry_count || 0,
+                        original_traded_price: executionEntryPrice,
+                        base_otp: executionEntryPrice,
+                        bookedPnlPoints: 0,
+                        bookedPnlRupees: 0,
+                        currentActivePnlPoints: 0,
+                        currentActivePnlRupees: 0,
+                        pnlPercent: 0,
+                        pnlPoints: 0,
+                        pnlRupees: 0
+                    };
+
+                    newActiveLegsToPush.push(newRunningLeg);
                 } else {
-                    addStrategyLog(strategyId, `Re-entered PAPER leg ${instrument.symbol} at ₹${reEntryPrice}`, "INFO");
+                    const oldState = leg.state;
+
+                    leg.exited = true;
+                    leg.state = "COMPLETED";
+                    leg.exitType = config.is_paper_trading ? "SWITCHED_TO_PAPER" : "SWITCHED_TO_LIVE";
+                    leg.exitTime = exitTime;
+
+                    const newRunningLeg = {
+                        leg: { ...leg.leg },
+                        instrument: { ...instrument },
+                        orderId: null,
+                        uniqueOrderId: null,
+                        state: oldState === "VIRTUAL_MONITORING" ? "ACTIVE" : oldState,
+                        is_virtual_monitoring: false,
+                        is_virtual_leg: false,
+                        legIndex: leg.legIndex,
+                        exited: false,
+                        exitType: null,
+                        isExiting: false,
+                        entryPrice: null,
+                        currentLtp: currentLtp,
+                        last_tick_price: currentLtp,
+                        entryTime: null,
+                        slOrderId: null,
+                        slUniqueOrderId: null,
+                        slTriggerPrice: leg.slTriggerPrice || leg.initialSlTriggerPrice,
+                        initialSlTriggerPrice: leg.initialSlTriggerPrice,
+                        slLimitPrice: null,
+                        tslReferencePrice: leg.tslReferencePrice,
+                        peakPrice: leg.peakPrice,
+                        rtp: leg.rtp,
+                        mtp: leg.mtp,
+                        max_peak_price: leg.max_peak_price,
+                        max_low_price: leg.max_low_price,
+                        re_high_trigger_price: leg.re_high_trigger_price,
+                        re_low_trigger_price: leg.re_low_trigger_price,
+                        candleMinute: leg.candleMinute,
+                        candleHigh: leg.candleHigh,
+                        candleLow: leg.candleLow,
+                        reentry_count: leg.reentry_count || 0,
+                        original_traded_price: leg.original_traded_price,
+                        base_otp: leg.base_otp,
+                        bookedPnlPoints: 0,
+                        bookedPnlRupees: 0,
+                        currentActivePnlPoints: 0,
+                        currentActivePnlRupees: 0,
+                        pnlPercent: 0,
+                        pnlPoints: 0,
+                        pnlRupees: 0
+                    };
+                    
+                    newActiveLegsToPush.push(newRunningLeg);
                 }
-
-                // 3. Create a NEW Active Running Leg preserving virtual SL trigger prices
-                const newRunningLeg = {
-                    leg: { ...leg.leg },
-                    instrument: { ...instrument },
-                    orderId: liveOrderId || `PAPER-${Date.now()}`,
-                    uniqueOrderId: liveUniqueOrderId || `UPAPER-${Date.now()}`,
-                    state: "ACTIVE",
-                    is_virtual_monitoring: false,
-                    is_virtual_leg: false,
-                    legIndex: leg.legIndex,
-                    exited: false,
-                    exitType: null,
-                    isExiting: false,
-                    entryPrice: executionEntryPrice,
-                    currentLtp: reEntryPrice,
-                    last_tick_price: reEntryPrice,
-                    entryTime: getISTExchangeFormat(),
-                    slOrderId: slOrderId,
-                    slUniqueOrderId: slUniqueOrderId,
-                    slTriggerPrice: slTriggerPrice || existingSlTrigger,
-                    initialSlTriggerPrice: leg.initialSlTriggerPrice || existingSlTrigger || slTriggerPrice,
-                    slLimitPrice: slLimitPrice,
-                    tslReferencePrice: leg.tslReferencePrice,
-                    peakPrice: Math.max(executionEntryPrice, leg.peakPrice || 0),
-                    rtp: leg.rtp,
-                    mtp: leg.mtp,
-                    max_peak_price: Math.max(executionEntryPrice, leg.max_peak_price || 0),
-                    max_low_price: leg.max_low_price ? Math.min(executionEntryPrice, leg.max_low_price) : executionEntryPrice,
-                    re_high_trigger_price: leg.re_high_trigger_price,
-                    re_low_trigger_price: leg.re_low_trigger_price,
-                    candleMinute: leg.candleMinute,
-                    candleHigh: leg.candleHigh,
-                    candleLow: leg.candleLow,
-                    reentry_count: leg.reentry_count || 0,
-                    original_traded_price: executionEntryPrice,
-                    base_otp: executionEntryPrice,
-                    bookedPnlPoints: 0,
-                    bookedPnlRupees: 0,
-                    currentActivePnlPoints: 0,
-                    currentActivePnlRupees: 0,
-                    pnlPercent: 0,
-                    pnlPoints: 0,
-                    pnlRupees: 0
-                };
-
-                newActiveLegsToPush.push(newRunningLeg);
             }
         }
 
