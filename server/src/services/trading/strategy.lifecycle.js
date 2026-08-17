@@ -675,6 +675,10 @@ async function switchVirtualMode(strategyId, targetVirtual, userId) {
         // --- SWITCHING TO VIRTUAL MODE ---
         addStrategyLog(strategyId, `Switching strategy to VIRTUAL mode. Closing open positions...`, "INFO");
 
+        // Temporarily suspend monitoring to prevent race conditions during state transition
+        strategy.status = "TRANSITIONING";
+        updateStrategyInMemory(strategyId, { status: "TRANSITIONING" });
+
         const currentLegs = [...(strategy.legs || [])];
         const virtualLegsToPush = [];
 
@@ -818,8 +822,10 @@ async function switchVirtualMode(strategyId, targetVirtual, userId) {
         strategy.is_virtual = true;
         // Set config AFTER broker exits have already been placed
         strategy.config.is_virtual = true;
+        strategy.status = "IN_POSITION";
 
         updateStrategyInMemory(strategyId, {
+            status: "IN_POSITION",
             is_virtual: true,
             legs: strategy.legs
         });
@@ -830,8 +836,11 @@ async function switchVirtualMode(strategyId, targetVirtual, userId) {
     } else {
         // --- SWITCHING BACK FROM VIRTUAL MODE ---
         // Clear the virtual flag immediately so real broker orders are placed below
+        strategy.status = "TRANSITIONING";
+        strategy.is_virtual = false;
         strategy.config.is_virtual = false;
         addStrategyLog(strategyId, `Switching strategy back from VIRTUAL mode. Re-entering active legs...`, "INFO");
+        updateStrategyInMemory(strategyId, { status: "TRANSITIONING", is_virtual: false });
 
         const currentLegs = [...(strategy.legs || [])];
         const newActiveLegsToPush = [];
@@ -1040,8 +1049,10 @@ async function switchVirtualMode(strategyId, targetVirtual, userId) {
         strategy.legs = [...currentLegs, ...newActiveLegsToPush];
         strategy.is_virtual = false;
         strategy.config.is_virtual = false;
+        strategy.status = "IN_POSITION";
 
         updateStrategyInMemory(strategyId, {
+            status: "IN_POSITION",
             is_virtual: false,
             legs: strategy.legs
         });
