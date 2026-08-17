@@ -670,6 +670,7 @@ async function switchVirtualMode(strategyId, targetVirtual, userId) {
     }
 
     const exitTime = getISTExchangeFormat();
+    const originalStatus = strategy.status;
 
     if (targetVirtual) {
         // --- SWITCHING TO VIRTUAL MODE ---
@@ -822,10 +823,10 @@ async function switchVirtualMode(strategyId, targetVirtual, userId) {
         strategy.is_virtual = true;
         // Set config AFTER broker exits have already been placed
         strategy.config.is_virtual = true;
-        strategy.status = "IN_POSITION";
+        strategy.status = originalStatus;
 
         updateStrategyInMemory(strategyId, {
-            status: "IN_POSITION",
+            status: originalStatus,
             is_virtual: true,
             legs: strategy.legs
         });
@@ -1049,10 +1050,10 @@ async function switchVirtualMode(strategyId, targetVirtual, userId) {
         strategy.legs = [...currentLegs, ...newActiveLegsToPush];
         strategy.is_virtual = false;
         strategy.config.is_virtual = false;
-        strategy.status = "IN_POSITION";
+        strategy.status = originalStatus;
 
         updateStrategyInMemory(strategyId, {
-            status: "IN_POSITION",
+            status: originalStatus,
             is_virtual: false,
             legs: strategy.legs
         });
