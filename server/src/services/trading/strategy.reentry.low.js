@@ -33,7 +33,7 @@ async function handleReentryLow({ leg, config, strategyId, addStrategyLog, curre
     }
 
     // Recalculate offset based on the final targetPrice
-    const finalOffsetAmt = getLimitOffsetAmt(targetPrice, config);
+    const finalOffsetAmt = isPaperTrading ? 0 : getLimitOffsetAmt(targetPrice, config);
 
     // 3. Determine Order Type (STOPLOSS vs LIMIT)
     let variety = config.variety || "NORMAL";
