@@ -742,7 +742,7 @@ async function switchVirtualMode(strategyId, targetVirtual, userId) {
                     leg.bookedPnlRupees = (leg.bookedPnlRupees || 0) + activePnlRupees;
                     leg.currentActivePnlPoints = 0;
                     leg.currentActivePnlRupees = 0;
-                    leg.pnlPoints = leg.bookedPnlRupees;
+                    leg.pnlPoints = leg.bookedPnlPoints;
                     leg.pnlRupees = leg.bookedPnlRupees;
                     if (leg.original_traded_price) {
                         leg.pnlPercent = (leg.pnlPoints / leg.original_traded_price) * 100;
