@@ -391,10 +391,14 @@ async function monitorStrategyLoop(strategyId, strategy) {
         }
 
         // Global Strategy PnL
-        const totalPnlRupees = strategy.legs.reduce((sum, l) => sum + (l.pnlRupees || 0), 0);
+        const totalPnlRupees = strategy.legs.reduce((sum, l) => {
+            if (l.exitType === "SWITCHED_TO_VIRTUAL") return sum;
+            return sum + (l.pnlRupees || 0);
+        }, 0);
         strategy.totalPnlRupees = totalPnlRupees;
 
         const totalOriginalValue = strategy.legs.reduce((sum, l) => {
+            if (l.exitType === "SWITCHED_TO_VIRTUAL") return sum;
             if (!l.original_traded_price) return sum;
             const multiplier = parseFloat(config.quantity_multiplier) || 1;
             const quantity = (l.leg?.lots || 0) * parseInt(l.instrument?.lotsize || 1) * multiplier;

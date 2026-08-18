@@ -3324,7 +3324,7 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
     .reduce((sum, l) => sum + (l.pnlRupees || l.bookedPnlRupees || 0), 0);
 
   const activeVirtualRupees = (strategyData.legs || [])
-    .filter(l => isVirtualLeg(l))
+    .filter(l => isVirtualLeg(l) && l.exitType !== "SWITCHED_TO_VIRTUAL")
     .reduce((sum, l) => sum + (l.exited ? (l.pnlRupees || l.bookedPnlRupees || 0) : (l.currentActivePnlRupees || l.pnlRupees || 0)), 0);
 
   const hasVirtualLegs = (strategyData.legs || []).some(l => isVirtualLeg(l));
