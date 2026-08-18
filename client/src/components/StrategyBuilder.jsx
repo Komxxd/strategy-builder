@@ -3320,8 +3320,11 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
   const isVirtualLeg = l => l.is_virtual_leg || l.is_virtual_monitoring;
 
   const bookedRupees = (strategyData.legs || [])
-    .filter(l => l.exited && !isVirtualLeg(l))
-    .reduce((sum, l) => sum + (l.pnlRupees || l.bookedPnlRupees || 0), 0);
+    .filter(l => l.exited && (!isVirtualLeg(l) || l.exitType === "SWITCHED_TO_VIRTUAL"))
+    .reduce((sum, l) => {
+        if (l.exitType === "SWITCHED_TO_VIRTUAL") return sum + (l.bookedPnlRupees || 0);
+        return sum + (l.pnlRupees || l.bookedPnlRupees || 0);
+    }, 0);
 
   const activeVirtualRupees = (strategyData.legs || [])
     .filter(l => isVirtualLeg(l) && l.exitType !== "SWITCHED_TO_VIRTUAL")

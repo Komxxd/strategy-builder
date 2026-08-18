@@ -392,7 +392,9 @@ async function monitorStrategyLoop(strategyId, strategy) {
 
         // Global Strategy PnL
         const totalPnlRupees = strategy.legs.reduce((sum, l) => {
-            if (l.exitType === "SWITCHED_TO_VIRTUAL") return sum;
+            if (l.exitType === "SWITCHED_TO_VIRTUAL") {
+                return sum + (l.bookedPnlRupees || 0);
+            }
             return sum + (l.pnlRupees || 0);
         }, 0);
         strategy.totalPnlRupees = totalPnlRupees;
