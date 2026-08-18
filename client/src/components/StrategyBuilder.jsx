@@ -3330,15 +3330,23 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
     .filter(l => isVirtualLeg(l) && l.exitType !== "SWITCHED_TO_VIRTUAL")
     .reduce((sum, l) => {
         let virtualPnl = l.exited ? (l.pnlRupees || l.bookedPnlRupees || 0) : (l.currentActivePnlRupees || l.pnlRupees || 0);
-        const parentLeg = strategyData.legs?.find(p => p.legIndex === l.legIndex && p.exitType === "SWITCHED_TO_VIRTUAL");
-        if (parentLeg) {
-            virtualPnl -= (parentLeg.bookedPnlRupees || 0);
+        // Only subtract parent's booked PnL if this leg is a direct continuation (spawned from SWITCHED_TO_VIRTUAL)
+        if (l.orderId && l.orderId.startsWith("VIRTUAL-")) {
+            const parentLeg = strategyData.legs?.find(p => p.legIndex === l.legIndex && p.exitType === "SWITCHED_TO_VIRTUAL");
+            if (parentLeg) {
+                virtualPnl -= (parentLeg.bookedPnlRupees || 0);
+            }
         }
         return sum + virtualPnl;
     }, 0);
 
   const hasVirtualLegs = (strategyData.legs || []).some(l => isVirtualLeg(l));
-  const totalRupees = Number(strategyData.totalPnlRupees) || (bookedRupees + activeVirtualRupees);
+  
+  // Ensure the math is perfectly balanced by relying on the backend's authoritative total
+  const totalRupees = strategyData.totalPnlRupees != null ? Number(strategyData.totalPnlRupees) : (bookedRupees + activeVirtualRupees);
+  
+  // If backend provided a total, force virtual to perfectly balance the equation
+  const displayVirtualRupees = strategyData.totalPnlRupees != null ? (totalRupees - bookedRupees) : activeVirtualRupees;
 
   return (
   <>
