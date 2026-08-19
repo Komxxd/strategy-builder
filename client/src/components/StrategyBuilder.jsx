@@ -3340,20 +3340,32 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
   // Strictly following your exact formula
   const totalRupees = virtualPlRupees + bookedRupees + ongoingRupees;
 
+  const hasBookedLegs = (strategyData.legs || []).some(l => l.exited && (!isVirtualLeg(l) || l.exitType === "SWITCHED_TO_VIRTUAL"));
+  const hasSwitchLegs = (strategyData.legs || []).some(l => l.exitType === "SWITCHED_TO_VIRTUAL");
+  const hasVirtualLegs = (strategyData.legs || []).some(l => isVirtualLeg(l));
+
   return (
   <>
+  {hasBookedLegs && (
   <span className={`text-[10px] font-mono font-medium px-1.5 py-0.5 rounded border ${bookedRupees >= 0 ?'bg-emerald-50 text-emerald-700 border-emerald-200' :'bg-red-50 text-red-700 border-red-200'}`}>
   Booked: {bookedRupees > 0 ?'+' :''}₹{bookedRupees.toFixed(2)}
   </span>
+  )}
+  {hasSwitchLegs && (
   <span className={`text-[10px] font-mono font-medium px-1.5 py-0.5 rounded border ${switchRupees >= 0 ?'bg-indigo-50 text-indigo-700 border-indigo-200' :'bg-pink-50 text-pink-700 border-pink-200'}`}>
   Switch: {switchRupees > 0 ?'+' :''}₹{switchRupees.toFixed(2)}
   </span>
+  )}
+  {hasVirtualLegs && (
   <span className={`text-[10px] font-mono font-medium px-1.5 py-0.5 rounded border ${virtualRupees >= 0 ?'bg-blue-50 text-blue-700 border-blue-200' :'bg-orange-50 text-orange-700 border-orange-200'}`}>
   Virtual: {virtualRupees > 0 ?'+' :''}₹{virtualRupees.toFixed(2)}
   </span>
+  )}
+  {hasVirtualLegs && (
   <span className={`text-[10px] font-mono font-medium px-1.5 py-0.5 rounded border ${virtualPlRupees >= 0 ?'bg-purple-50 text-purple-700 border-purple-200' :'bg-fuchsia-50 text-fuchsia-700 border-fuchsia-200'}`}>
   Virtual PL: {virtualPlRupees > 0 ?'+' :''}₹{virtualPlRupees.toFixed(2)}
   </span>
+  )}
   <span className={`text-[11px] font-mono font-medium px-1.5 py-0.5 rounded border ${(strategyData.pnlPercent || 0) >= 0 ?'bg-emerald-50 text-emerald-700 border-emerald-200' :'bg-red-50 text-red-700 border-red-200'}`}>
   Total PnL: {(Number(strategyData.pnlPercent) || 0) > 0 ?'+' :''}{(Number(strategyData.pnlPercent) || 0).toFixed(2)}% | {totalRupees > 0 ?'+' :''}₹{totalRupees.toFixed(2)}
   </span>
