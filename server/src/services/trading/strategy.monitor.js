@@ -23,7 +23,7 @@ const { handleReentryLow, modifyReentryLowOrder } = require("./strategy.reentry.
 const { checkMomentumHit } = require("./strategy.momentum");
 const { getISTTime, getISTExchangeFormat } = require("./strategy.time");
 const { roundToTick, computeStopLossExitPrices, getLimitOffsetAmt } = require("./strategy.offset");
-const { placeOrder, chaseOrderFill, placeStopLossExitOrder, cancelOrder, modifyOrderLocallyOrViaWorker } = require("./strategy.execution");
+const { placeOrder, chaseOrderFill, placeStopLossExitOrder, cancelOrder, modifyOrderLocallyOrViaWorker, waitForOrderFillPrice, placeStopLossWithRetry } = require("./strategy.execution");
 const { placeExitOrder } = require("./strategy.execution");
 const { checkOrderFillOnce } = require("./strategy.chase");
 const marketSocketService = require("../marketSocket.service");
@@ -360,6 +360,140 @@ async function monitorStrategyLoop(strategyId, strategy) {
                     if (triggerReEntry) {
                         await handleReentryReSL({ leg, config, strategyId, addStrategyLog, currentTick });
                     }
+                }
+
+                // 2c. Re-initiate orphaned WAITING_FOR_FILL legs (from mode switches)
+                // When a leg is in WAITING_FOR_FILL and a virtual/live switch happens, the
+                // original async fill watcher dies (it holds a ref to the old leg object).
+                // The new leg inherits the state but has no watcher. This block re-places
+                // the order and spawns a fresh fill watcher.
+                if (leg.state === "WAITING_FOR_FILL" && leg.needsOrderReplacement) {
+                    const targetPrice = leg.mtp || leg.re_high_trigger_price || leg.re_low_trigger_price || leg.recost_trigger_price || leg.resl_trigger_price;
+                    if (!targetPrice || !leg.instrument) {
+                        leg.needsOrderReplacement = false;
+                        continue;
+                    }
+
+                    const isVirtual = config?.is_virtual === true || leg.is_virtual_leg === true;
+                    const isPaperTrading = config?.is_paper_trading === true || isVirtual;
+                    const side = leg.leg.side;
+                    const offsetAmt = isPaperTrading ? 0 : getLimitOffsetAmt(targetPrice, config);
+
+                    let variety, ordertype, finalPriceStr, triggerPriceStr;
+
+                    if (side === "BUY") {
+                        if (targetPrice > tickPrice) {
+                            variety = "STOPLOSS";
+                            ordertype = "STOPLOSS_LIMIT";
+                            finalPriceStr = roundToTick(targetPrice + offsetAmt).toString();
+                            triggerPriceStr = targetPrice.toString();
+                        } else {
+                            variety = "NORMAL";
+                            ordertype = "LIMIT";
+                            triggerPriceStr = "0";
+                            finalPriceStr = roundToTick(targetPrice + offsetAmt).toString();
+                        }
+                    } else {
+                        if (targetPrice < tickPrice) {
+                            variety = "STOPLOSS";
+                            ordertype = "STOPLOSS_LIMIT";
+                            finalPriceStr = roundToTick(targetPrice - offsetAmt).toString();
+                            triggerPriceStr = targetPrice.toString();
+                        } else {
+                            variety = "NORMAL";
+                            ordertype = "LIMIT";
+                            triggerPriceStr = "0";
+                            finalPriceStr = roundToTick(targetPrice - offsetAmt).toString();
+                        }
+                    }
+
+                    try {
+                        addStrategyLog(strategyId, `[RE-INIT] Re-placing order for ${leg.instrument?.symbol} at ₹${targetPrice} after mode switch.`, "INFO");
+
+                        const reInitOrder = await placeOrder({
+                            ...config,
+                            side: side,
+                            variety: variety,
+                            ordertype: ordertype,
+                            price: finalPriceStr,
+                            triggerprice: triggerPriceStr,
+                            lots: leg.leg.lots
+                        }, leg.instrument, config.connectionId);
+
+                        leg.orderId = reInitOrder.orderid;
+                        leg.uniqueOrderId = reInitOrder.uniqueorderid;
+                        leg.needsOrderReplacement = false;
+
+                        // Start fill watcher in background
+                        setTimeout(async () => {
+                            try {
+                                const fill = await waitForOrderFillPrice(
+                                    leg.uniqueOrderId,
+                                    config.connectionId,
+                                    isPaperTrading,
+                                    leg.instrument,
+                                    28800000,
+                                    1000,
+                                    { side, ordertype, price: parseFloat(finalPriceStr), triggerprice: parseFloat(triggerPriceStr) }
+                                );
+                                if (fill) {
+                                    leg.entryPrice = fill;
+                                    leg.entryTime = getISTExchangeFormat();
+                                    leg.original_traded_price = fill;
+                                    leg.peakPrice = fill;
+                                    leg.tslReferencePrice = fill;
+                                    leg.state = "ACTIVE";
+                                    addStrategyLog(strategyId, `[RE-INIT] Fill confirmed for ${leg.instrument?.symbol} at ₹${fill}.`, "INFO");
+
+                                    // Deploy SL if needed
+                                    const isSlEnabled = leg.leg.reentry_sl_enabled ? true : leg.leg.sl_enabled !== false;
+                                    if (config.variety === "STOPLOSS" && leg.entryPrice && isSlEnabled) {
+                                        const activeSlType = leg.leg.reentry_sl_enabled ? leg.leg.reentry_sl_type : (leg.leg.sl_type || "PERCENTAGE");
+                                        const activeSlValue = leg.leg.reentry_sl_enabled ? leg.leg.reentry_sl_value : leg.leg.stop_loss;
+
+                                        const slOrder = await placeStopLossWithRetry({
+                                            baseConfig: config,
+                                            legSide: side,
+                                            entryPrice: fill,
+                                            instrument: leg.instrument,
+                                            lots: leg.leg.lots,
+                                            slType: activeSlType,
+                                            slValue: activeSlValue,
+                                            slLimitMargin: config.entry_limit_offset,
+                                            slLimitMarginType: config.entry_limit_offset_type || 'POINTS',
+                                            connectionId: config.connectionId,
+                                            strategyId: strategyId
+                                        });
+
+                                        if (slOrder?.orderid) {
+                                            const prices = computeStopLossExitPrices(fill, side, activeSlType, activeSlValue, config.entry_limit_offset, config.entry_limit_offset_type || 'POINTS');
+                                            leg.slOrderId = slOrder.orderid;
+                                            leg.slUniqueOrderId = slOrder.uniqueorderid;
+                                            leg.slTriggerPrice = prices?.trigger;
+                                            leg.initialSlTriggerPrice = prices?.trigger;
+                                            leg.slLimitPrice = prices?.limit;
+                                            leg.exchangeSlProcessed = false;
+                                        }
+                                    }
+                                }
+                            } catch (e) {
+                                console.error("[RE-INIT] Fill monitoring failed:", e.message);
+                            }
+                        }, 1000);
+                    } catch (err) {
+                        if (err.message === "LPP_TRIGGER_REJECTION") {
+                            addStrategyLog(strategyId, `[RE-INIT] Order rejected by LPP for ${leg.instrument?.symbol}. Switching to INTERNAL MONITORING for Target: ₹${targetPrice}.`, "WARNING");
+                            leg.state = "WAITING_FOR_INTERNAL_FALLBACK";
+                            leg.fallbackTargetPrice = targetPrice;
+                            leg.fallbackSide = side;
+                            leg.needsOrderReplacement = false;
+                        } else {
+                            console.error("[RE-INIT] Order re-placement failed:", err.message);
+                            addStrategyLog(strategyId, `[RE-INIT] Failed to re-place order for ${leg.instrument?.symbol}: ${err.message}`, "ERROR");
+                            // Don't clear the flag — retry on next tick
+                        }
+                    }
+                    continue;
                 }
 
 
