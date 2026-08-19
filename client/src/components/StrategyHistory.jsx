@@ -207,7 +207,7 @@ export const StrategyHistory = () => {
  <div className="col-span-1 lg:col-span-2 text-right flex lg:block items-center justify-between">
  <span className="lg:hidden uppercase text-[9px] text-slate-400">Total PnL</span>
  <div className={`font-mono font-bold text-[11px] ${item.totalPnlRupees >= 0 ?'text-emerald-600' :'text-red-600'}`}>
- ₹{Number(item.totalPnlRupees || 0).toFixed(0)}
+ {item.totalPnlRupees > 0 ?'+' :''}₹{Number(item.totalPnlRupees || 0).toFixed(2)}
  <span className="ml-1 opacity-70 text-[9px]">({Number(item.pnlPercent || 0).toFixed(2)}%)</span>
  </div>
  </div>
@@ -257,7 +257,7 @@ export const StrategyHistory = () => {
  </div>
  <div className="text-right shrink-0">
  <div className={`text-[11px] font-mono font-black leading-none ${(leg.pnlPercent || leg.currentActivePnlPercent || 0) >= 0 ?'text-emerald-600' :'text-red-600'}`}>
- PnL : {(leg.pnlPercent || leg.currentActivePnlPercent || 0) > 0 ?'+' :''}{(leg.pnlPercent || leg.currentActivePnlPercent || 0).toFixed(2)}% | {(leg.pnlRupees || leg.currentActivePnlRupees || 0) > 0 ?'+' :''}₹{(leg.pnlRupees || leg.currentActivePnlRupees || 0).toFixed(0)}
+ PnL : {(leg.pnlPercent || leg.currentActivePnlPercent || 0) > 0 ?'+' :''}{(leg.pnlPercent || leg.currentActivePnlPercent || 0).toFixed(2)}% | {(leg.pnlRupees || leg.currentActivePnlRupees || 0) > 0 ?'+' :''}₹{(leg.pnlRupees || leg.currentActivePnlRupees || 0).toFixed(2)}
  </div>
  <div className="text-[8px] font-black text-black uppercase mt-1">Out Reason : {leg.exitType ||'CLOSED'}</div>
  </div>

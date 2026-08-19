@@ -2941,8 +2941,8 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
        return;
      }
     if (filteredRunningStrategies.length > 0) {
-      const sign = cumulativeActivePnl >= 0 ? '+' : '';
-      const pnlStr = `${sign}₹${cumulativeActivePnl.toFixed(0)}`;
+      const sign = cumulativeActivePnl > 0 ? '+' : '';
+      const pnlStr = `${sign}₹${cumulativeActivePnl.toFixed(2)}`;
       document.title = `${pnlStr} | Live Trading - Corequant`;
     } else {
       document.title = 'Live Trading - Corequant';
@@ -3252,7 +3252,7 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  <div className="flex items-center gap-2">
  <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Overall PnL:</span>
  <span className={`text-[12px] font-mono font-bold px-2 py-0.5 rounded border ${cumulativeActivePnl >= 0 ?'bg-emerald-50 text-emerald-700 border-emerald-200' :'bg-red-50 text-red-700 border-red-200'}`}>
- {cumulativeActivePnl > 0 ?'+' :''}{cumulativeActivePnlPercent.toFixed(2)}% | {cumulativeActivePnl > 0 ?'+' :''}₹{cumulativeActivePnl.toFixed(0)}
+ {cumulativeActivePnl > 0 ?'+' :''}{cumulativeActivePnlPercent.toFixed(2)}% | {cumulativeActivePnl > 0 ?'+' :''}₹{cumulativeActivePnl.toFixed(2)}
  </span>
  </div>
  )}
@@ -3321,47 +3321,41 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
 
   const bookedRupees = (strategyData.legs || [])
     .filter(l => l.exited && (!isVirtualLeg(l) || l.exitType === "SWITCHED_TO_VIRTUAL"))
-    .reduce((sum, l) => {
-        if (l.exitType === "SWITCHED_TO_VIRTUAL") return sum + (l.bookedPnlRupees || 0);
-        return sum + (l.pnlRupees || l.bookedPnlRupees || 0);
-    }, 0);
+    .reduce((sum, l) => sum + (l.pnlRupees || l.bookedPnlRupees || 0), 0);
 
-  const activeVirtualRupees = (strategyData.legs || [])
-    .filter(l => isVirtualLeg(l) && l.exitType !== "SWITCHED_TO_VIRTUAL")
-    .reduce((sum, l) => {
-        let virtualPnl = l.exited ? (l.pnlRupees || l.bookedPnlRupees || 0) : (l.currentActivePnlRupees || l.pnlRupees || 0);
-        // Only subtract parent's booked PnL if this leg is a direct continuation (spawned from SWITCHED_TO_VIRTUAL)
-        if (l.orderId && l.orderId.startsWith("VIRTUAL-")) {
-            const parentLeg = strategyData.legs?.find(p => p.legIndex === l.legIndex && p.exitType === "SWITCHED_TO_VIRTUAL");
-            if (parentLeg) {
-                virtualPnl -= (parentLeg.bookedPnlRupees || 0);
-            }
-        }
-        return sum + virtualPnl;
-    }, 0);
+  const switchRupees = (strategyData.legs || [])
+    .filter(l => l.exitType === "SWITCHED_TO_VIRTUAL")
+    .reduce((sum, l) => sum + (l.pnlRupees || l.bookedPnlRupees || 0), 0);
 
-  const hasVirtualLegs = (strategyData.legs || []).some(l => isVirtualLeg(l));
-  
-  // Ensure the math is perfectly balanced by relying on the backend's authoritative total
-  const totalRupees = strategyData.totalPnlRupees != null ? Number(strategyData.totalPnlRupees) : (bookedRupees + activeVirtualRupees);
-  
-  // If backend provided a total, force virtual to perfectly balance the equation
-  const displayVirtualRupees = strategyData.totalPnlRupees != null ? (totalRupees - bookedRupees) : activeVirtualRupees;
+  const virtualRupees = (strategyData.legs || [])
+    .filter(l => isVirtualLeg(l))
+    .reduce((sum, l) => sum + (l.exited ? (l.pnlRupees || l.bookedPnlRupees || 0) : (l.currentActivePnlRupees || l.pnlRupees || 0)), 0);
+
+  const virtualPlRupees = virtualRupees - switchRupees;
+
+  const ongoingRupees = (strategyData.legs || [])
+    .filter(l => !l.exited && !isVirtualLeg(l))
+    .reduce((sum, l) => sum + (l.currentActivePnlRupees || l.pnlRupees || 0), 0);
+
+  // Strictly following your exact formula
+  const totalRupees = virtualPlRupees + bookedRupees + ongoingRupees;
 
   return (
   <>
-  {bookedRupees !== 0 && (
   <span className={`text-[10px] font-mono font-medium px-1.5 py-0.5 rounded border ${bookedRupees >= 0 ?'bg-emerald-50 text-emerald-700 border-emerald-200' :'bg-red-50 text-red-700 border-red-200'}`}>
-  Booked: {bookedRupees > 0 ?'+' :''}₹{bookedRupees.toFixed(0)}
+  Booked: {bookedRupees > 0 ?'+' :''}₹{bookedRupees.toFixed(2)}
   </span>
-  )}
-  {hasVirtualLegs && (
-  <span className={`text-[10px] font-mono font-medium px-1.5 py-0.5 rounded border ${activeVirtualRupees >= 0 ?'bg-purple-50 text-purple-700 border-purple-200' :'bg-pink-50 text-pink-700 border-pink-200'}`}>
-  Virtual: {activeVirtualRupees > 0 ?'+' :''}₹{activeVirtualRupees.toFixed(0)}
+  <span className={`text-[10px] font-mono font-medium px-1.5 py-0.5 rounded border ${switchRupees >= 0 ?'bg-indigo-50 text-indigo-700 border-indigo-200' :'bg-pink-50 text-pink-700 border-pink-200'}`}>
+  Switch: {switchRupees > 0 ?'+' :''}₹{switchRupees.toFixed(2)}
   </span>
-  )}
+  <span className={`text-[10px] font-mono font-medium px-1.5 py-0.5 rounded border ${virtualRupees >= 0 ?'bg-blue-50 text-blue-700 border-blue-200' :'bg-orange-50 text-orange-700 border-orange-200'}`}>
+  Virtual: {virtualRupees > 0 ?'+' :''}₹{virtualRupees.toFixed(2)}
+  </span>
+  <span className={`text-[10px] font-mono font-medium px-1.5 py-0.5 rounded border ${virtualPlRupees >= 0 ?'bg-purple-50 text-purple-700 border-purple-200' :'bg-fuchsia-50 text-fuchsia-700 border-fuchsia-200'}`}>
+  Virtual PL: {virtualPlRupees > 0 ?'+' :''}₹{virtualPlRupees.toFixed(2)}
+  </span>
   <span className={`text-[11px] font-mono font-medium px-1.5 py-0.5 rounded border ${(strategyData.pnlPercent || 0) >= 0 ?'bg-emerald-50 text-emerald-700 border-emerald-200' :'bg-red-50 text-red-700 border-red-200'}`}>
-  Total PnL: {(Number(strategyData.pnlPercent) || 0) > 0 ?'+' :''}{(Number(strategyData.pnlPercent) || 0).toFixed(2)}% | {totalRupees > 0 ?'+' :''}₹{totalRupees.toFixed(0)}
+  Total PnL: {(Number(strategyData.pnlPercent) || 0) > 0 ?'+' :''}{(Number(strategyData.pnlPercent) || 0).toFixed(2)}% | {totalRupees > 0 ?'+' :''}₹{totalRupees.toFixed(2)}
   </span>
   </>
   );

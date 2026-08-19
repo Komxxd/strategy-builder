@@ -390,11 +390,29 @@ async function monitorStrategyLoop(strategyId, strategy) {
             }
         }
 
-        // Global Strategy PnL
-        const totalPnlRupees = strategy.legs.reduce((sum, l) => {
-            if (l.exitType === "SWITCHED_TO_VIRTUAL") return sum;
-            return sum + (l.pnlRupees || 0);
-        }, 0);
+        // Global Strategy PnL (strictly following the new formula)
+        const isVirtualLeg = l => l.is_virtual_leg || l.is_virtual_monitoring;
+        
+        const bookedRupees = strategy.legs
+            .filter(l => l.exited && (!isVirtualLeg(l) || l.exitType === "SWITCHED_TO_VIRTUAL"))
+            .reduce((sum, l) => sum + (l.pnlRupees || l.bookedPnlRupees || 0), 0);
+            
+        const virtualRupees = strategy.legs
+            .filter(l => isVirtualLeg(l))
+            .reduce((sum, l) => sum + (l.exited ? (l.pnlRupees || l.bookedPnlRupees || 0) : (l.currentActivePnlRupees || l.pnlRupees || 0)), 0);
+            
+        const switchRupees = strategy.legs
+            .filter(l => l.exitType === "SWITCHED_TO_VIRTUAL")
+            .reduce((sum, l) => sum + (l.pnlRupees || l.bookedPnlRupees || 0), 0);
+            
+        const virtualPlRupees = virtualRupees - switchRupees;
+        
+        const ongoingRupees = strategy.legs
+            .filter(l => !l.exited && !isVirtualLeg(l))
+            .reduce((sum, l) => sum + (l.currentActivePnlRupees || l.pnlRupees || 0), 0);
+            
+        const totalPnlRupees = virtualPlRupees + bookedRupees + ongoingRupees;
+        
         strategy.totalPnlRupees = totalPnlRupees;
 
         const totalOriginalValue = strategy.legs.reduce((sum, l) => {
