@@ -786,6 +786,17 @@ async function switchVirtualMode(strategyId, targetVirtual, userId) {
                     leg.exitType = "SWITCHED_TO_VIRTUAL";
                     leg.exitTime = exitTime;
 
+                    let effectiveState = oldState;
+                    if (oldState === "WAITING_FOR_FILL") {
+                        if (originalLeg.re_high_trigger_price && originalLeg.rtp === originalLeg.re_high_trigger_price) effectiveState = "WAITING_FOR_RE_HIGH";
+                        else if (originalLeg.re_low_trigger_price && originalLeg.rtp === originalLeg.re_low_trigger_price) effectiveState = "WAITING_FOR_RE_LOW";
+                        else if (originalLeg.recost_trigger_price && originalLeg.rtp === originalLeg.recost_trigger_price) effectiveState = "WAITING_FOR_MNTM";
+                        else if (originalLeg.resl_trigger_price && originalLeg.rtp === originalLeg.resl_trigger_price) effectiveState = "WAITING_FOR_RESL_MNTM";
+                        else if (originalLeg.mntmTargetPrice) effectiveState = "WAITING_FOR_SIMPLE_MNTM";
+                        else if (originalLeg.leg.reentry_asap_enabled) effectiveState = "WAITING_FOR_RE_ASAP";
+                        else if (originalLeg.leg.lazy_leg_enabled) effectiveState = "WAITING_FOR_LAZY";
+                    }
+
                     const virtualLeg = {
                         ...originalLeg,
                         leg: { ...originalLeg.leg },
@@ -794,7 +805,7 @@ async function switchVirtualMode(strategyId, targetVirtual, userId) {
                         uniqueOrderId: `VIRTUAL-${Date.now()}-${originalLeg.legIndex}`,
                         // If it was waiting for a limit fill (ACTIVE), just assume it enters virtually at LTP now to prevent stalling.
                         // Otherwise, preserve the waiting state.
-                        state: oldState === "ACTIVE" ? "VIRTUAL_MONITORING" : oldState,
+                        state: oldState === "ACTIVE" ? "VIRTUAL_MONITORING" : effectiveState,
                         is_virtual_monitoring: true,
                         is_virtual_leg: true,
                         exited: false,
@@ -1018,13 +1029,24 @@ async function switchVirtualMode(strategyId, targetVirtual, userId) {
                     leg.exitType = config.is_paper_trading ? "SWITCHED_TO_PAPER" : "SWITCHED_TO_LIVE";
                     leg.exitTime = exitTime;
 
+                    let effectiveState = oldState;
+                    if (oldState === "WAITING_FOR_FILL") {
+                        if (originalLeg.re_high_trigger_price && originalLeg.rtp === originalLeg.re_high_trigger_price) effectiveState = "WAITING_FOR_RE_HIGH";
+                        else if (originalLeg.re_low_trigger_price && originalLeg.rtp === originalLeg.re_low_trigger_price) effectiveState = "WAITING_FOR_RE_LOW";
+                        else if (originalLeg.recost_trigger_price && originalLeg.rtp === originalLeg.recost_trigger_price) effectiveState = "WAITING_FOR_MNTM";
+                        else if (originalLeg.resl_trigger_price && originalLeg.rtp === originalLeg.resl_trigger_price) effectiveState = "WAITING_FOR_RESL_MNTM";
+                        else if (originalLeg.mntmTargetPrice) effectiveState = "WAITING_FOR_SIMPLE_MNTM";
+                        else if (originalLeg.leg.reentry_asap_enabled) effectiveState = "WAITING_FOR_RE_ASAP";
+                        else if (originalLeg.leg.lazy_leg_enabled) effectiveState = "WAITING_FOR_LAZY";
+                    }
+
                     const newRunningLeg = {
                         ...originalLeg,
                         leg: { ...originalLeg.leg },
                         instrument: { ...instrument },
                         orderId: null,
                         uniqueOrderId: null,
-                        state: oldState === "VIRTUAL_MONITORING" ? "ACTIVE" : oldState,
+                        state: oldState === "VIRTUAL_MONITORING" ? "ACTIVE" : effectiveState,
                         is_virtual_monitoring: false,
                         is_virtual_leg: false,
                         exited: false,
