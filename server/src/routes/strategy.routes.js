@@ -57,7 +57,39 @@ router.patch("/settings/:id", async (req, res) => {
         res.status(500).json({ success: false, message: error.message || "Failed to update execution settings" });
     }
 });
+// Move a strategy to a folder (or root)
+router.patch("/move/:id", async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const { folder_id } = req.body;
+        // Re-use patchExecutionSettings logic but just pass folder_id inside config, 
+        // wait, patchExecutionSettings merges into config, but folder_id is a top-level column now.
+        // Let's create a specific method for this in strategyService, or we can use patchExecutionSettings if we modify it.
+        // Let's just require sql here or create a small helper in strategyService.
+        // It's cleaner to add it to strategyService.
+        const strategy = await strategyService.moveStrategy(req.params.id, folder_id, userId);
+        res.json({ success: true, data: strategy });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message || "Failed to move strategy" });
+    }
+});
 
+// Move multiple strategies to a folder (or root)
+router.patch("/move-multiple", async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const { strategy_ids, folder_id } = req.body;
+        
+        if (!Array.isArray(strategy_ids) || strategy_ids.length === 0) {
+            return res.status(400).json({ success: false, message: "No strategies selected" });
+        }
+
+        const strategies = await strategyService.moveStrategies(strategy_ids, folder_id, userId);
+        res.json({ success: true, data: strategies });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message || "Failed to move strategies" });
+    }
+});
 
 router.delete("/delete/:id", async (req, res) => {
     try {

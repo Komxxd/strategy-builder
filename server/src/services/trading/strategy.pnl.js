@@ -190,14 +190,18 @@ function evaluateLegLimits({ leg, config, strategyId, addStrategyLog, isMinuteCl
             if (leg.leg.side === "BUY" && leg.currentLtp <= activeTrigger) {
                 result.isHit = true;
                 result.exitReason = "TRAILING_STOP_LOSS";
-                if (config.variety === "STOPLOSS" && config.is_paper_trading !== true && leg.slOrderId) {
+                const isVirtual = config?.is_virtual === true || leg.is_virtual_leg === true;
+                const isPaperTrading = config?.is_paper_trading === true || isVirtual;
+                if (config.variety === "STOPLOSS" && !isPaperTrading && leg.slOrderId) {
                     result.requiresExchangeValidation = true;
                 }
                 return result;
             } else if (leg.leg.side === "SELL" && leg.currentLtp >= activeTrigger) {
                 result.isHit = true;
                 result.exitReason = "TRAILING_STOP_LOSS";
-                if (config.variety === "STOPLOSS" && config.is_paper_trading !== true && leg.slOrderId) {
+                const isVirtual = config?.is_virtual === true || leg.is_virtual_leg === true;
+                const isPaperTrading = config?.is_paper_trading === true || isVirtual;
+                if (config.variety === "STOPLOSS" && !isPaperTrading && leg.slOrderId) {
                     result.requiresExchangeValidation = true;
                 }
                 return result;
@@ -222,7 +226,9 @@ function evaluateLegLimits({ leg, config, strategyId, addStrategyLog, isMinuteCl
 
             if (result.isHit) {
                 result.exitReason = "LEG_STOP_LOSS";
-                if (config.variety === "STOPLOSS" && config.is_paper_trading !== true && leg.slOrderId) {
+                const isVirtual = config?.is_virtual === true || leg.is_virtual_leg === true;
+            const isPaperTrading = config?.is_paper_trading === true || isVirtual;
+            if (config.variety === "STOPLOSS" && !isPaperTrading && leg.slOrderId) {
                     result.requiresExchangeValidation = true;
                 }
             }

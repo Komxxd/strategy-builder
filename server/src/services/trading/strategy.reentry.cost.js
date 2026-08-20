@@ -3,6 +3,8 @@ const { placeOrder, waitForOrderFillPrice, placeStopLossWithRetry } = require(".
 const { getISTTime, getISTExchangeFormat } = require("./strategy.time");
 
 async function handleReentryCost({ leg, config, strategyId, addStrategyLog, currentTick }) {
+    const isVirtual = config?.is_virtual === true || leg.is_virtual_leg === true;
+    const isPaperTrading = config?.is_paper_trading === true || isVirtual;
     const rtp = leg.recost_trigger_price;
     addStrategyLog(strategyId, `Momentum Hit for ${leg.instrument.symbol}: Price ₹${currentTick} crossed RTP ₹${rtp}. Re-entering...`, "INFO");
     leg.reentry_count = (leg.reentry_count || 0) + 1;
@@ -29,7 +31,7 @@ async function handleReentryCost({ leg, config, strategyId, addStrategyLog, curr
     // Determine Stoploss vs Limit
     let variety = config.variety || "NORMAL";
     let ordertype = config.ordertype || "LIMIT";
-    const offsetAmt = config.is_paper_trading ? 0 : getLimitOffsetAmt(targetPrice, config);
+    const offsetAmt = isPaperTrading ? 0 : getLimitOffsetAmt(targetPrice, config);
     let finalPriceStr = targetPrice.toString();
     let triggerPriceStr = targetPrice.toString();
     const side = leg.leg.side;
@@ -97,7 +99,7 @@ async function handleReentryCost({ leg, config, strategyId, addStrategyLog, curr
                 const fill = await waitForOrderFillPrice(
                     leg.uniqueOrderId,
                     config.connectionId,
-                    config.is_paper_trading === true,
+                    isPaperTrading,
                     leg.instrument,
                     28800000,
                     1000,

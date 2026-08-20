@@ -102,6 +102,9 @@ async function startStrategy(strategyId, overrideIsPaperTrading, userId) {
         connectionId: userId
     };
 
+    // We can't set id in runtimeConfig yet because we haven't inserted the execution record.
+    // We will update it after inserting.
+
     const executionDetails = {
         config: runtimeConfig,
         is_virtual: isVirtual
@@ -124,6 +127,10 @@ async function startStrategy(strategyId, overrideIsPaperTrading, userId) {
         startTime: new Date(),
         legs: []
     };
+
+    // Inject the ID into the config so that placeOrder can correctly lookup the strategy
+    runtimeStrategy.config.id = execution.id;
+    runtimeStrategy.config.strategyId = execution.id;
 
     activeStrategies.set(execution.id, runtimeStrategy);
     executeStrategy(execution.id);
@@ -179,11 +186,15 @@ async function initializeActiveStrategies() {
             // - connectionId: always sourced from exec.user_id (a non-null dedicated column)
             //   rather than relying on it surviving inside the execution_details JSON blob.
             //   This is the root cause of orders leaking to the master server after restarts.
+            const isVirtualRestored = exec.execution_details?.is_virtual === true;
             const baseConfig = exec.execution_details?.config || exec.strategy_template_config;
             const restoredConfig = {
                 ...baseConfig,
                 is_paper_trading: exec.is_paper_trading === true,
-                connectionId: exec.user_id
+                is_virtual: isVirtualRestored,
+                connectionId: exec.user_id,
+                id: exec.id,
+                strategyId: exec.id
             };
 
             const runtimeStrategy = {

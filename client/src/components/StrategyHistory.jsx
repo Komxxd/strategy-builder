@@ -207,7 +207,7 @@ export const StrategyHistory = () => {
  <div className="col-span-1 lg:col-span-2 text-right flex lg:block items-center justify-between">
  <span className="lg:hidden uppercase text-[9px] text-slate-400">Total PnL</span>
  <div className={`font-mono font-bold text-[11px] ${item.totalPnlRupees >= 0 ?'text-emerald-600' :'text-red-600'}`}>
- ₹{Number(item.totalPnlRupees || 0).toFixed(0)}
+ {item.totalPnlRupees > 0 ?'+' :''}₹{Number(item.totalPnlRupees || 0).toFixed(2)}
  <span className="ml-1 opacity-70 text-[9px]">({Number(item.pnlPercent || 0).toFixed(2)}%)</span>
  </div>
  </div>
@@ -257,7 +257,7 @@ export const StrategyHistory = () => {
  </div>
  <div className="text-right shrink-0">
  <div className={`text-[11px] font-mono font-black leading-none ${(leg.pnlPercent || leg.currentActivePnlPercent || 0) >= 0 ?'text-emerald-600' :'text-red-600'}`}>
- PnL : {(leg.pnlPercent || leg.currentActivePnlPercent || 0) > 0 ?'+' :''}{(leg.pnlPercent || leg.currentActivePnlPercent || 0).toFixed(2)}% | {(leg.pnlRupees || leg.currentActivePnlRupees || 0) > 0 ?'+' :''}₹{(leg.pnlRupees || leg.currentActivePnlRupees || 0).toFixed(0)}
+ PnL : {(leg.pnlPercent || leg.currentActivePnlPercent || 0) > 0 ?'+' :''}{(leg.pnlPercent || leg.currentActivePnlPercent || 0).toFixed(2)}% | {(leg.pnlRupees || leg.currentActivePnlRupees || 0) > 0 ?'+' :''}₹{(leg.pnlRupees || leg.currentActivePnlRupees || 0).toFixed(2)}
  </div>
  <div className="text-[8px] font-black text-black uppercase mt-1">Out Reason : {leg.exitType ||'CLOSED'}</div>
  </div>
@@ -267,19 +267,19 @@ export const StrategyHistory = () => {
  <div className="grid grid-cols-2 lg:grid-cols-4 gap-x-6 gap-y-1.5 py-1.5 border-y border-slate-50">
  <div className="flex justify-between items-center text-[9px]">
  <span className="text-black font-bold">Entry</span>
- <span className="font-mono font-bold text-black ml-2">₹{Number(leg.entryPrice || 0).toFixed(1)}</span>
+ <span className="font-mono font-bold text-black ml-2">₹{Number(leg.entryPrice || 0).toFixed(2)}</span>
  </div>
  <div className="flex justify-between items-center text-[9px]">
  <span className="text-black font-bold">Exit</span>
- <span className="font-mono font-bold text-black ml-2">₹{Number(leg.exitSnapshot?.exitLtp || leg.currentLtp || 0).toFixed(1)}</span>
+ <span className="font-mono font-bold text-black ml-2">₹{Number(leg.exitSnapshot?.exitLtp || leg.currentLtp || 0).toFixed(2)}</span>
  </div>
  <div className="flex justify-between items-center text-[9px]">
  <span className="text-black font-bold">Init SL</span>
- <span className="font-mono font-bold text-red-500 ml-2">₹{Number(leg.initialSlTriggerPrice || 0).toFixed(1)}</span>
+ <span className="font-mono font-bold text-red-500 ml-2">₹{Number(leg.initialSlTriggerPrice || 0).toFixed(2)}</span>
  </div>
  <div className="flex justify-between items-center text-[9px]">
  <span className="text-black font-bold">Final SL</span>
- <span className="font-mono font-bold text-red-600 ml-2">₹{Number(leg.exitSnapshot?.slTriggerPrice || leg.slTriggerPrice || 0).toFixed(1)}</span>
+ <span className="font-mono font-bold text-red-600 ml-2">₹{Number(leg.exitSnapshot?.slTriggerPrice || leg.slTriggerPrice || 0).toFixed(2)}</span>
  </div>
  </div>
 
@@ -287,38 +287,38 @@ export const StrategyHistory = () => {
  {leg.rtp != null && (
  <div className="flex justify-between items-center text-[9px]">
  <span className="text-black font-bold">Init RTP</span>
- <span className="font-mono font-bold text-orange-500">₹{Number(leg.rtp).toFixed(1)}</span>
+ <span className="font-mono font-bold text-orange-500">₹{Number(leg.rtp).toFixed(2)}</span>
  </div>
  )}
  {leg.re_high_trigger_price != null && (
  <div className="flex justify-between items-center text-[9px]">
  <span className="text-black font-bold">RE-High Trig</span>
- <span className="font-mono font-bold text-orange-600">₹{Number(leg.re_high_trigger_price).toFixed(1)}</span>
+ <span className="font-mono font-bold text-orange-600">₹{Number(leg.re_high_trigger_price).toFixed(2)}</span>
  </div>
  )}
  {leg.re_low_trigger_price != null && (
  <div className="flex justify-between items-center text-[9px]">
  <span className="text-black font-bold">RE-Low Trig</span>
- <span className="font-mono font-bold text-orange-600">₹{Number(leg.re_low_trigger_price).toFixed(1)}</span>
+ <span className="font-mono font-bold text-orange-600">₹{Number(leg.re_low_trigger_price).toFixed(2)}</span>
  </div>
  )}
  {(leg.max_peak_price != null && leg.max_peak_price > 0) || leg.final_peak_reached != null ? (
  <div className="flex justify-between items-center text-[9px]">
  <span className="text-black font-bold">Tracked High</span>
- <span className="font-mono font-bold text-blue-600">₹{Number(leg.final_peak_reached || leg.max_peak_price || 0).toFixed(1)}</span>
+ <span className="font-mono font-bold text-blue-600">₹{Number(leg.final_peak_reached || leg.max_peak_price || 0).toFixed(2)}</span>
  </div>
  ) : null}
  {(leg.max_low_price != null && leg.max_low_price > 0) || leg.final_low_reached != null ? (
  <div className="flex justify-between items-center text-[9px]">
  <span className="text-black font-bold">Tracked Low</span>
- <span className="font-mono font-bold text-red-600">₹{Number(leg.final_low_reached || leg.max_low_price || 0).toFixed(1)}</span>
+ <span className="font-mono font-bold text-red-600">₹{Number(leg.final_low_reached || leg.max_low_price || 0).toFixed(2)}</span>
  </div>
  ) : null}
  {/* Removed Trade Peak/Low display as per user request */}
  {(leg.mntmTargetPrice || leg.mtp) && (
  <div className="flex justify-between items-center text-[9px]">
  <span className="text-black font-bold">Momentum</span>
- <span className="font-mono font-bold text-purple-500">₹{Number(leg.mntmTargetPrice || leg.mtp || 0).toFixed(1)}</span>
+ <span className="font-mono font-bold text-purple-500">₹{Number(leg.mntmTargetPrice || leg.mtp || 0).toFixed(2)}</span>
  </div>
  )}
 

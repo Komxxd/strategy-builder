@@ -23,7 +23,7 @@ const { handleReentryLow, modifyReentryLowOrder } = require("./strategy.reentry.
 const { checkMomentumHit } = require("./strategy.momentum");
 const { getISTTime, getISTExchangeFormat } = require("./strategy.time");
 const { roundToTick, computeStopLossExitPrices, getLimitOffsetAmt } = require("./strategy.offset");
-const { placeOrder, chaseOrderFill, placeStopLossExitOrder, cancelOrder, modifyOrderLocallyOrViaWorker } = require("./strategy.execution");
+const { placeOrder, chaseOrderFill, placeStopLossExitOrder, cancelOrder, modifyOrderLocallyOrViaWorker, waitForOrderFillPrice, placeStopLossWithRetry } = require("./strategy.execution");
 const { placeExitOrder } = require("./strategy.execution");
 const { checkOrderFillOnce } = require("./strategy.chase");
 const marketSocketService = require("../marketSocket.service");
@@ -121,7 +121,9 @@ async function monitorStrategyLoop(strategyId, strategy) {
                             const { waitForOrderFillPrice } = require("./strategy.execution");
                             setTimeout(async () => {
                                 try {
-                                    const fill = await waitForOrderFillPrice(leg.uniqueOrderId, config.connectionId, config.is_paper_trading === true, leg.instrument, 28800000, 1000);
+                                    const isVirtual = config?.is_virtual === true || leg.is_virtual_leg === true;
+                                    const isPaperTrading = config?.is_paper_trading === true || isVirtual;
+                                    const fill = await waitForOrderFillPrice(leg.uniqueOrderId, config.connectionId, isPaperTrading, leg.instrument, 28800000, 1000);
                                     if (fill) {
                                         leg.entryPrice = fill;
                                         leg.entryTime = getISTExchangeFormat();
@@ -360,11 +362,145 @@ async function monitorStrategyLoop(strategyId, strategy) {
                     }
                 }
 
+                // 2c. Re-initiate orphaned WAITING_FOR_FILL legs (from mode switches)
+                // When a leg is in WAITING_FOR_FILL and a virtual/live switch happens, the
+                // original async fill watcher dies (it holds a ref to the old leg object).
+                // The new leg inherits the state but has no watcher. This block re-places
+                // the order and spawns a fresh fill watcher.
+                if (leg.state === "WAITING_FOR_FILL" && leg.needsOrderReplacement) {
+                    const targetPrice = leg.mtp || leg.re_high_trigger_price || leg.re_low_trigger_price || leg.recost_trigger_price || leg.resl_trigger_price;
+                    if (!targetPrice || !leg.instrument) {
+                        leg.needsOrderReplacement = false;
+                        continue;
+                    }
+
+                    const isVirtual = config?.is_virtual === true || leg.is_virtual_leg === true;
+                    const isPaperTrading = config?.is_paper_trading === true || isVirtual;
+                    const side = leg.leg.side;
+                    const offsetAmt = isPaperTrading ? 0 : getLimitOffsetAmt(targetPrice, config);
+
+                    let variety, ordertype, finalPriceStr, triggerPriceStr;
+
+                    if (side === "BUY") {
+                        if (targetPrice > tickPrice) {
+                            variety = "STOPLOSS";
+                            ordertype = "STOPLOSS_LIMIT";
+                            finalPriceStr = roundToTick(targetPrice + offsetAmt).toString();
+                            triggerPriceStr = targetPrice.toString();
+                        } else {
+                            variety = "NORMAL";
+                            ordertype = "LIMIT";
+                            triggerPriceStr = "0";
+                            finalPriceStr = roundToTick(targetPrice + offsetAmt).toString();
+                        }
+                    } else {
+                        if (targetPrice < tickPrice) {
+                            variety = "STOPLOSS";
+                            ordertype = "STOPLOSS_LIMIT";
+                            finalPriceStr = roundToTick(targetPrice - offsetAmt).toString();
+                            triggerPriceStr = targetPrice.toString();
+                        } else {
+                            variety = "NORMAL";
+                            ordertype = "LIMIT";
+                            triggerPriceStr = "0";
+                            finalPriceStr = roundToTick(targetPrice - offsetAmt).toString();
+                        }
+                    }
+
+                    try {
+                        addStrategyLog(strategyId, `[RE-INIT] Re-placing order for ${leg.instrument?.symbol} at ₹${targetPrice} after mode switch.`, "INFO");
+
+                        const reInitOrder = await placeOrder({
+                            ...config,
+                            side: side,
+                            variety: variety,
+                            ordertype: ordertype,
+                            price: finalPriceStr,
+                            triggerprice: triggerPriceStr,
+                            lots: leg.leg.lots
+                        }, leg.instrument, config.connectionId);
+
+                        leg.orderId = reInitOrder.orderid;
+                        leg.uniqueOrderId = reInitOrder.uniqueorderid;
+                        leg.needsOrderReplacement = false;
+
+                        // Start fill watcher in background
+                        setTimeout(async () => {
+                            try {
+                                const fill = await waitForOrderFillPrice(
+                                    leg.uniqueOrderId,
+                                    config.connectionId,
+                                    isPaperTrading,
+                                    leg.instrument,
+                                    28800000,
+                                    1000,
+                                    { side, ordertype, price: parseFloat(finalPriceStr), triggerprice: parseFloat(triggerPriceStr) }
+                                );
+                                if (fill) {
+                                    leg.entryPrice = fill;
+                                    leg.entryTime = getISTExchangeFormat();
+                                    leg.original_traded_price = fill;
+                                    leg.peakPrice = fill;
+                                    leg.tslReferencePrice = fill;
+                                    leg.state = "ACTIVE";
+                                    addStrategyLog(strategyId, `[RE-INIT] Fill confirmed for ${leg.instrument?.symbol} at ₹${fill}.`, "INFO");
+
+                                    // Deploy SL if needed
+                                    const isSlEnabled = leg.leg.reentry_sl_enabled ? true : leg.leg.sl_enabled !== false;
+                                    if (config.variety === "STOPLOSS" && leg.entryPrice && isSlEnabled) {
+                                        const activeSlType = leg.leg.reentry_sl_enabled ? leg.leg.reentry_sl_type : (leg.leg.sl_type || "PERCENTAGE");
+                                        const activeSlValue = leg.leg.reentry_sl_enabled ? leg.leg.reentry_sl_value : leg.leg.stop_loss;
+
+                                        const slOrder = await placeStopLossWithRetry({
+                                            baseConfig: config,
+                                            legSide: side,
+                                            entryPrice: fill,
+                                            instrument: leg.instrument,
+                                            lots: leg.leg.lots,
+                                            slType: activeSlType,
+                                            slValue: activeSlValue,
+                                            slLimitMargin: config.entry_limit_offset,
+                                            slLimitMarginType: config.entry_limit_offset_type || 'POINTS',
+                                            connectionId: config.connectionId,
+                                            strategyId: strategyId
+                                        });
+
+                                        if (slOrder?.orderid) {
+                                            const prices = computeStopLossExitPrices(fill, side, activeSlType, activeSlValue, config.entry_limit_offset, config.entry_limit_offset_type || 'POINTS');
+                                            leg.slOrderId = slOrder.orderid;
+                                            leg.slUniqueOrderId = slOrder.uniqueorderid;
+                                            leg.slTriggerPrice = prices?.trigger;
+                                            leg.initialSlTriggerPrice = prices?.trigger;
+                                            leg.slLimitPrice = prices?.limit;
+                                            leg.exchangeSlProcessed = false;
+                                        }
+                                    }
+                                }
+                            } catch (e) {
+                                console.error("[RE-INIT] Fill monitoring failed:", e.message);
+                            }
+                        }, 1000);
+                    } catch (err) {
+                        if (err.message === "LPP_TRIGGER_REJECTION") {
+                            addStrategyLog(strategyId, `[RE-INIT] Order rejected by LPP for ${leg.instrument?.symbol}. Switching to INTERNAL MONITORING for Target: ₹${targetPrice}.`, "WARNING");
+                            leg.state = "WAITING_FOR_INTERNAL_FALLBACK";
+                            leg.fallbackTargetPrice = targetPrice;
+                            leg.fallbackSide = side;
+                            leg.needsOrderReplacement = false;
+                        } else {
+                            console.error("[RE-INIT] Order re-placement failed:", err.message);
+                            addStrategyLog(strategyId, `[RE-INIT] Failed to re-place order for ${leg.instrument?.symbol}: ${err.message}`, "ERROR");
+                            // Don't clear the flag — retry on next tick
+                        }
+                    }
+                    continue;
+                }
+
 
                 leg.last_tick_price = leg.currentLtp;
 
                 // 3. PnL Updates
-                if (leg.entryPrice && leg.state === "ACTIVE") {
+                if (leg.entryPrice && (leg.state === "ACTIVE" || leg.state === "VIRTUAL_MONITORING")) {
                     if (leg.peakPrice === undefined || leg.peakPrice === null) leg.peakPrice = leg.entryPrice;
                     if (leg.leg.side === "BUY") {
                         if (leg.currentLtp > leg.peakPrice) leg.peakPrice = leg.currentLtp;
@@ -388,11 +524,33 @@ async function monitorStrategyLoop(strategyId, strategy) {
             }
         }
 
-        // Global Strategy PnL
-        const totalPnlRupees = strategy.legs.reduce((sum, l) => sum + (l.pnlRupees || 0), 0);
+        // Global Strategy PnL (strictly following the new formula)
+        const isVirtualLeg = l => l.is_virtual_leg || l.is_virtual_monitoring;
+        
+        const bookedRupees = strategy.legs
+            .filter(l => l.exited && (!isVirtualLeg(l) || l.exitType === "SWITCHED_TO_VIRTUAL"))
+            .reduce((sum, l) => sum + (l.pnlRupees || l.bookedPnlRupees || 0), 0);
+            
+        const virtualRupees = strategy.legs
+            .filter(l => isVirtualLeg(l))
+            .reduce((sum, l) => sum + (l.exited ? (l.pnlRupees || l.bookedPnlRupees || 0) : (l.currentActivePnlRupees || l.pnlRupees || 0)), 0);
+            
+        const switchRupees = strategy.legs
+            .filter(l => l.exitType === "SWITCHED_TO_VIRTUAL")
+            .reduce((sum, l) => sum + (l.pnlRupees || l.bookedPnlRupees || 0), 0);
+            
+        const virtualPlRupees = virtualRupees - switchRupees;
+        
+        const ongoingRupees = strategy.legs
+            .filter(l => !l.exited && !isVirtualLeg(l))
+            .reduce((sum, l) => sum + (l.currentActivePnlRupees || l.pnlRupees || 0), 0);
+            
+        const totalPnlRupees = virtualPlRupees + bookedRupees + ongoingRupees;
+        
         strategy.totalPnlRupees = totalPnlRupees;
 
         const totalOriginalValue = strategy.legs.reduce((sum, l) => {
+            if (l.exitType === "SWITCHED_TO_VIRTUAL") return sum;
             if (!l.original_traded_price) return sum;
             const multiplier = parseFloat(config.quantity_multiplier) || 1;
             const quantity = (l.leg?.lots || 0) * parseInt(l.instrument?.lotsize || 1) * multiplier;
@@ -455,8 +613,8 @@ async function monitorStrategyLoop(strategyId, strategy) {
 
         // Leg Monitoring (TSL/SL)
         for (const leg of strategy.legs) {
-            if (leg.exited || leg.state === "WAITING_FOR_RECOST") continue;
-
+            if (leg.exited || leg.state === "WAITING_FOR_RECOST" || !leg.entryPrice) continue;
+            if (leg.state !== "ACTIVE" && leg.state !== "VIRTUAL_MONITORING") continue;
             const evalResult = evaluateLegLimits({ leg, config, strategyId, addStrategyLog, isMinuteClose });
             
             // Debug TSL re-entry
@@ -572,7 +730,9 @@ async function monitorStrategyLoop(strategyId, strategy) {
          * If you are trading with REAL money, we check the actual exchange order status.
          * If the SL was hit directly on the broker's platform, we sync that into our system.
          */
-        if (config.variety === "STOPLOSS" && config.is_paper_trading !== true) {
+        const isVirtualStrat = config?.is_virtual === true;
+        const isPaperTrade = config?.is_paper_trading === true || isVirtualStrat;
+        if (config.variety === "STOPLOSS" && !isPaperTrade) {
             for (const leg of strategy.legs) {
                 // We only check legs that are active and have an order ID.
                 if (leg.exited || leg.state === "WAITING_FOR_RECOST" || !leg.slUniqueOrderId || leg.exchangeSlProcessed) continue;
