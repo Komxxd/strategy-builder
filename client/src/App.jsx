@@ -62,6 +62,7 @@ function App() {
  const [socketLoading, setSocketLoading] = useState(false);
  const [activeTab, setActiveTab] = useState('strategies');
  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+ const [instrumentsLastUpdated, setInstrumentsLastUpdated] = useState(null);
 
  const [globalBacktestResults, setGlobalBacktestResults] = useState(null);
  const [globalBacktestStrategy, setGlobalBacktestStrategy] = useState(null);
@@ -156,15 +157,21 @@ function App() {
  else setError(data.message);
  };
 
+ const handleInstrumentsStatus = (data) => {
+ setInstrumentsLastUpdated(data.lastUpdated);
+ };
+
  socket.on('broker_status', handleBrokerStatus);
  socket.on('socket_status', handleSocketStatus);
  socket.on('strategy_alert', handleStrategyAlert);
+ socket.on('instruments_status', handleInstrumentsStatus);
 
  // Store cleanup for when React unmounts or re-runs the effect
  cleanup = () => {
  socket.off('broker_status', handleBrokerStatus);
  socket.off('socket_status', handleSocketStatus);
  socket.off('strategy_alert', handleStrategyAlert);
+ socket.off('instruments_status', handleInstrumentsStatus);
  };
  });
 
@@ -198,7 +205,18 @@ function App() {
           <div className="h-8 w-8 bg-black rounded-lg flex items-center justify-center text-white shrink-0">
             <Box className="h-5 w-5" />
           </div>
-          <h2 className="text-lg font-bold tracking-tight leading-tight whitespace-nowrap hidden sm:block">CoreQuant</h2>
+          <h2 className="text-lg font-bold tracking-tight leading-tight whitespace-nowrap hidden xl:block">CoreQuant</h2>
+          
+          {/* Data Status Pill (Left side) */}
+          {instrumentsLastUpdated && (
+            <div
+              className="flex items-center gap-1 sm:gap-1.5 px-1.5 py-1 sm:px-3 sm:py-1.5 sm:ml-2 rounded-full text-[10px] sm:text-xs font-bold border shrink-0 bg-slate-50 text-slate-500 border-slate-200 whitespace-nowrap"
+              title={`Instruments last updated: ${new Date(instrumentsLastUpdated).toLocaleString()}`}
+            >
+              <CheckCircle2 className="h-3 w-3 sm:h-3.5 sm:w-3.5 shrink-0 text-emerald-500" />
+              <span>Data: {new Date(instrumentsLastUpdated).toLocaleString([], {month: 'short', day: 'numeric', hour: '2-digit', minute:'2-digit'})}</span>
+            </div>
+          )}
         </div>
           
         {/* Center: Desktop Navigation */}
@@ -216,15 +234,15 @@ function App() {
  id="angel-one-status-pill"
  onClick={handleToggleApi}
  title={isApiConnected ?"Angel One session active. Manage in Broker Setup." :"Click to login to Angel One in Broker Setup"}
- className={`flex items-center gap-1.5 px-2 py-1.5 sm:px-3 sm:py-2 rounded-full text-[10px] sm:text-xs font-bold border transition-all cursor-pointer shrink-0 ${isApiConnected
+ className={`flex items-center gap-1 sm:gap-1.5 px-1.5 py-1 sm:px-3 sm:py-1.5 rounded-full text-[10px] sm:text-xs font-bold border transition-all cursor-pointer shrink-0 ${isApiConnected
  ?"bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100"
  :"bg-red-50 text-red-600 border-red-200 hover:bg-red-100"
  }`}
  >
  {isApiConnected ? (
- <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+ <CheckCircle2 className="h-3 w-3 sm:h-3.5 sm:w-3.5 shrink-0" />
  ) : (
- <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+ <AlertCircle className="h-3 w-3 sm:h-3.5 sm:w-3.5 shrink-0" />
  )}
  <span className="whitespace-nowrap hidden sm:inline">Angel One</span>
  <span className="whitespace-nowrap sm:hidden">Angel</span>
@@ -239,18 +257,18 @@ function App() {
  ?"Live Data Stream Active (Global Feed). Click to disconnect."
  :"Live Data Stream Disconnected. Click to connect."
  }
- className={`flex items-center gap-1.5 px-2 py-1.5 sm:px-3 sm:py-2 rounded-full text-[10px] sm:text-xs font-bold border transition-all shrink-0 cursor-pointer ${
+ className={`flex items-center gap-1 sm:gap-1.5 px-1.5 py-1 sm:px-3 sm:py-1.5 rounded-full text-[10px] sm:text-xs font-bold border transition-all shrink-0 cursor-pointer ${
  isSocketConnected
  ?"bg-blue-50 text-blue-700 border-blue-200 hover:bg-red-50 hover:text-red-700 hover:border-red-200"
  :"bg-slate-50 text-slate-500 border-slate-200 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-200"
  } disabled:opacity-50 disabled:cursor-not-allowed`}
  >
  {socketLoading ? (
- <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" />
+ <Loader2 className="h-3 w-3 sm:h-3.5 sm:w-3.5 animate-spin shrink-0" />
  ) : isSocketConnected ? (
- <Wifi className="h-3.5 w-3.5 shrink-0" />
+ <Wifi className="h-3 w-3 sm:h-3.5 sm:w-3.5 shrink-0" />
  ) : (
- <WifiOff className="h-3.5 w-3.5 shrink-0" />
+ <WifiOff className="h-3 w-3 sm:h-3.5 sm:w-3.5 shrink-0" />
  )}
  <span className="whitespace-nowrap hidden sm:inline">Live Data</span>
  <span className="whitespace-nowrap sm:hidden">Live</span>

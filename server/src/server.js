@@ -46,6 +46,18 @@ io.on("connection", (socket) => {
     socket.emit("broker_status", { connected: !!authService.getSession() });
     socket.emit("socket_status", { connected: marketSocketService.isSocketConnected() });
 
+    // Send initial instruments timestamp
+    try {
+        const INSTRUMENT_PATH = path.join(__dirname, "./data/instruments.json");
+        const INSTRUMENT_OLD_PATH = path.join(__dirname, "./dataOld/instruments.json");
+        let lastUpdated = null;
+        if (fs.existsSync(INSTRUMENT_PATH)) lastUpdated = fs.statSync(INSTRUMENT_PATH).mtimeMs;
+        else if (fs.existsSync(INSTRUMENT_OLD_PATH)) lastUpdated = fs.statSync(INSTRUMENT_OLD_PATH).mtimeMs;
+        socket.emit("instruments_status", { lastUpdated });
+    } catch (e) {
+        // Safe fail
+    }
+
     socket.on("disconnect", () => {
         console.log("Frontend disconnected:", socket.id);
     });
@@ -60,11 +72,21 @@ downloadInstruments()
     .then(() => {
         console.log("Instruments downloaded successfully on startup");
         reloadInstruments();
+        io.emit("instruments_status", { lastUpdated: Date.now() });
     })
     .catch(err => {
         console.error("Error downloading instruments on startup:", err);
         console.log("Attempting to load fallback instruments...");
         reloadInstruments(); // Fallback to whatever is in data or dataOld
+        // Re-broadcast the old timestamp
+        try {
+            const INSTRUMENT_PATH = path.join(__dirname, "./data/instruments.json");
+            const INSTRUMENT_OLD_PATH = path.join(__dirname, "./dataOld/instruments.json");
+            let lastUpdated = null;
+            if (fs.existsSync(INSTRUMENT_PATH)) lastUpdated = fs.statSync(INSTRUMENT_PATH).mtimeMs;
+            else if (fs.existsSync(INSTRUMENT_OLD_PATH)) lastUpdated = fs.statSync(INSTRUMENT_OLD_PATH).mtimeMs;
+            io.emit("instruments_status", { lastUpdated });
+        } catch(e) {}
     });
 
 // Schedule daily instrument download at 8:00 PM IST
@@ -74,6 +96,7 @@ cron.schedule("0 20 * * *", () => {
         .then(() => {
             console.log("[Cron] Instruments auto-updated successfully");
             reloadInstruments();
+            io.emit("instruments_status", { lastUpdated: Date.now() });
         })
         .catch(err => {
             console.error("[Cron] Error auto-updating instruments:", err);
