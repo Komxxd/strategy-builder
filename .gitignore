@@ -56,6 +56,9 @@ coverage/
 
 # Data (Large files)
 server/src/data/instruments.json
+server/src/dataOld/instruments.json
+server/src/temp/instruments.json
+
 
 *.sql
 

@@ -5,6 +5,7 @@ const { getLtpSecure } = require("./strategy.state");
 
 // Note: Instruments path changed from ../data/... to ../../data/... because this file is in a subdirectory
 const INSTRUMENT_PATH = path.join(__dirname, "../../data/instruments.json");
+const INSTRUMENT_OLD_PATH = path.join(__dirname, "../../dataOld/instruments.json");
 let instruments = [];
 
 // Redis cache TTL for instrument lookups (24 hours).
@@ -30,11 +31,21 @@ function getTodayIST() {
 function loadInstruments() {
     if (instruments.length > 0) return;
     try {
+        let loadPath = null;
         if (fs.existsSync(INSTRUMENT_PATH)) {
-            const raw = fs.readFileSync(INSTRUMENT_PATH, "utf-8");
+            loadPath = INSTRUMENT_PATH;
+        } else if (fs.existsSync(INSTRUMENT_OLD_PATH)) {
+            loadPath = INSTRUMENT_OLD_PATH;
+            console.warn("Using dataOld/instruments.json as fallback because data/instruments.json is missing.");
+        }
+
+        if (loadPath) {
+            const raw = fs.readFileSync(loadPath, "utf-8");
             instruments = JSON.parse(raw);
             const fileSizeMB = (Buffer.byteLength(raw, 'utf-8') / (1024 * 1024)).toFixed(1);
-            console.log(`Instruments loaded: ${instruments.length} records (${fileSizeMB} MB file)`);
+            console.log(`Instruments loaded: ${instruments.length} records (${fileSizeMB} MB file) from ${loadPath}`);
+        } else {
+            console.error("Strategy Service: No instrument file found in data or dataOld.");
         }
     } catch (err) {
         console.error("Strategy Service: Error loading instruments", err.message);
@@ -44,6 +55,30 @@ function loadInstruments() {
 async function reloadInstruments() {
     try {
         instruments = []; // Clear memory
+        
+        // Wait for Redis to connect to prevent "Stream isn't writeable" errors
+        if (redis.status !== 'ready') {
+            console.log("[Instruments] Waiting for Redis connection before clearing cache...");
+            if (redis.status === 'wait' || redis.status === 'close') {
+                try {
+                    // Trigger connection explicitly since lazyConnect is true
+                    await redis.connect();
+                } catch (e) {
+                    // Ignore, let the retryStrategy handle it
+                }
+            }
+            
+            // Poll for up to 3 seconds waiting for it to become ready
+            let attempts = 0;
+            while (redis.status !== 'ready' && attempts < 15) {
+                await new Promise(resolve => setTimeout(resolve, 200));
+                attempts++;
+            }
+            
+            if (redis.status !== 'ready') {
+                throw new Error("Redis connection timed out after 3 seconds.");
+            }
+        }
         
         // Find all instrument cache keys in Redis
         let cursor = '0';
@@ -66,7 +101,10 @@ async function reloadInstruments() {
         loadInstruments();
         console.log(`[Instruments] In-memory instruments list reloaded successfully.`);
     } catch (err) {
-        console.error("[Instruments] Failed to reload instruments:", err.message);
+        console.error("[Instruments] Failed to reload instruments (Redis clear failed):", err.message);
+        // Fallback: Make sure we still load the file into memory even if Redis failed!
+        loadInstruments();
+        console.log(`[Instruments] In-memory instruments list reloaded successfully (fallback).`);
     }
 }
 

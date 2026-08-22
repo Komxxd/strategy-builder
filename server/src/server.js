@@ -61,7 +61,11 @@ downloadInstruments()
         console.log("Instruments downloaded successfully on startup");
         reloadInstruments();
     })
-    .catch(err => console.error("Error downloading instruments on startup:", err));
+    .catch(err => {
+        console.error("Error downloading instruments on startup:", err);
+        console.log("Attempting to load fallback instruments...");
+        reloadInstruments(); // Fallback to whatever is in data or dataOld
+    });
 
 // Schedule daily instrument download at 8:00 PM IST
 cron.schedule("0 20 * * *", () => {
@@ -71,7 +75,10 @@ cron.schedule("0 20 * * *", () => {
             console.log("[Cron] Instruments auto-updated successfully");
             reloadInstruments();
         })
-        .catch(err => console.error("[Cron] Error auto-updating instruments:", err));
+        .catch(err => {
+            console.error("[Cron] Error auto-updating instruments:", err);
+            console.log("[Cron] Keeping existing instruments in memory.");
+        });
 }, {
     scheduled: true,
     timezone: "Asia/Kolkata"

@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node src/server.js",
     "start:backtest": "node src/backtest-server.js",
-    "dev": "nodemon --ignore src/data/ src/server.js",
+    "dev": "nodemon --ignore src/data/ --ignore src/dataOld/ --ignore src/temp/ src/server.js",
     "test": "echo \"Error: no test specified\" && exit 1",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate deploy"
