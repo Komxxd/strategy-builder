@@ -162,9 +162,16 @@ function App() {
  };
 
  const handleForceLogout = async (data) => {
+ console.log("[Auth] Force logout received:", data.message);
+ try {
  await handleLogout();
- // Optionally setting an alert so they see why they were logged out if they log back in
- // but since state unmounts, standard redirect to /login happens.
+ } catch (err) {
+ console.error("[Auth] Supabase logout error:", err);
+ } finally {
+ // Guarantee the user is kicked out by clearing storage and hard redirecting
+ localStorage.clear();
+ window.location.href = '/login';
+ }
  };
 
  socket.on('broker_status', handleBrokerStatus);
