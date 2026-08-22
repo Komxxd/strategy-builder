@@ -54,23 +54,18 @@ io.on("connection", (socket) => {
 const cron = require("node-cron");
 const { reloadInstruments } = require("./services/trading/strategy.instruments");
 
-// Auto-download instruments on startup if they don't exist or are older than 24 hours
-const INSTRUMENT_PATH = path.join(__dirname, "./data/instruments.json");
-const shouldDownload = !fs.existsSync(INSTRUMENT_PATH) || (Date.now() - fs.statSync(INSTRUMENT_PATH).mtimeMs > 24 * 60 * 60 * 1000);
+// Auto-download instruments on startup to ensure fresh data
+console.log("Server starting up. Downloading fresh instruments list...");
+downloadInstruments()
+    .then(() => {
+        console.log("Instruments downloaded successfully on startup");
+        reloadInstruments();
+    })
+    .catch(err => console.error("Error downloading instruments on startup:", err));
 
-if (shouldDownload) {
-    console.log("Instruments file stale or missing. Downloading...");
-    downloadInstruments()
-        .then(() => {
-            console.log("Instruments downloaded successfully on startup");
-            reloadInstruments();
-        })
-        .catch(err => console.error("Error downloading instruments on startup:", err));
-}
-
-// Schedule daily instrument download at 8:00 AM IST
-cron.schedule("0 8 * * *", () => {
-    console.log("[Cron] Auto-updating instrument list at 8:00 AM IST...");
+// Schedule daily instrument download at 8:00 PM IST
+cron.schedule("0 20 * * *", () => {
+    console.log("[Cron] Auto-updating instrument list at 8:00 PM IST...");
     downloadInstruments()
         .then(() => {
             console.log("[Cron] Instruments auto-updated successfully");
