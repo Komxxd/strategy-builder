@@ -15,8 +15,13 @@ const deleteSession = (connectionId) => {
     return sessionCache.del(`angelone:session:${connectionId}`);
 };
 
+const clearAllSessions = () => {
+    return sessionCache.flushAll();
+};
+
 module.exports = {
     setSession,
     getSession,
-    deleteSession
+    deleteSession,
+    clearAllSessions
 };

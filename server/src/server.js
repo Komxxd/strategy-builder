@@ -79,6 +79,7 @@ app.get("/api/instruments/download", (req, res) => {
 
 const cron = require("node-cron");
 const { reloadInstruments } = require("./services/trading/strategy.instruments");
+const sessionService = require("./services/session.service");
 
 // Auto-download instruments on startup to ensure fresh data
 console.log("Server starting up. Downloading fresh instruments list...");
@@ -116,6 +117,24 @@ cron.schedule("0 20 * * *", () => {
             console.error("[Cron] Error auto-updating instruments:", err);
             console.log("[Cron] Keeping existing instruments in memory.");
         });
+}, {
+    scheduled: true,
+    timezone: "Asia/Kolkata"
+});
+
+// Schedule mandatory automatic logout at 2:00 PM IST
+cron.schedule("0 14 * * *", () => {
+    console.log("[Cron] Executing mandatory 2:00 PM auto-logout...");
+    
+    // 1. Log out the Angel One global session (stops live data, clears tokens)
+    authService.logout();
+    
+    // 2. Clear ALL individual user broker sessions from memory
+    sessionService.clearAllSessions();
+    
+    // 3. Instruct all connected frontend clients to log out their user accounts
+    io.emit("force_logout", { message: "Mandatory system logout at 2:00 PM." });
+    
 }, {
     scheduled: true,
     timezone: "Asia/Kolkata"

@@ -161,10 +161,17 @@ function App() {
  setInstrumentsLastUpdated(data.lastUpdated);
  };
 
+ const handleForceLogout = async (data) => {
+ await handleLogout();
+ // Optionally setting an alert so they see why they were logged out if they log back in
+ // but since state unmounts, standard redirect to /login happens.
+ };
+
  socket.on('broker_status', handleBrokerStatus);
  socket.on('socket_status', handleSocketStatus);
  socket.on('strategy_alert', handleStrategyAlert);
  socket.on('instruments_status', handleInstrumentsStatus);
+ socket.on('force_logout', handleForceLogout);
 
  // Store cleanup for when React unmounts or re-runs the effect
  cleanup = () => {
@@ -172,6 +179,7 @@ function App() {
  socket.off('socket_status', handleSocketStatus);
  socket.off('strategy_alert', handleStrategyAlert);
  socket.off('instruments_status', handleInstrumentsStatus);
+ socket.off('force_logout', handleForceLogout);
  };
  });
 
