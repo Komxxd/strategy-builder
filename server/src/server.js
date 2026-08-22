@@ -122,9 +122,9 @@ cron.schedule("0 20 * * *", () => {
     timezone: "Asia/Kolkata"
 });
 
-// Schedule mandatory automatic logout at 3:00 PM IST
-cron.schedule("0 15 * * *", () => {
-    console.log("[Cron] Executing mandatory 3:00 PM auto-logout...");
+// Schedule mandatory automatic logout at 8:00 AM IST
+cron.schedule("0 8 * * *", () => {
+    console.log("[Cron] Executing mandatory 8:00 AM auto-logout...");
     
     // 1. Log out the Angel One global session (stops live data, clears tokens)
     authService.logout();
@@ -133,7 +133,7 @@ cron.schedule("0 15 * * *", () => {
     sessionService.clearAllSessions();
     
     // 3. Instruct all connected frontend clients to log out their user accounts
-    io.emit("force_logout", { message: "Mandatory system logout at 3:00 PM." });
+    io.emit("force_logout", { message: "Mandatory system logout at 8:00 AM." });
     
 }, {
     scheduled: true,
