@@ -209,13 +209,16 @@ function App() {
           
           {/* Data Status Pill (Left side) */}
           {instrumentsLastUpdated && (
-            <div
-              className="flex items-center gap-1 sm:gap-1.5 px-1.5 py-1 sm:px-3 sm:py-1.5 sm:ml-2 rounded-full text-[10px] sm:text-xs font-bold border shrink-0 bg-slate-50 text-slate-500 border-slate-200 whitespace-nowrap"
-              title={`Instruments last updated: ${new Date(instrumentsLastUpdated).toLocaleString()}`}
+            <a
+              href={`${import.meta.env.VITE_API_BASE_URL || "http://localhost:5001/api"}/instruments/download`}
+              target="_blank"
+              rel="noreferrer"
+              className="flex items-center gap-1 sm:gap-1.5 px-1.5 py-1 sm:px-3 sm:py-1.5 sm:ml-2 rounded-full text-[10px] sm:text-xs font-bold border shrink-0 bg-slate-50 text-slate-500 border-slate-200 whitespace-nowrap hover:bg-slate-100 hover:text-slate-700 transition-colors cursor-pointer"
+              title={`Instruments last updated: ${new Date(instrumentsLastUpdated).toLocaleString()}. Click to view JSON file.`}
             >
               <CheckCircle2 className="h-3 w-3 sm:h-3.5 sm:w-3.5 shrink-0 text-emerald-500" />
               <span>Data: {new Date(instrumentsLastUpdated).toLocaleString([], {month: 'short', day: 'numeric', hour: '2-digit', minute:'2-digit'})}</span>
-            </div>
+            </a>
           )}
         </div>
           

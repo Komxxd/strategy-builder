@@ -63,6 +63,20 @@ io.on("connection", (socket) => {
     });
 });
 
+// Endpoint to view/download the current instruments.json file
+app.get("/api/instruments/download", (req, res) => {
+    const DATA_PATH = path.join(__dirname, "./data/instruments.json");
+    const DATA_OLD_PATH = path.join(__dirname, "./dataOld/instruments.json");
+    
+    if (fs.existsSync(DATA_PATH)) {
+        res.sendFile(DATA_PATH);
+    } else if (fs.existsSync(DATA_OLD_PATH)) {
+        res.sendFile(DATA_OLD_PATH);
+    } else {
+        res.status(404).send("Instruments file not found.");
+    }
+});
+
 const cron = require("node-cron");
 const { reloadInstruments } = require("./services/trading/strategy.instruments");
 
