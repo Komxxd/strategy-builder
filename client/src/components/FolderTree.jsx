@@ -71,16 +71,19 @@ const FolderNode = ({
 
   const handleDragOver = (e) => {
     e.preventDefault();
+    e.stopPropagation();
     e.dataTransfer.dropEffect = 'move';
     e.currentTarget.classList.add('bg-muted/50');
   };
 
   const handleDragLeave = (e) => {
+    e.stopPropagation();
     e.currentTarget.classList.remove('bg-muted/50');
   };
 
   const handleDrop = (e) => {
     e.preventDefault();
+    e.stopPropagation();
     e.currentTarget.classList.remove('bg-muted/50');
     const strategyId = e.dataTransfer.getData('text/plain');
     if (strategyId) {
@@ -89,15 +92,17 @@ const FolderNode = ({
   };
 
   return (
-    <div className="flex flex-col w-full text-[10px] sm:text-xs">
+    <div 
+      className="flex flex-col w-full text-[10px] sm:text-xs"
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
       {/* Folder Header Row */}
       <div 
         className="flex items-center justify-between px-4 py-2 border-b bg-muted/20 hover:bg-muted/40 transition-colors cursor-pointer group"
         style={{ paddingLeft: `${Math.min(level, 4) * 12 + 16}px` }}
         onClick={() => setIsOpen(!isOpen)}
-        onDragOver={handleDragOver}
-        onDragLeave={handleDragLeave}
-        onDrop={handleDrop}
       >
         <div className="flex items-center gap-2 overflow-hidden">
           {isOpen ? <ChevronDown className="h-3 w-3 shrink-0" /> : <ChevronRight className="h-3 w-3 shrink-0" />}
@@ -108,9 +113,8 @@ const FolderNode = ({
             {totalFolderCount > 0 ? `, ${totalFolderCount} ${totalFolderCount === 1 ? 'folder' : 'folders'}` : ''})
           </span>
         </div>
-        <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+        <div className="flex items-center gap-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
           <Button
-            variant="ghost"
             size="sm"
             className="h-6 w-6 p-0 hover:bg-slate-200 rounded text-slate-500"
             onClick={(e) => {

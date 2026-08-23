@@ -3102,7 +3102,7 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  </div>
  </div>
  <div className="col-span-1 xl:col-span-4 text-right mt-2 xl:mt-0 pt-3 xl:pt-0 border-t border-dashed border-gray-100 xl:border-none">
- <div className="flex flex-nowrap items-center justify-start gap-1 w-fit ml-0 xl:ml-auto">
+ <div className="flex flex-wrap items-center justify-start gap-1 w-full xl:w-fit ml-0 xl:ml-auto">
  <Button
  size="sm"
  variant="outline"
