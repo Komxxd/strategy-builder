@@ -2412,23 +2412,54 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  };
 
  const handleReorderFolder = (sourceFolderId, targetFolderId, isTopHalf) => {
- setFolders(prev => {
- const sourceIndex = prev.findIndex(item => item.id === sourceFolderId);
- if (sourceIndex === -1) return prev;
- 
- const next = [...prev];
- const [movedItem] = next.splice(sourceIndex, 1);
- 
- let adjustedTargetIndex = next.findIndex(item => item.id === targetFolderId);
- if (adjustedTargetIndex === -1) return prev;
- 
- const insertIndex = isTopHalf ? adjustedTargetIndex : adjustedTargetIndex + 1;
- next.splice(insertIndex, 0, movedItem);
- 
- localStorage.setItem('custom_folder_order', JSON.stringify(next.map(item => item.id)));
- return next;
- });
- };
+    setFolders(prev => {
+      const sourceIndex = prev.findIndex(item => item.id === sourceFolderId);
+      if (sourceIndex === -1) return prev;
+      
+      const next = [...prev];
+      const [movedItem] = next.splice(sourceIndex, 1);
+      
+      let adjustedTargetIndex = next.findIndex(item => item.id === targetFolderId);
+      if (adjustedTargetIndex === -1) return prev;
+      
+      const insertIndex = isTopHalf ? adjustedTargetIndex : adjustedTargetIndex + 1;
+      next.splice(insertIndex, 0, movedItem);
+      
+      localStorage.setItem('custom_folder_order', JSON.stringify(next.map(item => item.id)));
+      return next;
+    });
+  };
+
+  const handleChangeParentFolder = async (folderId, newParentId) => {
+    const folder = folders.find(f => f.id === folderId);
+    if (!folder) return;
+    if (folder.parent_id === newParentId) return;
+
+    const isCyclic = (folderId, targetParentId) => {
+      let currentParent = targetParentId;
+      while (currentParent) {
+        if (currentParent === folderId) return true;
+        const parentFolder = folders.find(f => f.id === currentParent);
+        if (!parentFolder) break;
+        currentParent = parentFolder.parent_id;
+      }
+      return false;
+    };
+    if (isCyclic(folderId, newParentId)) {
+      alert("Cannot move a folder into its own subfolder.");
+      return;
+    }
+
+    try {
+      await axios.put(`${API_BASE_URL}/folders/${folderId}`, {
+        name: folder.name,
+        parent_id: newParentId
+      });
+      fetchFolders();
+    } catch (err) {
+      alert(err.response?.data?.message || "Failed to move folder");
+    }
+  };
 
  const handleRenameFolder = (folder) => {
  setFolderModalData({ mode: 'rename', folder });
@@ -3896,6 +3927,7 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
                       onRenameFolder={handleRenameFolder}
                       onCreateFolder={handleCreateFolder}
                       onReorderFolder={handleReorderFolder}
+                      onChangeParentFolder={handleChangeParentFolder}
                       onToggleCombine={setSelectedForCombined}
                       selectedForCombined={selectedForCombined}
                       renderStrategyRow={renderStrategyRow}

@@ -12,6 +12,7 @@ const FolderNode = ({
   onRenameFolder,
   onCreateFolder,
   onReorderFolder,
+  onChangeParentFolder,
   onToggleCombine,
   selectedForCombined,
   renderStrategyRow,
@@ -115,7 +116,7 @@ const FolderNode = ({
         onDragEnd={(e) => {
            if (e.target && e.target.classList) {
              e.target.classList.remove('opacity-40');
-             e.target.classList.remove('border-t-2','border-b-2','border-primary','bg-muted/30');
+             e.target.classList.remove('border-t-2','border-b-2','border-primary','bg-muted/30', 'ring-2', 'ring-primary', 'ring-inset');
            }
         }}
         onDragOver={(e) => {
@@ -124,29 +125,47 @@ const FolderNode = ({
               e.stopPropagation();
               e.dataTransfer.dropEffect = 'move';
               const rect = e.currentTarget.getBoundingClientRect();
-              const isTopHalf = e.clientY < rect.top + rect.height / 2;
-              e.currentTarget.classList.remove('border-t-2','border-b-2','border-primary');
-              e.currentTarget.classList.add(isTopHalf ? 'border-t-2' : 'border-b-2', 'border-primary');
+              const isTop25 = e.clientY < rect.top + rect.height * 0.25;
+              const isBottom25 = e.clientY > rect.bottom - rect.height * 0.25;
+              
+              e.currentTarget.classList.remove('border-t-2','border-b-2','border-primary', 'ring-2', 'ring-primary', 'ring-inset', 'bg-muted/30');
+              
+              if (isTop25) {
+                 e.currentTarget.classList.add('border-t-2', 'border-primary');
+              } else if (isBottom25) {
+                 e.currentTarget.classList.add('border-b-2', 'border-primary');
+              } else {
+                 e.currentTarget.classList.add('ring-2', 'ring-primary', 'ring-inset', 'bg-muted/30');
+              }
            }
         }}
         onDragLeave={(e) => {
            e.stopPropagation();
            if (e.currentTarget && e.currentTarget.classList) {
-              e.currentTarget.classList.remove('border-t-2','border-b-2','border-primary');
+              e.currentTarget.classList.remove('border-t-2','border-b-2','border-primary', 'ring-2', 'ring-primary', 'ring-inset', 'bg-muted/30');
            }
         }}
         onDrop={(e) => {
            if (e.dataTransfer.types.includes('is-folder')) {
              e.preventDefault();
              e.stopPropagation();
-             e.currentTarget.classList.remove('border-t-2','border-b-2','border-primary');
+             e.currentTarget.classList.remove('border-t-2','border-b-2','border-primary', 'ring-2', 'ring-primary', 'ring-inset', 'bg-muted/30');
              const data = e.dataTransfer.getData('text/plain');
              if (data && data.startsWith('folder:')) {
                 const droppedFolderId = data.replace('folder:', '');
                 if (droppedFolderId === folder.id) return;
+                
                 const rect = e.currentTarget.getBoundingClientRect();
-                const isTopHalf = e.clientY < rect.top + rect.height / 2;
-                onReorderFolder(droppedFolderId, folder.id, isTopHalf);
+                const isTop25 = e.clientY < rect.top + rect.height * 0.25;
+                const isBottom25 = e.clientY > rect.bottom - rect.height * 0.25;
+                
+                if (isTop25) {
+                   onReorderFolder(droppedFolderId, folder.id, true);
+                } else if (isBottom25) {
+                   onReorderFolder(droppedFolderId, folder.id, false);
+                } else {
+                   onChangeParentFolder(droppedFolderId, folder.id);
+                }
              }
            }
         }}
@@ -214,6 +233,7 @@ const FolderNode = ({
               onRenameFolder={onRenameFolder}
               onCreateFolder={onCreateFolder}
               onReorderFolder={onReorderFolder}
+              onChangeParentFolder={onChangeParentFolder}
               onToggleCombine={onToggleCombine}
               selectedForCombined={selectedForCombined}
               renderStrategyRow={renderStrategyRow}
@@ -260,6 +280,7 @@ export const FolderTree = ({
   onRenameFolder,
   onCreateFolder,
   onReorderFolder,
+  onChangeParentFolder,
   onToggleCombine,
   selectedForCombined,
   renderStrategyRow,
@@ -272,7 +293,14 @@ export const FolderTree = ({
   const handleRootDrop = (e) => {
     e.preventDefault();
     e.currentTarget.classList.remove('bg-muted/10');
-    if (e.dataTransfer.types.includes('is-folder')) return;
+    if (e.dataTransfer.types.includes('is-folder')) {
+      const data = e.dataTransfer.getData('text/plain');
+      if (data && data.startsWith('folder:')) {
+         const droppedFolderId = data.replace('folder:', '');
+         onChangeParentFolder(droppedFolderId, null);
+      }
+      return;
+    }
     const strategyId = e.dataTransfer.getData('text/plain');
     if (strategyId && !strategyId.startsWith('folder:')) {
       onDropStrategy(strategyId, null);
@@ -294,6 +322,7 @@ export const FolderTree = ({
           onRenameFolder={onRenameFolder}
           onCreateFolder={onCreateFolder}
           onReorderFolder={onReorderFolder}
+          onChangeParentFolder={onChangeParentFolder}
           onToggleCombine={onToggleCombine}
           selectedForCombined={selectedForCombined}
           renderStrategyRow={renderStrategyRow}
