@@ -15,7 +15,6 @@ import { StrategyLogs } from'./StrategyLogs';
 import { StrategyConfigModal } from'./StrategyConfigModal';
 import { ExecutionSettingsModal } from'./ExecutionSettingsModal';
 import { fetchBacktestDates, runBacktest, runCombinedBacktest, getBacktestStatus } from'../api';
-import { downloadElementAsPdf } from '../utils/pdfExport';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ||"http://localhost:5001/api";
 const SOCKET_URL = API_BASE_URL.replace(/\/api\/?$/,"");
@@ -2195,6 +2194,7 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  const [loadingDates, setLoadingDates] = useState(false);
  const [isBacktesting, setIsBacktesting] = useState(false);
  const [activeMenuId, setActiveMenuId] = useState(null);
+ const [autoDownloadPdf, setAutoDownloadPdf] = useState(false);
 
  useEffect(() => {
    const handleClickOutside = () => {
@@ -2225,16 +2225,11 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  URL.revokeObjectURL(url);
  };
 
- const handleDownloadPdfDirect = async (strategy) => {
-    try {
-      window.__pdfExportConfig = strategy.config;
-      const name = strategy.name || strategy.config?.name || 'Strategy';
-      await downloadElementAsPdf(null, name);
-    } catch (err) {
-      console.error('Failed to download PDF:', err);
-    } finally {
-      delete window.__pdfExportConfig;
-    }
+  const handleDownloadPdfDirect = (strategy) => {
+    setViewConfig(strategy.config);
+    setViewStrategyName(strategy.name || strategy.config?.name || 'Strategy');
+    setAutoDownloadPdf(true);
+    setConfigWindowOpen(true);
   };
 
  const handleUploadClick = () => {
@@ -3946,8 +3941,10 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  />
  <StrategyConfigModal
  isOpen={configWindowOpen}
- onClose={() => setConfigWindowOpen(false)}
+ onClose={() => { setConfigWindowOpen(false); setAutoDownloadPdf(false); }}
  strategy={{ config: viewConfig, name: viewStrategyName }}
+ autoDownloadPdf={autoDownloadPdf}
+ onAutoDownloadComplete={() => setAutoDownloadPdf(false)}
  />
  <ExecutionSettingsModal
  isOpen={executionModalOpen}

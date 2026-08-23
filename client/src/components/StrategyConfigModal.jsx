@@ -1,12 +1,13 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { Settings2, X, Layers, FileText, Loader2 } from 'lucide-react';
 import { StrategyFormContent } from './StrategyBuilder';
-import { downloadElementAsPdf } from '../utils/pdfExport';
 
-export function StrategyConfigModal({ isOpen, onClose, strategy }) {
+export function StrategyConfigModal({ isOpen, onClose, strategy, autoDownloadPdf, onAutoDownloadComplete }) {
   const [activeTabId, setActiveTabId] = useState(null);
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
+  const contentRef = useRef(null);
+  const autoDownloadTriggered = useRef(false);
 
 
   // Prevent background scrolling when modal is open
@@ -23,6 +24,23 @@ export function StrategyConfigModal({ isOpen, onClose, strategy }) {
     }
     return () => { document.body.style.overflow = 'unset'; };
   }, [isOpen, strategy]);
+
+  // Auto-trigger PDF download when opened with autoDownloadPdf prop
+  useEffect(() => {
+    if (isOpen && autoDownloadPdf && contentRef.current && !autoDownloadTriggered.current) {
+      autoDownloadTriggered.current = true;
+      // Wait for the content to fully render
+      const timer = setTimeout(() => {
+        handleDownloadPdf().then(() => {
+          if (onAutoDownloadComplete) onAutoDownloadComplete();
+        });
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+    if (!isOpen || !autoDownloadPdf) {
+      autoDownloadTriggered.current = false;
+    }
+  }, [isOpen, autoDownloadPdf]);
 
   if (!isOpen || !strategy) return null;
 
@@ -42,12 +60,113 @@ export function StrategyConfigModal({ isOpen, onClose, strategy }) {
   const handleDownloadPdf = async () => {
     try {
       setIsDownloadingPdf(true);
-      window.__pdfExportConfig = displayConfig;
-      await downloadElementAsPdf(null, strategy?.isCombined ? strategy?.name : displayName);
+      const captureTarget = contentRef.current;
+      if (!captureTarget) return;
+
+      // Clone the content HTML
+      const contentHtml = captureTarget.innerHTML;
+
+      // Collect all stylesheets from the current page
+      const stylesheets = Array.from(document.querySelectorAll('link[rel="stylesheet"], style'))
+        .map(el => el.outerHTML)
+        .join('\n');
+
+      // Get computed CSS variables from :root
+      const rootStyles = document.documentElement.getAttribute('style') || '';
+      const computedRootVars = getComputedStyle(document.documentElement);
+      const cssVarNames = Array.from(document.styleSheets)
+        .flatMap(sheet => {
+          try { return Array.from(sheet.cssRules); } catch { return []; }
+        })
+        .filter(rule => rule.selectorText === ':root')
+        .flatMap(rule => Array.from(rule.style))
+        .filter(prop => prop.startsWith('--'));
+      
+      const cssVarsStr = cssVarNames.map(name => `${name}: ${computedRootVars.getPropertyValue(name)};`).join('\n');
+
+      const pdfName = (strategy?.isCombined ? strategy?.name : displayName) || 'Strategy Configuration';
+
+      const printHtml = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <title>${pdfName}</title>
+          ${stylesheets}
+          <style>
+            :root { ${cssVarsStr} }
+            html, body {
+              margin: 0;
+              padding: 0;
+              background: white !important;
+              -webkit-print-color-adjust: exact !important;
+              print-color-adjust: exact !important;
+              color-adjust: exact !important;
+            }
+            body {
+              padding: 16px;
+            }
+            /* Hide scrollbars and ensure full content is visible */
+            * {
+              overflow: visible !important;
+              max-height: none !important;
+            }
+            /* Print-specific tweaks */
+            @media print {
+              body { padding: 8px; }
+              * {
+                overflow: visible !important;
+                max-height: none !important;
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+              }
+            }
+            /* Hide any elements with hide-on-readonly class */
+            .hide-on-readonly { display: none !important; }
+          </style>
+        </head>
+        <body>
+          <div style="max-width: 1100px; margin: 0 auto; background: white;">
+            <div style="padding: 12px 0 16px 0; border-bottom: 2px solid #6366f1; margin-bottom: 16px;">
+              <h1 style="font-size: 18px; font-weight: 700; color: #0f172a; margin: 0 0 4px 0; font-family: system-ui, sans-serif;">
+                ${strategy?.isCombined ? 'Portfolio' : 'Strategy'} Configuration
+              </h1>
+              <p style="font-size: 12px; color: #94a3b8; margin: 0; font-family: system-ui, sans-serif;">
+                ${pdfName}
+              </p>
+            </div>
+            <div class="p-3 w-full bg-white rounded-lg">
+              ${contentHtml}
+            </div>
+          </div>
+        </body>
+        </html>
+      `;
+
+      // Open print window
+      const printWindow = window.open('', '_blank', 'width=1100,height=800');
+      if (!printWindow) {
+        alert('Please allow popups to download the PDF.');
+        return;
+      }
+
+      printWindow.document.write(printHtml);
+      printWindow.document.close();
+
+      // Wait for styles and content to load, then trigger print
+      printWindow.onload = () => {
+        setTimeout(() => {
+          printWindow.focus();
+          printWindow.print();
+          // Close the print window after a short delay (user may cancel)
+          setTimeout(() => {
+            printWindow.close();
+          }, 1000);
+        }, 300);
+      };
     } catch (err) {
       console.error('Failed to download PDF:', err);
     } finally {
-      delete window.__pdfExportConfig;
       setIsDownloadingPdf(false);
     }
   };
@@ -120,7 +239,7 @@ export function StrategyConfigModal({ isOpen, onClose, strategy }) {
 
         {/* Configuration Content - Rendered exactly as StrategyBuilder natively */}
         <div className="flex-1 overflow-y-auto w-full custom-scrollbar bg-slate-50/50">
-          <div className="p-3 w-full max-w-6xl mx-auto h-full bg-white rounded-lg">
+          <div ref={contentRef} className="p-3 w-full max-w-6xl mx-auto h-full bg-white rounded-lg">
             <StrategyFormContent
               config={displayConfig}
               setConfig={() => { }}
