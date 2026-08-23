@@ -11,6 +11,7 @@ const FolderNode = ({
   onDeleteFolder,
   onRenameFolder,
   onCreateFolder,
+  onReorderFolder,
   onToggleCombine,
   selectedForCombined,
   renderStrategyRow,
@@ -85,8 +86,9 @@ const FolderNode = ({
     e.preventDefault();
     e.stopPropagation();
     e.currentTarget.classList.remove('bg-muted/50');
+    if (e.dataTransfer.types.includes('is-folder')) return;
     const strategyId = e.dataTransfer.getData('text/plain');
-    if (strategyId) {
+    if (strategyId && !strategyId.startsWith('folder:')) {
       onDropStrategy(strategyId, folder.id);
     }
   };
@@ -103,6 +105,51 @@ const FolderNode = ({
         className="flex items-center justify-between px-4 py-2 border-b bg-muted/20 hover:bg-muted/40 transition-colors cursor-pointer group"
         style={{ paddingLeft: `${Math.min(level, 4) * 12 + 16}px` }}
         onClick={() => setIsOpen(!isOpen)}
+        draggable
+        onDragStart={(e) => {
+           e.dataTransfer.effectAllowed = 'move';
+           e.dataTransfer.setData('text/plain', `folder:${folder.id}`);
+           e.dataTransfer.setData('is-folder', 'true');
+           setTimeout(() => { if (e.target && e.target.classList) e.target.classList.add('opacity-40'); }, 0);
+        }}
+        onDragEnd={(e) => {
+           if (e.target && e.target.classList) {
+             e.target.classList.remove('opacity-40');
+             e.target.classList.remove('border-t-2','border-b-2','border-primary','bg-muted/30');
+           }
+        }}
+        onDragOver={(e) => {
+           if (e.dataTransfer.types.includes('is-folder')) {
+              e.preventDefault();
+              e.stopPropagation();
+              e.dataTransfer.dropEffect = 'move';
+              const rect = e.currentTarget.getBoundingClientRect();
+              const isTopHalf = e.clientY < rect.top + rect.height / 2;
+              e.currentTarget.classList.remove('border-t-2','border-b-2','border-primary');
+              e.currentTarget.classList.add(isTopHalf ? 'border-t-2' : 'border-b-2', 'border-primary');
+           }
+        }}
+        onDragLeave={(e) => {
+           e.stopPropagation();
+           if (e.currentTarget && e.currentTarget.classList) {
+              e.currentTarget.classList.remove('border-t-2','border-b-2','border-primary');
+           }
+        }}
+        onDrop={(e) => {
+           if (e.dataTransfer.types.includes('is-folder')) {
+             e.preventDefault();
+             e.stopPropagation();
+             e.currentTarget.classList.remove('border-t-2','border-b-2','border-primary');
+             const data = e.dataTransfer.getData('text/plain');
+             if (data && data.startsWith('folder:')) {
+                const droppedFolderId = data.replace('folder:', '');
+                if (droppedFolderId === folder.id) return;
+                const rect = e.currentTarget.getBoundingClientRect();
+                const isTopHalf = e.clientY < rect.top + rect.height / 2;
+                onReorderFolder(droppedFolderId, folder.id, isTopHalf);
+             }
+           }
+        }}
       >
         <div className="flex items-center gap-2 overflow-hidden">
           {isOpen ? <ChevronDown className="h-3 w-3 shrink-0" /> : <ChevronRight className="h-3 w-3 shrink-0" />}
@@ -166,6 +213,7 @@ const FolderNode = ({
               onDeleteFolder={onDeleteFolder}
               onRenameFolder={onRenameFolder}
               onCreateFolder={onCreateFolder}
+              onReorderFolder={onReorderFolder}
               onToggleCombine={onToggleCombine}
               selectedForCombined={selectedForCombined}
               renderStrategyRow={renderStrategyRow}
@@ -211,6 +259,7 @@ export const FolderTree = ({
   onDeleteFolder,
   onRenameFolder,
   onCreateFolder,
+  onReorderFolder,
   onToggleCombine,
   selectedForCombined,
   renderStrategyRow,
@@ -223,8 +272,9 @@ export const FolderTree = ({
   const handleRootDrop = (e) => {
     e.preventDefault();
     e.currentTarget.classList.remove('bg-muted/10');
+    if (e.dataTransfer.types.includes('is-folder')) return;
     const strategyId = e.dataTransfer.getData('text/plain');
-    if (strategyId) {
+    if (strategyId && !strategyId.startsWith('folder:')) {
       onDropStrategy(strategyId, null);
     }
   };
@@ -243,6 +293,7 @@ export const FolderTree = ({
           onDeleteFolder={onDeleteFolder}
           onRenameFolder={onRenameFolder}
           onCreateFolder={onCreateFolder}
+          onReorderFolder={onReorderFolder}
           onToggleCombine={onToggleCombine}
           selectedForCombined={selectedForCombined}
           renderStrategyRow={renderStrategyRow}

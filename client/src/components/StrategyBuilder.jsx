@@ -2387,7 +2387,19 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  const fetchFolders = async () => {
  try {
  const res = await axios.get(`${API_BASE_URL}/folders`);
- setFolders(res.data?.data || []);
+ let fetchedFolders = res.data?.data || [];
+ const savedOrder = JSON.parse(localStorage.getItem('custom_folder_order') || '[]');
+ if (savedOrder.length > 0) {
+ fetchedFolders.sort((a, b) => {
+ const indexA = savedOrder.indexOf(a.id);
+ const indexB = savedOrder.indexOf(b.id);
+ if (indexA === -1 && indexB === -1) return 0;
+ if (indexA === -1) return 1;
+ if (indexB === -1) return -1;
+ return indexA - indexB;
+ });
+ }
+ setFolders(fetchedFolders);
  } catch (err) {
  console.error("Error fetching folders:", err);
  }
@@ -2397,6 +2409,25 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  setFolderModalData({ mode: 'create', parent_id: parentId });
  setFolderNameInput('');
  setFolderModalOpen(true);
+ };
+
+ const handleReorderFolder = (sourceFolderId, targetFolderId, isTopHalf) => {
+ setFolders(prev => {
+ const sourceIndex = prev.findIndex(item => item.id === sourceFolderId);
+ if (sourceIndex === -1) return prev;
+ 
+ const next = [...prev];
+ const [movedItem] = next.splice(sourceIndex, 1);
+ 
+ let adjustedTargetIndex = next.findIndex(item => item.id === targetFolderId);
+ if (adjustedTargetIndex === -1) return prev;
+ 
+ const insertIndex = isTopHalf ? adjustedTargetIndex : adjustedTargetIndex + 1;
+ next.splice(insertIndex, 0, movedItem);
+ 
+ localStorage.setItem('custom_folder_order', JSON.stringify(next.map(item => item.id)));
+ return next;
+ });
  };
 
  const handleRenameFolder = (folder) => {
@@ -3857,18 +3888,19 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  <CardContent className="p-0 animate-in fade-in slide-in-from-top-2 duration-200">
  <div className="flex flex-col w-full">
  <div className="divide-y border-t flex flex-col">
- <FolderTree
- folders={folders}
- strategies={savedStrategies}
- onDropStrategy={handleMoveStrategy}
- onDeleteFolder={handleDeleteFolder}
- onRenameFolder={handleRenameFolder}
- onCreateFolder={handleCreateFolder}
- onToggleCombine={setSelectedForCombined}
- selectedForCombined={selectedForCombined}
- renderStrategyRow={renderStrategyRow}
- searchTerm={searchTerm}
- />
+                    <FolderTree 
+                      folders={folders}
+                      strategies={savedStrategies}
+                      onDropStrategy={handleMoveStrategy}
+                      onDeleteFolder={handleDeleteFolder}
+                      onRenameFolder={handleRenameFolder}
+                      onCreateFolder={handleCreateFolder}
+                      onReorderFolder={handleReorderFolder}
+                      onToggleCombine={setSelectedForCombined}
+                      selectedForCombined={selectedForCombined}
+                      renderStrategyRow={renderStrategyRow}
+                      searchTerm={searchTerm}
+                    />
  </div>
  </div>
  </CardContent>
