@@ -265,7 +265,7 @@ const LazyLegModal = ({ isOpen, onClose, leg, onChange, legIndex, level }) => {
 };
 
 
-const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove, isRecursive = false, level = 0 }) => {
+const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove, isRecursive = false, level = 0, isReadOnly = false }) => {
  const idPrefix = isRecursive ?`lazy-${level}-${legIndex}` :`leg-${legIndex}`;
  const [isLazyModalOpen, setIsLazyModalOpen] = useState(false);
 
@@ -1750,6 +1750,20 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
 
  {leg.lazy_leg_enabled && leg.lazy_leg && (
  <div className="animate-in slide-in-from-top-2">
+ {isReadOnly ? (
+ <LegConfiguration
+ leg={leg.lazy_leg}
+ legIndex={legIndex}
+ onChange={(newLazyLeg) => onChange({ ...leg, lazy_leg: newLazyLeg })}
+ onRemove={() => {}}
+ onCopy={() => {}}
+ canRemove={false}
+ isRecursive={true}
+ level={level + 1}
+ isReadOnly={true}
+ />
+ ) : (
+ <>
  <div className="flex items-center justify-between p-2.5 bg-orange-50/50 border border-orange-200 rounded-lg group hover:border-orange-300 transition-all cursor-pointer" onClick={() => setIsLazyModalOpen(true)}>
  <div className="flex items-center gap-2">
  <div className="h-8 w-8 bg-orange-500/10 text-orange-600 rounded flex items-center justify-center font-bold text-[11px]">
@@ -1772,6 +1786,8 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
  legIndex={legIndex}
  level={level + 1}
  />
+ </>
+ )}
  </div>
  )}
 
@@ -2085,6 +2101,7 @@ export const StrategyFormContent = ({ config, setConfig, editingId, setEditingId
  leg={leg}
  legIndex={legIndex}
  canRemove={config.legs.length > 1}
+ isReadOnly={isReadOnly}
  onChange={(updatedLeg) => {
  const next = [...config.legs];
  next[legIndex] = updatedLeg;
