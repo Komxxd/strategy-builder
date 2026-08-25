@@ -2816,18 +2816,39 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  return l;
  });
 
-  const totalPnlRupees = updatedLegs.reduce((sum, l) => sum + (l.pnlRupees || 0), 0);
-  const calculatedOriginalValue = updatedLegs.reduce((sum, l) => {
-    const price = l.original_traded_price || l.entryPrice || 0;
-    if (!price) return sum;
-    const multiplier = parseFloat(strategy.config?.quantity_multiplier) || 1;
-    const quantity = (l.leg?.lots || 0) * (parseInt(l.instrument?.lotsize) || 1) * multiplier;
-    return sum + (price * quantity);
-  }, 0);
+   const isVirtualLeg = l => l.is_virtual_leg || l.is_virtual_monitoring;
 
-  const totalOriginalValue = calculatedOriginalValue || strategy.totalOriginalValue || 0;
-  const finalPnlRupees = totalPnlRupees || strategy.totalPnlRupees || 0;
-  const avgPnl = totalOriginalValue > 0 ? (finalPnlRupees / totalOriginalValue) * 100 : (strategy.pnlPercent || 0);
+   const bookedRupees = updatedLegs
+     .filter(l => l.exited && (!isVirtualLeg(l) || l.exitType === "SWITCHED_TO_VIRTUAL"))
+     .reduce((sum, l) => sum + (l.pnlRupees || l.bookedPnlRupees || 0), 0);
+
+   const switchRupees = updatedLegs
+     .filter(l => l.exitType === "SWITCHED_TO_VIRTUAL")
+     .reduce((sum, l) => sum + (l.pnlRupees || l.bookedPnlRupees || 0), 0);
+
+   const virtualRupees = updatedLegs
+     .filter(l => isVirtualLeg(l))
+     .reduce((sum, l) => sum + (l.exited ? (l.pnlRupees || l.bookedPnlRupees || 0) : (l.currentActivePnlRupees || l.pnlRupees || 0)), 0);
+
+   const virtualPlRupees = virtualRupees - switchRupees;
+
+   const ongoingRupees = updatedLegs
+     .filter(l => !l.exited && !isVirtualLeg(l))
+     .reduce((sum, l) => sum + (l.currentActivePnlRupees || l.pnlRupees || 0), 0);
+
+   const totalPnlRupees = virtualPlRupees + bookedRupees + ongoingRupees;
+
+   const calculatedOriginalValue = updatedLegs.reduce((sum, l) => {
+     const price = l.original_traded_price || l.entryPrice || 0;
+     if (!price) return sum;
+     const multiplier = parseFloat(strategy.config?.quantity_multiplier) || 1;
+     const quantity = (l.leg?.lots || 0) * (parseInt(l.instrument?.lotsize) || 1) * multiplier;
+     return sum + (price * quantity);
+   }, 0);
+
+   const totalOriginalValue = calculatedOriginalValue || strategy.totalOriginalValue || 0;
+   const finalPnlRupees = totalPnlRupees !== 0 ? totalPnlRupees : (strategy.totalPnlRupees ?? 0);
+   const avgPnl = totalOriginalValue > 0 ? (finalPnlRupees / totalOriginalValue) * 100 : (strategy.pnlPercent || 0);
 
   return {
     ...strategy,
