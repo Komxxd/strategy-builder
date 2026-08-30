@@ -4265,19 +4265,28 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  </div>
  {moveTargetFolderId === null && <Check className="h-4 w-4 text-indigo-600" />}
  </div>
- {folders.map(f => (
- <div
- key={f.id}
- className={`p-2 text-xs rounded border cursor-pointer flex items-center justify-between transition-colors ${moveTargetFolderId === f.id ? 'bg-indigo-50 border-indigo-200' : 'bg-white border-slate-200 hover:bg-slate-50'}`}
- onClick={() => setMoveTargetFolderId(f.id)}
- >
- <div className="flex items-center gap-2">
- <FolderPlus className={`h-4 w-4 ${moveTargetFolderId === f.id ? 'text-indigo-600' : 'text-slate-400'}`} />
- <span className={moveTargetFolderId === f.id ? 'font-bold text-indigo-700' : 'text-slate-600'}>{f.name}</span>
- </div>
- {moveTargetFolderId === f.id && <Check className="h-4 w-4 text-indigo-600" />}
- </div>
- ))}
+ {
+                      (function renderFolderOptions(parentId = null, depth = 0) {
+                        return folders
+                          .filter(f => (parentId === null ? !f.parent_id : f.parent_id === parentId))
+                          .map(f => (
+                            <React.Fragment key={f.id}>
+                              <div
+                                className={`p-2 text-xs rounded border cursor-pointer flex items-center justify-between transition-colors ${moveTargetFolderId === f.id ? 'bg-indigo-50 border-indigo-200' : 'bg-white border-slate-200 hover:bg-slate-50'}`}
+                                style={{ marginLeft: `${depth * 16}px` }}
+                                onClick={() => setMoveTargetFolderId(f.id)}
+                              >
+                                <div className="flex items-center gap-2">
+                                  <FolderPlus className={`h-4 w-4 ${moveTargetFolderId === f.id ? 'text-indigo-600' : 'text-slate-400'}`} />
+                                  <span className={moveTargetFolderId === f.id ? 'font-bold text-indigo-700' : 'text-slate-600'}>{f.name}</span>
+                                </div>
+                                {moveTargetFolderId === f.id && <Check className="h-4 w-4 text-indigo-600" />}
+                              </div>
+                              {renderFolderOptions(f.id, depth + 1)}
+                            </React.Fragment>
+                          ));
+                      })()
+                    }
  </div>
  </div>
  <Button
