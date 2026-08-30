@@ -85,9 +85,20 @@ async function updateStrategy(strategyId, config, userId) {
 
     const name = config.name || `Strategy ${new Date().toLocaleTimeString()}`;
 
+    // Preserve existing folder_id unless explicitly provided in the update payload.
+    // folder_id is a top-level DB column, not part of the JSON config, so it's
+    // typically absent from the edit form data. Using `|| null` would reset it.
+    let folderId;
+    if ('folder_id' in config) {
+        folderId = config.folder_id || null;
+    } else {
+        const [existing] = await sql`SELECT folder_id FROM strategies WHERE id = ${strategyId} AND user_id = ${userId} LIMIT 1`;
+        folderId = existing ? existing.folder_id : null;
+    }
+
     const [data] = await sql`
         UPDATE strategies 
-        SET name = ${name}, config = ${sql.json(cleanConfig)}, folder_id = ${config.folder_id || null}, updated_at = NOW()
+        SET name = ${name}, config = ${sql.json(cleanConfig)}, folder_id = ${folderId}, updated_at = NOW()
         WHERE id = ${strategyId} AND user_id = ${userId}
         RETURNING *
     `;
