@@ -222,6 +222,41 @@ async function handleInitialEntry(strategyId, strategy) {
 
         await Promise.all(placedLegs.map(async (leg) => {
             if (isVirtualStrategy) return;
+            
+            if (leg.uniqueOrderId) {
+                addStrategyLog(strategyId, `[Success] Angel one API returned a full response for ${leg.instrument.symbol}.`, "INFO");
+            } else {
+                addStrategyLog(strategyId, `[ERROR] Angel One API returned a partial response (missing Unique Order ID) for ${leg.instrument.symbol}. Retrying entry...`, "ERROR");
+                
+                try {
+                    const { placeOrder } = require("./strategy.execution");
+                    const { getLimitOffsetAmt, roundToTick } = require("./strategy.offset");
+                    
+                    let finalPrice = config.price || "0";
+                    if (config.ordertype === 'LIMIT') {
+                        const offsetAmt = getLimitOffsetAmt(leg.initialLtp, config);
+                        if (leg.leg.side === "BUY") finalPrice = roundToTick(leg.initialLtp + offsetAmt).toString();
+                        else finalPrice = roundToTick(leg.initialLtp - offsetAmt).toString();
+                    }
+                    
+                    const orderData = await placeOrder({ ...config, variety: config.variety === "STOPLOSS" ? "NORMAL" : (config.variety || "NORMAL"), side: leg.leg.side, lots: leg.leg.lots, price: finalPrice }, leg.instrument, config.connectionId);
+                    
+                    if (orderData.uniqueorderid) {
+                        leg.orderId = orderData.orderid;
+                        leg.uniqueOrderId = orderData.uniqueorderid;
+                        addStrategyLog(strategyId, `[Retry Success] Placed ${leg.leg.side} order for ${leg.instrument.symbol}.`, "INFO");
+                    } else {
+                        addStrategyLog(strategyId, `[CRITICAL] Retry failed: Angel One API returned a partial response again for ${leg.instrument.symbol}.`, "ERROR");
+                        leg.state = "ERROR";
+                        return;
+                    }
+                } catch (err) {
+                    addStrategyLog(strategyId, `[CRITICAL] Retry failed for ${leg.instrument.symbol}: ${err.message}`, "ERROR");
+                    leg.state = "ERROR";
+                    return;
+                }
+            }
+
             if (leg.uniqueOrderId) {
                 if (leg.state === "WAITING_FOR_SIMPLE_MNTM") return;
                 if (leg.state === "WAITING_FOR_INTERNAL_FALLBACK") return;
