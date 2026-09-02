@@ -1,14 +1,35 @@
-import React, { useEffect, useRef } from'react';
+import React, { useEffect, useRef, useCallback } from'react';
 import { createPortal } from'react-dom';
 import { MessageSquare, Clock, X, Info, Flame, AlertCircle } from'lucide-react';
 
 export function StrategyLogs({ isOpen, onClose, logs, strategyName }) {
  const scrollRef = useRef(null);
+ const isUserNearBottom = useRef(true);
+ const wasOpen = useRef(false);
 
+ // Track whether the user is near the bottom of the scroll container
+ const handleScroll = useCallback(() => {
+ if (!scrollRef.current) return;
+ const { scrollTop, scrollHeight, clientHeight } = scrollRef.current;
+ // Consider "near bottom" if within 100px of the bottom
+ isUserNearBottom.current = scrollHeight - scrollTop - clientHeight < 100;
+ }, []);
+
+ // Auto-scroll only when near bottom, or on first open
  useEffect(() => {
  if (isOpen && scrollRef.current) {
- scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+  // Always scroll to bottom when the modal first opens
+  if (!wasOpen.current) {
+  wasOpen.current = true;
+  scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+  return;
+  }
+  // Only auto-scroll on new logs if user is near the bottom
+  if (isUserNearBottom.current) {
+  scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+  }
  }
+ if (!isOpen) wasOpen.current = false;
  }, [logs, isOpen]);
 
  // Prevent background scrolling when modal is open
@@ -65,7 +86,8 @@ export function StrategyLogs({ isOpen, onClose, logs, strategyName }) {
  <div className="flex-1 overflow-hidden bg-slate-50/30">
  <div
  ref={scrollRef}
- className="h-full overflow-y-auto px-4 py-3 custom-scrollbar scroll-smooth"
+ onScroll={handleScroll}
+ className="h-full overflow-y-auto px-4 py-3 custom-scrollbar"
  >
  <div className="space-y-0.5">
  {logs && logs.length > 0 ? (
