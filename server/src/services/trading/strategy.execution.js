@@ -24,7 +24,32 @@ const { getISTTime, getISTExchangeFormat } = require("./strategy.time");
 const { roundToTick, getLimitOffsetAmt, computeStopLossExitPrices, resolveUniversalOrderParams } = require("./strategy.offset");
 const { checkOrderFillOnce, chaseOrderFill } = require("./strategy.chase");
 
+// Exchange-mandated maximum lot limits per index
+const LOT_LIMITS = {
+    NIFTY: 27,
+    SENSEX: 50,
+    BANKNIFTY: 30,
+    FINNIFTY: 40,
+};
 
+/**
+ * Validates that the effective lots (lots × multiplier) do not exceed exchange limits.
+ * Throws an error if the limit is breached; does nothing if within bounds.
+ */
+function validateLotLimit(config) {
+    const index = config?.index;
+    const maxLots = LOT_LIMITS[index];
+    if (!maxLots) return; // Unknown index, skip validation
+
+    const multiplier = parseFloat(config.quantity_multiplier) || 1;
+    const effectiveLots = Math.floor((config.lots || 1) * multiplier);
+
+    if (effectiveLots > maxLots) {
+        throw new Error(
+            `LOT_LIMIT_EXCEEDED: ${index} allows max ${maxLots} lots per leg, but effective lots = ${config.lots} × ${multiplier} = ${effectiveLots}. Reduce lots or multiplier.`
+        );
+    }
+}
 
 
 /**
@@ -117,6 +142,9 @@ async function placeOrder(config, instrument, connectionId) {
         console.error(`[placeOrder] CRITICAL: Cannot determine connectionId for ${instrument?.symbol}. strategyId=${strategyId}. Refusing to place order from master server.`);
         throw new Error(`MISSING_CONN_ID: Cannot place live order for ${instrument?.symbol} — connectionId is not set. Order blocked to prevent master server IP rejection.`);
     }
+
+    // Validate lot limit before placing order
+    validateLotLimit(config);
 
     // We build the parameters exactly as the Broker (Angel One) expects them.
     const orderParams = {
@@ -565,7 +593,7 @@ async function placeExitOrder({ config, leg, instrument, exitType }) {
 
 
 module.exports = {
-    roundToTick, placeOrder, getLimitOffsetAmt, computeStopLossExitPrices,
+    LOT_LIMITS, roundToTick, placeOrder, getLimitOffsetAmt, computeStopLossExitPrices,
     resolveUniversalOrderParams, waitForOrderFillPrice, checkOrderFillOnce,
     chaseOrderFill, placeStopLossExitOrder, placeStopLossWithRetry, placeExitOrder,
     cancelOrder, modifyOrderLocallyOrViaWorker

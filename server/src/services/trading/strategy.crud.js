@@ -1,5 +1,6 @@
 const sql = require("../../config/db");
 const { getStatus } = require("./strategy.state");
+const { LOT_LIMITS } = require("./strategy.execution");
 
 const fixTimezone = (date) => {
     if (!date) return null;
@@ -213,6 +214,24 @@ async function patchExecutionSettings(strategyId, settings, userId) {
         ...existing.config,
         ...settings
     };
+
+    // Validate lot limits when quantity_multiplier is being changed
+    if (settings.quantity_multiplier !== undefined) {
+        const index = mergedConfig.index;
+        const maxLots = LOT_LIMITS[index];
+        if (maxLots) {
+            const multiplier = parseFloat(mergedConfig.quantity_multiplier) || 1;
+            const legs = mergedConfig.legs || [];
+            for (let i = 0; i < legs.length; i++) {
+                const effectiveLots = Math.floor((legs[i].lots || 1) * multiplier);
+                if (effectiveLots > maxLots) {
+                    throw new Error(
+                        `LOT_LIMIT_EXCEEDED: Leg ${i + 1} would have ${effectiveLots} lots (${legs[i].lots} × ${multiplier}), but ${index} allows max ${maxLots} lots per leg.`
+                    );
+                }
+            }
+        }
+    }
 
     const [data] = await withDbRetry(() => sql`
         UPDATE strategies
