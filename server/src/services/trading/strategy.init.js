@@ -52,16 +52,14 @@ async function handleInitialEntry(strategyId, strategy) {
             if (leg.strike_criteria === 'CLOSEST_PREMIUM') {
                 targetInstrument = await findClosestPremiumInstrument(config.index, leg.option_type, leg.premium, config.connectionId, leg.expiry_type);
             } else if (leg.strike_criteria === 'SYNTHETIC_FUTURE') {
-                // Step 1: Get the reference strike from spot using normal OTM/ITM logic
-                const { targetStrike: refStrike, strikeLabel } = getLegStrikeSelection({
+                // Step 1: Calculate Synthetic Future using the current spot price to get ATM CE/PE
+                const sfPrice = await calculateSyntheticFuture(config.index, spotPrice, config.connectionId, leg.expiry_type);
+                // Step 2: Use the synthetic future price as the new "spot" to calculate the target strike
+                const { targetStrike: sfStrike, strikeLabel } = getLegStrikeSelection({
                     index: config.index, option_type: leg.option_type,
-                    strike: leg.strike, spotPrice
+                    strike: leg.strike, spotPrice: sfPrice
                 });
-                // Step 2: Calculate Synthetic Future at that strike (SF = Strike + CE@Strike - PE@Strike)
-                const sfPrice = await calculateSyntheticFuture(config.index, refStrike, config.connectionId, leg.expiry_type);
-                // Step 3: Round SF to nearest valid strike
-                const sfStrike = getATMStrike(config.index, sfPrice);
-                addStrategyLog(strategyId, `Leg ${resolvedLegs.length + 1}: Synthetic Future @ ${refStrike} (${strikeLabel}) = ₹${sfPrice.toFixed(2)} → Strike ${sfStrike} (${leg.option_type})`, "INFO");
+                addStrategyLog(strategyId, `Leg ${resolvedLegs.length + 1}: Synthetic Future = ₹${sfPrice.toFixed(2)}, selecting ${strikeLabel} (${leg.option_type}) at Strike ${sfStrike}.`, "INFO");
                 targetInstrument = await findOptionInstrument(config.index, leg.option_type, sfStrike, leg.expiry_type);
             } else {
                 const { targetStrike, strikeLabel } = getLegStrikeSelection({

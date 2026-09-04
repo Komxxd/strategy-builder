@@ -22,11 +22,10 @@ async function handleLazyLeg({ leg, config, strategyId, addStrategyLog }) {
         if (leg.leg.strike_criteria === 'CLOSEST_PREMIUM') {
             targetInstrument = await findClosestPremiumInstrument(config.index, leg.leg.option_type, leg.leg.premium, config.connectionId, leg.leg.expiry_type);
         } else if (leg.leg.strike_criteria === 'SYNTHETIC_FUTURE') {
-            const { targetStrike: refStrike } = getLegStrikeSelection({ index: config.index, option_type: leg.leg.option_type, strike: leg.leg.strike, spotPrice });
-            const sfPrice = await calculateSyntheticFuture(config.index, refStrike, config.connectionId, leg.leg.expiry_type);
-            const sfStrike = getATMStrike(config.index, sfPrice);
+            const sfPrice = await calculateSyntheticFuture(config.index, spotPrice, config.connectionId, leg.leg.expiry_type);
+            const { targetStrike: sfStrike } = getLegStrikeSelection({ index: config.index, option_type: leg.leg.option_type, strike: leg.leg.strike, spotPrice: sfPrice });
             targetInstrument = await findOptionInstrument(config.index, leg.leg.option_type, sfStrike, leg.leg.expiry_type);
-            addStrategyLog(strategyId, `[LAZY LEG] Synthetic Future @ ${refStrike} = ₹${sfPrice.toFixed(2)} → Strike ${sfStrike}`, "INFO");
+            addStrategyLog(strategyId, `[LAZY LEG] Synthetic Future = ₹${sfPrice.toFixed(2)} → Strike ${sfStrike}`, "INFO");
         } else {
             const { targetStrike } = getLegStrikeSelection({ index: config.index, option_type: leg.leg.option_type, strike: leg.leg.strike, spotPrice });
             targetInstrument = await findOptionInstrument(config.index, leg.leg.option_type, targetStrike, leg.leg.expiry_type);
