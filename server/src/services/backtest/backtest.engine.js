@@ -175,6 +175,24 @@ class BacktestEngine {
         return null;
     }
 
+    /**
+     * Calculates Synthetic Future price from historical data.
+     * SF = Strike + CE_Premium@Strike - PE_Premium@Strike
+     */
+    async calculateSyntheticFutureBacktest(indexName, year, month, expiry, date, strike, step, entryTime) {
+        const cePrice = await this.getOptionPriceAtTime(indexName, year, month, expiry, date, strike, 'CE', entryTime);
+        const pePrice = await this.getOptionPriceAtTime(indexName, year, month, expiry, date, strike, 'PE', entryTime);
+
+        if (cePrice === null || pePrice === null) {
+            console.log(`    -> Synthetic Future: CE/PE data missing at strike ${strike}, time ${entryTime}. Falling back to strike.`);
+            return strike; // Fallback to the reference strike itself
+        }
+
+        const sf = strike + cePrice - pePrice;
+        console.log(`    -> Synthetic Future @ ${strike}: CE=₹${cePrice}, PE=₹${pePrice} => SF=₹${sf}`);
+        return sf;
+    }
+
     async findClosestPremiumStrike(indexName, year, month, expiry, date, atmStrike, step, optionType, targetPremium, entryTime) {
         const { strike: validAtmStrike, data: validAtmData } = await this.getValidOptionDataWithFallback(indexName, year, month, date, expiry, atmStrike, optionType, step, entryTime, 5, 'ALTERNATE');
         
@@ -329,6 +347,19 @@ class BacktestEngine {
                     const targetPremium = parseFloat(leg.premium) || 0;
                     targetStrike = await this.findClosestPremiumStrike(indexName, year, month, expiry, date, atmStrike, step, leg.option_type, targetPremium, entryTime);
                     console.log(`    -> Closest Premium for ₹${targetPremium} found at strike ${targetStrike}_${leg.option_type}`);
+                } else if (leg.strike_criteria === 'SYNTHETIC_FUTURE') {
+                    // Step 1: Calculate reference strike from spot using normal OTM/ITM logic
+                    let refStrike = atmStrike;
+                    if (type === "OTM") {
+                        refStrike = leg.option_type === "CE" ? atmStrike + (offset * step) : atmStrike - (offset * step);
+                    } else if (type === "ITM") {
+                        refStrike = leg.option_type === "CE" ? atmStrike - (offset * step) : atmStrike + (offset * step);
+                    }
+                    // Step 2: Calculate SF at that reference strike
+                    const sfPrice = await this.calculateSyntheticFutureBacktest(indexName, year, month, expiry, date, refStrike, step, entryTime);
+                    // Step 3: Round SF to nearest valid strike
+                    targetStrike = this.calculateATM(sfPrice, step);
+                    console.log(`    -> SF selected: ${type}${offset} ref=${refStrike} → SF=₹${sfPrice} → Strike=${targetStrike}`);
                 } else if (type === "OTM") {
                     targetStrike = leg.option_type === "CE" ? atmStrike + (offset * step) : atmStrike - (offset * step);
                 } else if (type === "ITM") {
@@ -1036,6 +1067,16 @@ class BacktestEngine {
                                         const targetPremium = parseFloat(active.leg.premium) || 0;
                                         newTargetStrike = await this.findClosestPremiumStrike(indexName, year, month, expiry, date, newAtmStrike, step, active.leg.option_type, targetPremium, t);
                                         console.log(`    -> [RE-ASAP] Closest Premium for ₹${targetPremium} found at strike ${newTargetStrike}_${active.leg.option_type}`);
+                                    } else if (active.leg.strike_criteria === 'SYNTHETIC_FUTURE') {
+                                        let refStrike = newAtmStrike;
+                                        if (type === "OTM") {
+                                            refStrike = active.leg.option_type === "CE" ? newAtmStrike + (offset * step) : newAtmStrike - (offset * step);
+                                        } else if (type === "ITM") {
+                                            refStrike = active.leg.option_type === "CE" ? newAtmStrike - (offset * step) : newAtmStrike + (offset * step);
+                                        }
+                                        const sfPrice = await this.calculateSyntheticFutureBacktest(indexName, year, month, expiry, date, refStrike, step, t);
+                                        newTargetStrike = this.calculateATM(sfPrice, step);
+                                        console.log(`    -> [RE-ASAP] SF @ ${refStrike} = ₹${sfPrice} → Strike=${newTargetStrike}`);
                                     } else if (type === "OTM") {
                                         newTargetStrike = active.leg.option_type === "CE" ? newAtmStrike + (offset * step) : newAtmStrike - (offset * step);
                                     } else if (type === "ITM") {
@@ -1073,6 +1114,16 @@ class BacktestEngine {
                                         const targetPremium = parseFloat(active.lazyLegConfig.premium) || 0;
                                         newTargetStrike = await this.findClosestPremiumStrike(indexName, year, month, expiry, date, newAtmStrike, step, active.lazyLegConfig.option_type, targetPremium, t);
                                         console.log(`    -> [LAZY LEG] Closest Premium for ₹${targetPremium} found at strike ${newTargetStrike}_${active.lazyLegConfig.option_type}`);
+                                    } else if (active.lazyLegConfig.strike_criteria === 'SYNTHETIC_FUTURE') {
+                                        let refStrike = newAtmStrike;
+                                        if (type === "OTM") {
+                                            refStrike = active.lazyLegConfig.option_type === "CE" ? newAtmStrike + (offset * step) : newAtmStrike - (offset * step);
+                                        } else if (type === "ITM") {
+                                            refStrike = active.lazyLegConfig.option_type === "CE" ? newAtmStrike - (offset * step) : newAtmStrike + (offset * step);
+                                        }
+                                        const sfPrice = await this.calculateSyntheticFutureBacktest(indexName, year, month, expiry, date, refStrike, step, t);
+                                        newTargetStrike = this.calculateATM(sfPrice, step);
+                                        console.log(`    -> [LAZY LEG] SF @ ${refStrike} = ₹${sfPrice} → Strike=${newTargetStrike}`);
                                     } else if (type === "OTM") {
                                         newTargetStrike = active.lazyLegConfig.option_type === "CE" ? newAtmStrike + (offset * step) : newAtmStrike - (offset * step);
                                     } else if (type === "ITM") {

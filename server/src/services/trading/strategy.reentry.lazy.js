@@ -1,4 +1,4 @@
-const { findClosestPremiumInstrument, getLegStrikeSelection, findOptionInstrument } = require("./strategy.instruments");
+const { findClosestPremiumInstrument, getLegStrikeSelection, findOptionInstrument, calculateSyntheticFuture, getATMStrike } = require("./strategy.instruments");
 const { calculateMomentumTarget } = require("./strategy.momentum");
 const { getISTTime, getISTExchangeFormat } = require("./strategy.time");
 const { computeStopLossExitPrices, getLimitOffsetAmt, resolveUniversalOrderParams } = require("./strategy.offset");
@@ -21,6 +21,12 @@ async function handleLazyLeg({ leg, config, strategyId, addStrategyLog }) {
         let targetInstrument = null;
         if (leg.leg.strike_criteria === 'CLOSEST_PREMIUM') {
             targetInstrument = await findClosestPremiumInstrument(config.index, leg.leg.option_type, leg.leg.premium, config.connectionId, leg.leg.expiry_type);
+        } else if (leg.leg.strike_criteria === 'SYNTHETIC_FUTURE') {
+            const { targetStrike: refStrike } = getLegStrikeSelection({ index: config.index, option_type: leg.leg.option_type, strike: leg.leg.strike, spotPrice });
+            const sfPrice = await calculateSyntheticFuture(config.index, refStrike, config.connectionId, leg.leg.expiry_type);
+            const sfStrike = getATMStrike(config.index, sfPrice);
+            targetInstrument = await findOptionInstrument(config.index, leg.leg.option_type, sfStrike, leg.leg.expiry_type);
+            addStrategyLog(strategyId, `[LAZY LEG] Synthetic Future @ ${refStrike} = ₹${sfPrice.toFixed(2)} → Strike ${sfStrike}`, "INFO");
         } else {
             const { targetStrike } = getLegStrikeSelection({ index: config.index, option_type: leg.leg.option_type, strike: leg.leg.strike, spotPrice });
             targetInstrument = await findOptionInstrument(config.index, leg.leg.option_type, targetStrike, leg.leg.expiry_type);
