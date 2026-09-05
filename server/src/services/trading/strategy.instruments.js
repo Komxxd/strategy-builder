@@ -321,11 +321,49 @@ async function findClosestPremiumInstrument(indexName, optionType, targetPremium
     return winner;
 }
 
+/**
+ * Calculates the Synthetic Future price.
+ * SF = Spot Price + Spot ATM CE Premium - Spot ATM PE Premium
+ *
+ * @param {string} indexName - e.g. "NIFTY", "BANKNIFTY", "SENSEX"
+ * @param {number} spotPrice - The current spot price of the index
+ * @param {string} connectionId - SmartAPI connection ID for LTP requests
+ * @param {string} expiryType - "weekly", "monthly", etc.
+ * @returns {number} The synthetic future price
+ */
+async function calculateSyntheticFuture(indexName, spotPrice, connectionId, expiryType = 'weekly') {
+    const atmStrike = getATMStrike(indexName, spotPrice);
+    const exchange = indexName === "SENSEX" ? "BFO" : "NFO";
+
+    // Find CE and PE instruments at the ATM strike
+    const ceInst = await findOptionInstrument(indexName, "CE", atmStrike, expiryType);
+    const peInst = await findOptionInstrument(indexName, "PE", atmStrike, expiryType);
+
+    if (!ceInst || !peInst) {
+        throw new Error(`[Synthetic Future] CE/PE instruments not found for ${indexName} at ATM strike ${atmStrike}`);
+    }
+
+    // Fetch LTPs for both CE and PE at the ATM strike
+    const ceLtpRes = await getLtpSecure({ exchange, symboltoken: ceInst.token, connectionId });
+    const peLtpRes = await getLtpSecure({ exchange, symboltoken: peInst.token, connectionId });
+
+    const cePrice = ceLtpRes?.data?.fetched?.[0]?.ltp;
+    const pePrice = peLtpRes?.data?.fetched?.[0]?.ltp;
+
+    if (!cePrice || !pePrice) {
+        throw new Error(`[Synthetic Future] LTP missing for CE/PE at ATM strike ${atmStrike}. CE: ${cePrice}, PE: ${pePrice}`);
+    }
+
+    const syntheticFuture = spotPrice + cePrice - pePrice;
+    return syntheticFuture;
+}
+
 module.exports = {
    loadInstruments,
    getATMStrike,
    getLegStrikeSelection,
    findOptionInstrument,
    findClosestPremiumInstrument,
+   calculateSyntheticFuture,
    reloadInstruments
 };

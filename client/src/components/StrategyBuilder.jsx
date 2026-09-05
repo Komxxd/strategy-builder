@@ -93,7 +93,8 @@ const DEFAULT_LEG = {
 
 const getLegSummary = (leg) => {
  if (!leg) return'Not configured';
- const strike = leg.strike_criteria ==='CLOSEST_PREMIUM' ?`₹${leg.premium || 0}` : (leg.strike ||'ATM');
+ const criteriaPrefix = leg.strike_criteria ==='SYNTHETIC_FUTURE' ?'SF ' :'';
+ const strike = leg.strike_criteria ==='CLOSEST_PREMIUM' ?`₹${leg.premium || 0}` :`${criteriaPrefix}${leg.strike ||'ATM'}`;
  let summary =`${leg.side ||'BUY'} ${leg.option_type ||'CE'} ${strike} (SL ${leg.stop_loss || 0}${leg.sl_type ==='POINTS' ?'pts' :'%'})`;
  if (leg.tsl_enabled) {
  summary +=` [TSL ${leg.tsl_move || 0}${leg.tsl_type ==='POINTS' ?'pts' :'%'} | Trl: ${leg.tsl_trail || 0}]`;
@@ -374,6 +375,7 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
  <SelectContent>
  <SelectItem value="STRIKE_TYPE">Strike Type</SelectItem>
  <SelectItem value="CLOSEST_PREMIUM">Closest Premium</SelectItem>
+ <SelectItem value="SYNTHETIC_FUTURE">Synthetic Future</SelectItem>
  </SelectContent>
  </Select>
  </div>

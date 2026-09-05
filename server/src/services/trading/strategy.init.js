@@ -1,5 +1,5 @@
 const { getLtpSecure, getLtpWithRetry, addStrategyLog, updateStrategyInMemory } = require("./strategy.state");
-const { getLegStrikeSelection, findClosestPremiumInstrument, findOptionInstrument } = require("./strategy.instruments");
+const { getLegStrikeSelection, findClosestPremiumInstrument, findOptionInstrument, calculateSyntheticFuture, getATMStrike } = require("./strategy.instruments");
 const { calculateMomentumTarget, checkMomentumHit } = require("./strategy.momentum");
 const { getISTTime, getISTExchangeFormat } = require("./strategy.time");
 const { getLimitOffsetAmt, roundToTick, computeStopLossExitPrices, resolveUniversalOrderParams } = require("./strategy.offset");
@@ -51,6 +51,16 @@ async function handleInitialEntry(strategyId, strategy) {
             let targetInstrument = null;
             if (leg.strike_criteria === 'CLOSEST_PREMIUM') {
                 targetInstrument = await findClosestPremiumInstrument(config.index, leg.option_type, leg.premium, config.connectionId, leg.expiry_type);
+            } else if (leg.strike_criteria === 'SYNTHETIC_FUTURE') {
+                // Step 1: Calculate Synthetic Future using the current spot price to get ATM CE/PE
+                const sfPrice = await calculateSyntheticFuture(config.index, spotPrice, config.connectionId, leg.expiry_type);
+                // Step 2: Use the synthetic future price as the new "spot" to calculate the target strike
+                const { targetStrike: sfStrike, strikeLabel } = getLegStrikeSelection({
+                    index: config.index, option_type: leg.option_type,
+                    strike: leg.strike, spotPrice: sfPrice
+                });
+                addStrategyLog(strategyId, `Leg ${resolvedLegs.length + 1}: Synthetic Future = ₹${sfPrice.toFixed(2)}, selecting ${strikeLabel} (${leg.option_type}) at Strike ${sfStrike}.`, "INFO");
+                targetInstrument = await findOptionInstrument(config.index, leg.option_type, sfStrike, leg.expiry_type);
             } else {
                 const { targetStrike, strikeLabel } = getLegStrikeSelection({
                     index: config.index,
