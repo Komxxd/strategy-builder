@@ -696,11 +696,23 @@ async function monitorStrategyLoop(strategyId, strategy) {
                         const details = await api.indOrderDetails(leg.slUniqueOrderId);
                         const orderStatus = (details?.data?.orderstatus || details?.data?.status || "").toString().toLowerCase();
                         
-                        if (orderStatus === "cancelled" || orderStatus === "rejected") {
+                        const isCancelledOrRejected = ["cancelled", "rejected"].includes(orderStatus);
+                        const isPending = ["open", "trigger pending", "pending"].includes(orderStatus);
+                        const isExecuted = ["complete", "filled"].includes(orderStatus);
+
+                        if (isCancelledOrRejected) {
                             addStrategyLog(strategyId, `[FALLBACK] Internal Monitor detected SL breach. Exchange SL order was ${orderStatus}. Forcing manual Market Exit to protect position!`, "CRITICAL");
                             // Fall through to manual exit
-                        } else {
+                        } else if (isPending || isExecuted) {
                             // Order is pending, open, complete, or filled. Let the exchange/Phase 6 handle it securely.
+                            continue;
+                        } else {
+                            addStrategyLog(strategyId, `[FALLBACK] Unknown SL status '${orderStatus}'. Assuming SL hit internally. No exit order fired.`, "WARNING");
+                            leg.exchangeSlProcessed = true;
+                            await handleLegStopOut(leg, evalResult.exitReason, strategy, { 
+                                exchangeFillPrice: leg.slTriggerPrice, 
+                                exchangeFillTime: getISTExchangeFormat()
+                            });
                             continue;
                         }
                     } catch (e) {
