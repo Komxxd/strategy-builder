@@ -177,7 +177,7 @@ class BacktestEngine {
 
     /**
      * Calculates Synthetic Future price from historical data.
-     * SF = Spot ATM Strike + CE_Premium@ATM - PE_Premium@ATM
+     * SF = Spot Price + CE_Premium@ATM - PE_Premium@ATM
      */
     async calculateSyntheticFutureBacktest(indexName, year, month, expiry, date, spotPrice, step, entryTime) {
         const atmStrike = this.calculateATM(spotPrice, step);
@@ -189,7 +189,7 @@ class BacktestEngine {
             return spotPrice; // Fallback to the spot price
         }
 
-        const sf = atmStrike + cePrice - pePrice;
+        const sf = spotPrice + cePrice - pePrice;
         console.log(`    -> Synthetic Future @ ATM ${atmStrike}: CE=₹${cePrice}, PE=₹${pePrice} => SF=₹${sf}`);
         return sf;
     }

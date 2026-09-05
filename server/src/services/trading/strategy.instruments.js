@@ -323,7 +323,7 @@ async function findClosestPremiumInstrument(indexName, optionType, targetPremium
 
 /**
  * Calculates the Synthetic Future price.
- * SF = Spot ATM Strike + Spot ATM CE Premium - Spot ATM PE Premium
+ * SF = Spot Price + Spot ATM CE Premium - Spot ATM PE Premium
  *
  * @param {string} indexName - e.g. "NIFTY", "BANKNIFTY", "SENSEX"
  * @param {number} spotPrice - The current spot price of the index
@@ -354,7 +354,7 @@ async function calculateSyntheticFuture(indexName, spotPrice, connectionId, expi
         throw new Error(`[Synthetic Future] LTP missing for CE/PE at ATM strike ${atmStrike}. CE: ${cePrice}, PE: ${pePrice}`);
     }
 
-    const syntheticFuture = atmStrike + cePrice - pePrice;
+    const syntheticFuture = spotPrice + cePrice - pePrice;
     return syntheticFuture;
 }
 
