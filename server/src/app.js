@@ -9,6 +9,7 @@ const marketSocketRoutes = require("./routes/marketSocket.routes");
 const strategyRoutes = require("./routes/strategy.routes");
 const folderRoutes = require("./routes/folder.routes");
 const brokerRoutes = require("./routes/broker.routes");
+const settingsRoutes = require("./routes/settings.routes");
 const authMiddleware = require("./utils/authMiddleware");
 
 const app = express();
@@ -55,6 +56,7 @@ app.use("/api/market", authMiddleware, marketRoutes);
 app.use("/api/market-socket", authMiddleware, marketSocketRoutes);
 app.use("/api/strategy", authMiddleware, strategyRoutes);
 app.use("/api/folders", authMiddleware, folderRoutes);
+app.use("/api/settings", authMiddleware, settingsRoutes);
 app.use("/api/broker", brokerRoutes); // Uses authMiddleware inside the router
 
 app.get("/api/health", (req, res) => {

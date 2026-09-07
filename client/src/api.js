@@ -200,3 +200,21 @@ export async function switchVirtualMode(strategyId, is_virtual) {
     });
     return res.json();
 }
+
+export async function getSettings() {
+    const headers = await getHeaders();
+    const res = await fetch(`${API_BASE}/settings`, {
+        headers,
+    });
+    return res.json();
+}
+
+export async function updateSettings(settings) {
+    const headers = await getHeaders();
+    const res = await fetch(`${API_BASE}/settings`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(settings),
+    });
+    return res.json();
+}

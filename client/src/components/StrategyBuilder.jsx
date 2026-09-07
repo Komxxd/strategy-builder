@@ -14,7 +14,7 @@ import { io } from'socket.io-client';
 import { StrategyLogs } from'./StrategyLogs';
 import { StrategyConfigModal } from'./StrategyConfigModal';
 import { ExecutionSettingsModal } from'./ExecutionSettingsModal';
-import { fetchBacktestDates, runBacktest, runCombinedBacktest, getBacktestStatus } from'../api';
+import { fetchBacktestDates, runBacktest, runCombinedBacktest, getBacktestStatus, getSettings, updateSettings } from'../api';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ||"http://localhost:5001/api";
 const SOCKET_URL = API_BASE_URL.replace(/\/api\/?$/,"");
@@ -2380,7 +2380,13 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  let fetchedData = res.data?.data || [];
 
  // Client-side ordering
- const savedOrder = JSON.parse(localStorage.getItem('custom_strategy_order') ||'[]');
+ let savedOrder = [];
+ try {
+    const settings = await getSettings();
+    savedOrder = settings?.data?.custom_strategy_order || [];
+ } catch(e) {
+    savedOrder = JSON.parse(localStorage.getItem('custom_strategy_order') ||'[]');
+ }
  if (savedOrder.length > 0) {
  fetchedData.sort((a, b) => {
  const indexA = savedOrder.indexOf(a.id);
@@ -2402,7 +2408,14 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  try {
  const res = await axios.get(`${API_BASE_URL}/folders`);
  let fetchedFolders = res.data?.data || [];
- const savedOrder = JSON.parse(localStorage.getItem('custom_folder_order') || '[]');
+ 
+ let savedOrder = [];
+ try {
+    const settings = await getSettings();
+    savedOrder = settings?.data?.custom_folder_order || [];
+ } catch(e) {
+    savedOrder = JSON.parse(localStorage.getItem('custom_folder_order') || '[]');
+ }
  if (savedOrder.length > 0) {
  fetchedFolders.sort((a, b) => {
  const indexA = savedOrder.indexOf(a.id);
@@ -2439,7 +2452,9 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
       const insertIndex = isTopHalf ? adjustedTargetIndex : adjustedTargetIndex + 1;
       next.splice(insertIndex, 0, movedItem);
       
-      localStorage.setItem('custom_folder_order', JSON.stringify(next.map(item => item.id)));
+      const newOrder = next.map(item => item.id);
+      localStorage.setItem('custom_folder_order', JSON.stringify(newOrder));
+      updateSettings({ custom_folder_order: newOrder }).catch(err => console.error("Failed to save folder order", err));
       return next;
     });
   };
@@ -3112,7 +3127,9 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  const insertIndex = isTopHalf ? adjustedTargetIndex : adjustedTargetIndex + 1;
  next.splice(insertIndex, 0, movedItem);
 
- localStorage.setItem('custom_strategy_order', JSON.stringify(next.map(item => item.id)));
+ const newOrder = next.map(item => item.id);
+ localStorage.setItem('custom_strategy_order', JSON.stringify(newOrder));
+ updateSettings({ custom_strategy_order: newOrder }).catch(err => console.error("Failed to save strategy order", err));
  return next;
  });
  }}
