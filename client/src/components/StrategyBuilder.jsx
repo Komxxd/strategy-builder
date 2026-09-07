@@ -2200,6 +2200,7 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  const [backtestModalOpen, setBacktestModalOpen] = useState(false);
  const [selectedStrategyForBacktest, setSelectedStrategyForBacktest] = useState(null);
  const [selectedForCombined, setSelectedForCombined] = useState([]);
+ const [selectedFoldersForCombined, setSelectedFoldersForCombined] = useState([]);
  const [deployModalOpen, setDeployModalOpen] = useState(false);
  const [selectedStrategyForDeploy, setSelectedStrategyForDeploy] = useState(null);
  const [folderModalOpen, setFolderModalOpen] = useState(false);
@@ -2490,6 +2491,28 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
     }
   };
 
+  const handleBacktestFolder = (folderId) => {
+      const folderStrats = [];
+      const collectStrategies = (fid) => {
+          savedStrategies.filter(s => s.folder_id === fid).forEach(s => folderStrats.push(s));
+          folders.filter(f => f.parent_id === fid).forEach(f => collectStrategies(f.id));
+      };
+      collectStrategies(folderId);
+
+      if (folderStrats.length === 0) {
+          alert("This folder contains no strategies to backtest.");
+          return;
+      }
+      
+      if (folderStrats.length === 1) {
+          setSelectedStrategyForBacktest(folderStrats[0]);
+      } else {
+          setSelectedStrategyForBacktest(folderStrats);
+      }
+      setBacktestModalOpen(true);
+      fetchDates(folderStrats[0]?.config?.index || 'NIFTY');
+  };
+
  const handleRenameFolder = (folder) => {
  setFolderModalData({ mode: 'rename', folder });
  setFolderNameInput(folder.name);
@@ -2542,13 +2565,23 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
 
  const handleMoveMultipleStrategies = async () => {
  try {
+ if (selectedForCombined.length > 0) {
  await axios.patch(`${API_BASE_URL}/strategy/move-multiple`, {
  strategy_ids: selectedForCombined,
  folder_id: moveTargetFolderId
  });
+ }
+ if (selectedFoldersForCombined.length > 0) {
+ await axios.patch(`${API_BASE_URL}/folders/move-multiple`, {
+ folder_ids: selectedFoldersForCombined,
+ parent_id: moveTargetFolderId
+ });
+ }
  fetchSavedStrategies();
+ fetchFolders();
  setMoveStrategiesModalOpen(false);
  setSelectedForCombined([]); // clear selection
+ setSelectedFoldersForCombined([]); // clear folder selection
  setMoveTargetFolderId(null);
  } catch (err) {
  alert(err.response?.data?.message || "Failed to move strategies");
@@ -3905,23 +3938,38 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  <Save className="h-4 w-4 text-primary" /> Saved Strategies
  </CardTitle>
  <div className="flex items-center gap-3 w-full md:w-auto">
- {selectedForCombined.length > 1 && (
+ {(selectedForCombined.length + selectedFoldersForCombined.length) > 0 && (
  <Button
  size="sm"
  className="h-8 text-[10px] uppercase font-black bg-indigo-600 hover:bg-indigo-700 text-white transition-all animate-in zoom-in-95"
  onClick={(e) => {
  e.stopPropagation();
- const selectedStrats = savedStrategies.filter(s => selectedForCombined.includes(s.id));
- setSelectedStrategyForBacktest(selectedStrats);
+ let collected = [];
+ const collectFromFolder = (fid) => {
+     savedStrategies.filter(s => s.folder_id === fid).forEach(s => collected.push(s));
+     folders.filter(f => f.parent_id === fid).forEach(f => collectFromFolder(f.id));
+ };
+ selectedFoldersForCombined.forEach(fid => collectFromFolder(fid));
+ 
+ const directlySelected = savedStrategies.filter(s => selectedForCombined.includes(s.id));
+ const allSelectedStrats = [...directlySelected, ...collected];
+ const uniqueStrats = Array.from(new Set(allSelectedStrats.map(s => s.id))).map(id => allSelectedStrats.find(s => s.id === id));
+
+ if (uniqueStrats.length === 0) {
+     alert("No strategies selected to backtest.");
+     return;
+ }
+ 
+ setSelectedStrategyForBacktest(uniqueStrats.length === 1 ? uniqueStrats[0] : uniqueStrats);
  setBacktestModalOpen(true);
- fetchDates(selectedStrats[0]?.config?.index ||'NIFTY');
+ fetchDates(uniqueStrats[0]?.config?.index ||'NIFTY');
  }}
  >
  <Play className="h-3 w-3 mr-1 fill-current" />
- Simulate Portfolio ({selectedForCombined.length})
+ Simulate Portfolio
  </Button>
  )}
- {selectedForCombined.length > 0 && (
+ {(selectedForCombined.length + selectedFoldersForCombined.length) > 0 && (
  <Button
  size="sm"
  variant="outline"
@@ -3931,7 +3979,7 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  setMoveStrategiesModalOpen(true);
  }}
  >
- <FolderPlus className="h-3 w-3" /> Move ({selectedForCombined.length})
+ <FolderPlus className="h-3 w-3" /> Move ({selectedForCombined.length + selectedFoldersForCombined.length})
  </Button>
  )}
  <Button
@@ -3980,8 +4028,11 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
                       onCreateFolder={handleCreateFolder}
                       onReorderFolder={handleReorderFolder}
                       onChangeParentFolder={handleChangeParentFolder}
+                      onBacktestFolder={handleBacktestFolder}
                       onToggleCombine={setSelectedForCombined}
                       selectedForCombined={selectedForCombined}
+                      onToggleFolderCombine={setSelectedFoldersForCombined}
+                      selectedFoldersForCombined={selectedFoldersForCombined}
                       renderStrategyRow={renderStrategyRow}
                       searchTerm={searchTerm}
                     />

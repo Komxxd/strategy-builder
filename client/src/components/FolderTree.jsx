@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Folder, FolderOpen, ChevronRight, ChevronDown, File, Trash2, Edit2, FolderPlus } from 'lucide-react';
+import { Folder, FolderOpen, ChevronRight, ChevronDown, File, Trash2, Edit2, FolderPlus, Database } from 'lucide-react';
 import { Button } from './ui/button';
 
 const FolderNode = ({
@@ -13,8 +13,11 @@ const FolderNode = ({
   onCreateFolder,
   onReorderFolder,
   onChangeParentFolder,
+  onBacktestFolder,
   onToggleCombine,
   selectedForCombined,
+  onToggleFolderCombine,
+  selectedFoldersForCombined,
   renderStrategyRow,
   searchTerm
 }) => {
@@ -171,6 +174,21 @@ const FolderNode = ({
         }}
       >
         <div className="flex items-center gap-2 overflow-hidden">
+          <div className="flex items-center h-full mr-1" onClick={(e) => e.stopPropagation()}>
+            <input
+              type="checkbox"
+              className="w-3 h-3 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+              checked={selectedFoldersForCombined?.includes(folder.id) || false}
+              onChange={(e) => {
+                if (onToggleFolderCombine) {
+                  const checked = e.target.checked;
+                  onToggleFolderCombine(prev => 
+                    checked ? [...prev, folder.id] : prev.filter(id => id !== folder.id)
+                  );
+                }
+              }}
+            />
+          </div>
           {isOpen ? <ChevronDown className="h-3 w-3 shrink-0" /> : <ChevronRight className="h-3 w-3 shrink-0" />}
           {isOpen ? <FolderOpen className="h-4 w-4 shrink-0 text-blue-500" /> : <Folder className="h-4 w-4 shrink-0 text-blue-500" />}
           <span className="font-semibold truncate">{folder.name}</span>
@@ -180,6 +198,20 @@ const FolderNode = ({
           </span>
         </div>
         <div className="flex items-center gap-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
+          {totalStratCount > 0 && onBacktestFolder && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 w-6 p-0 hover:bg-slate-200 rounded text-slate-500"
+              onClick={(e) => {
+                e.stopPropagation();
+                onBacktestFolder(folder.id);
+              }}
+              title="Backtest All Strategies in Folder"
+            >
+              <Database className="h-3 w-3" />
+            </Button>
+          )}
           <Button
             size="sm"
             className="h-6 w-6 p-0 hover:bg-slate-200 rounded text-slate-500"
@@ -234,8 +266,11 @@ const FolderNode = ({
               onCreateFolder={onCreateFolder}
               onReorderFolder={onReorderFolder}
               onChangeParentFolder={onChangeParentFolder}
+              onBacktestFolder={onBacktestFolder}
               onToggleCombine={onToggleCombine}
               selectedForCombined={selectedForCombined}
+              onToggleFolderCombine={onToggleFolderCombine}
+              selectedFoldersForCombined={selectedFoldersForCombined}
               renderStrategyRow={renderStrategyRow}
               searchTerm={searchTerm}
             />
@@ -281,8 +316,11 @@ export const FolderTree = ({
   onCreateFolder,
   onReorderFolder,
   onChangeParentFolder,
+  onBacktestFolder,
   onToggleCombine,
   selectedForCombined,
+  onToggleFolderCombine,
+  selectedFoldersForCombined,
   renderStrategyRow,
   searchTerm
 }) => {
@@ -323,8 +361,11 @@ export const FolderTree = ({
           onCreateFolder={onCreateFolder}
           onReorderFolder={onReorderFolder}
           onChangeParentFolder={onChangeParentFolder}
+          onBacktestFolder={onBacktestFolder}
           onToggleCombine={onToggleCombine}
           selectedForCombined={selectedForCombined}
+          onToggleFolderCombine={onToggleFolderCombine}
+          selectedFoldersForCombined={selectedFoldersForCombined}
           renderStrategyRow={renderStrategyRow}
           searchTerm={searchTerm}
         />

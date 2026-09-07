@@ -40,6 +40,19 @@ router.put("/:id", async (req, res) => {
     }
 });
 
+// Bulk move folders
+router.patch("/move-multiple", async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const { folder_ids, parent_id } = req.body;
+        const updatedFolders = await folderCrud.moveMultipleFolders(folder_ids, parent_id, userId);
+        res.json({ success: true, data: updatedFolders });
+    } catch (error) {
+        console.error("Error bulk moving folders:", error);
+        res.status(400).json({ success: false, message: error.message || "Failed to bulk move folders" });
+    }
+});
+
 // Delete a folder
 router.delete("/:id", async (req, res) => {
     try {

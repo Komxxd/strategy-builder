@@ -101,9 +101,35 @@ async function getUserFolders(userId) {
     }));
 }
 
+async function moveMultipleFolders(folderIds, parentId, userId) {
+    if (!folderIds || !Array.isArray(folderIds) || folderIds.length === 0) {
+        throw new Error("Folder IDs array is required.");
+    }
+
+    if (parentId) {
+        if (folderIds.includes(parentId)) {
+            throw new Error("A folder cannot be moved into itself.");
+        }
+    }
+
+    const data = await withDbRetry(() => sql`
+        UPDATE strategy_folders
+        SET parent_id = ${parentId || null}, updated_at = NOW()
+        WHERE id = ANY(${folderIds}) AND user_id = ${userId}
+        RETURNING *
+    `);
+
+    return data.map(f => ({
+        ...f,
+        created_at: fixTimezone(f.created_at),
+        updated_at: fixTimezone(f.updated_at)
+    }));
+}
+
 module.exports = {
     createFolder,
     updateFolder,
     deleteFolder,
-    getUserFolders
+    getUserFolders,
+    moveMultipleFolders
 };
