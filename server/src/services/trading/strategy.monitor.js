@@ -781,7 +781,7 @@ async function monitorStrategyLoop(strategyId, strategy) {
                 await Promise.all(strategy.legs.map(async (leg) => {
                     if (leg.exited) return;
                     try {
-                        if (leg.slOrderId) await cancelOrder(config, "STOPLOSS", leg.slOrderId);
+                        // We NO LONGER cancel slOrderId here. placeExitOrder will convert it to an Exit order.
                         if (!leg.entryPrice && leg.orderId) {
                             try { await cancelOrder(config, "NORMAL", leg.orderId); } catch (e) { await cancelOrder(config, "STOPLOSS", leg.orderId); }
                         }

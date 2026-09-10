@@ -538,16 +538,53 @@ async function placeExitOrder({ config, leg, instrument, exitType }) {
         }
 
         // ── LIVE PATH ─────────────────────────────────────────────────────────
-        const closeConfig = {
-            ...config,
-            side: exitSide,
-            variety: "NORMAL",
-            ordertype: "LIMIT",
-            price: finalPrice,
-            lots: leg.leg.lots
-        };
+        const strategyId = config.id || "system";
+        let orderData = null;
+        let useSlOrder = false;
 
-        const orderData = await placeOrder(closeConfig, instrument, config.connectionId);
+        // Try to convert the existing SL order into our Exit LIMIT order to avoid cancel/replace race conditions
+        if (leg.slOrderId) {
+            try {
+                const modifyPayload = {
+                    variety: "STOPLOSS",
+                    orderid: leg.slOrderId,
+                    ordertype: "LIMIT",
+                    producttype: config.producttype || "CARRYFORWARD",
+                    duration: config.duration || "DAY",
+                    price: finalPrice,
+                    triggerprice: "0",
+                    quantity: (leg.leg.lots * parseInt(instrument.lotsize) * (parseFloat(config.quantity_multiplier) || 1)).toString(),
+                    tradingsymbol: instrument.symbol,
+                    symboltoken: instrument.token,
+                    exchange: instrument.exch_seg,
+                };
+                await modifyOrderLocallyOrViaWorker(config, modifyPayload);
+                
+                orderData = { orderid: leg.slOrderId, uniqueorderid: leg.slUniqueOrderId };
+                useSlOrder = true;
+                console.log(`[Exit] Successfully modified SL order ${leg.slOrderId} to Exit LIMIT order at ₹${finalPrice}.`);
+                if (activeStrategies && activeStrategies.has(strategyId)) {
+                    const { addStrategyLog } = require("./strategy.state");
+                    addStrategyLog(strategyId, `Converted SL order ${leg.slOrderId} to Exit LIMIT order at ₹${finalPrice}`, "INFO");
+                }
+            } catch (modErr) {
+                console.warn(`[Exit] Failed to modify SL order ${leg.slOrderId} for exit. Falling back to fresh order. Reason: ${modErr.message}`);
+                orderData = null;
+            }
+        }
+
+        if (!orderData) {
+            const closeConfig = {
+                ...config,
+                side: exitSide,
+                variety: "NORMAL",
+                ordertype: "LIMIT",
+                price: finalPrice,
+                lots: leg.leg.lots
+            };
+            orderData = await placeOrder(closeConfig, instrument, config.connectionId);
+        }
+
         leg.exitOrderId = orderData.orderid;
         leg.exitUniqueOrderId = orderData.uniqueorderid;
         leg.exitType = exitType;
@@ -556,7 +593,6 @@ async function placeExitOrder({ config, leg, instrument, exitType }) {
         // --- Verified Exit with Chase (Live Only) ---
         // Same 45s chase as entry: modify order every 1s with progressive offset from base LTP.
         // If chase fills, mark leg as exited. If exhausted, throw for caller to handle.
-        const strategyId = config.id || "system";
         const fillPrice = await chaseOrderFill({
             orderId: orderData.orderid,
             uniqueOrderId: orderData.uniqueorderid,
@@ -566,7 +602,9 @@ async function placeExitOrder({ config, leg, instrument, exitType }) {
             lots: leg.leg.lots,
             connectionId: config.connectionId,
             strategyId,
-            baseLtp: exitBaseLtp
+            baseLtp: exitBaseLtp,
+            orderVariety: useSlOrder ? "STOPLOSS" : "NORMAL",
+            orderType: "LIMIT"
         });
 
         if (fillPrice) {

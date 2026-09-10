@@ -54,7 +54,7 @@ async function checkOrderFillOnce(uniqueOrderId, connectionId, expectedQuantity 
  * @param {number} baseLtp - The LTP at the time the order was placed (used as base for progressive modifications)
  * @returns {number|null} Fill price, or null if not filled after 45s
  */
-async function chaseOrderFill({ orderId, uniqueOrderId, instrument, config, legSide, lots, connectionId, strategyId, baseLtp, forceLive = false }) {
+async function chaseOrderFill({ orderId, uniqueOrderId, instrument, config, legSide, lots, connectionId, strategyId, baseLtp, forceLive = false, orderVariety = "NORMAL", orderType = "LIMIT" }) {
     const { activeStrategies, addStrategyLog } = require("./strategy.state");
     const activeStrat = strategyId ? activeStrategies.get(strategyId) : null;
     const isVirtual = config?.is_virtual === true || activeStrat?.is_virtual === true;
@@ -118,10 +118,10 @@ async function chaseOrderFill({ orderId, uniqueOrderId, instrument, config, legS
                     ? roundToTick(baseLtp + totalOffsetAmt)
                     : roundToTick(baseLtp - totalOffsetAmt);
 
-                await modifyOrderLocallyOrViaWorker(config, {
-                    variety: "NORMAL",
+                const modifyPayload = {
+                    variety: orderVariety,
                     orderid: orderId,
-                    ordertype: "LIMIT",
+                    ordertype: orderType,
                     producttype: config.producttype || "CARRYFORWARD",
                     duration: config.duration || "DAY",
                     price: newPrice.toString(),
@@ -129,7 +129,14 @@ async function chaseOrderFill({ orderId, uniqueOrderId, instrument, config, legS
                     tradingsymbol: instrument.symbol,
                     symboltoken: instrument.token,
                     exchange: instrument.exch_seg,
-                });
+                };
+                
+                // If it's a STOPLOSS variety but we're forcing a LIMIT order, we must clear the triggerprice
+                if (orderVariety === "STOPLOSS" && orderType === "LIMIT") {
+                    modifyPayload.triggerprice = "0";
+                }
+
+                await modifyOrderLocallyOrViaWorker(config, modifyPayload);
 
                 logChase(`#${modifyCount} ${legSide} price ↑/↓ to ₹${newPrice} (Base: ₹${baseLtp}, Offset: ${totalOffsetMultiplier}x ${offset.toFixed(2)})`);
             } catch (modErr) {
