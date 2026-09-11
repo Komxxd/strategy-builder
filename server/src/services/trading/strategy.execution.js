@@ -461,19 +461,6 @@ async function placeExitOrder({ config, leg, instrument, exitType }) {
     }
 
     leg.isExiting = true;
-
-    // FIX: If we are firing an active exit (Manual, Chase, local TSL fallback), cancel any pending exchange SL first!
-    if (leg.slOrderId && (!config.is_paper_trading && !isVirtual)) {
-        try {
-            console.log(`[Exit] Cancelling pending Stop-Loss order ${leg.slOrderId} for ${instrument.symbol} before market exit.`);
-            await cancelOrder(config, "STOPLOSS", leg.slOrderId);
-            console.log(`[Exit] Successfully cancelled pending SL order ${leg.slOrderId}`);
-            leg.slOrderId = null; 
-        } catch (e) {
-            console.warn(`[Exit] Failed to cancel pending SL order ${leg.slOrderId}: ${e.message}`);
-        }
-    }
-
     try {
         const exitSide = leg.leg.side === "BUY" ? "SELL" : "BUY";
 
