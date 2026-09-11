@@ -530,32 +530,52 @@ async function placeExitOrder({ config, leg, instrument, exitType }) {
         let useSlOrder = false;
 
         // Try to convert the existing SL order into our Exit LIMIT order to avoid cancel/replace race conditions
-        if (leg.slOrderId) {
+        if (leg.slOrderId && leg.slUniqueOrderId) {
             try {
-                const modifyPayload = {
-                    variety: "STOPLOSS",
-                    orderid: leg.slOrderId,
-                    ordertype: "LIMIT",
-                    producttype: config.producttype || "CARRYFORWARD",
-                    duration: config.duration || "DAY",
-                    price: finalPrice,
-                    triggerprice: "0",
-                    quantity: (leg.leg.lots * parseInt(instrument.lotsize) * (parseFloat(config.quantity_multiplier) || 1)).toString(),
-                    tradingsymbol: instrument.symbol,
-                    symboltoken: instrument.token,
-                    exchange: instrument.exch_seg,
-                };
-                await modifyOrderLocallyOrViaWorker(config, modifyPayload);
-                
-                orderData = { orderid: leg.slOrderId, uniqueorderid: leg.slUniqueOrderId };
-                useSlOrder = true;
-                console.log(`[Exit] Successfully modified SL order ${leg.slOrderId} to Exit LIMIT order at ₹${finalPrice}.`);
-                if (activeStrategies && activeStrategies.has(strategyId)) {
-                    const { addStrategyLog } = require("./strategy.state");
-                    addStrategyLog(strategyId, `Converted SL order ${leg.slOrderId} to Exit LIMIT order at ₹${finalPrice}`, "INFO");
+                // FIRST: Check if the order still exists and is open
+                const expectedQty = leg.leg.lots * parseInt(instrument.lotsize) * (parseFloat(config.quantity_multiplier) || 1);
+                const slStatus = await checkOrderFillOnce(leg.slUniqueOrderId, config.connectionId, expectedQty);
+
+                if (slStatus.rejected || slStatus.reason?.toLowerCase().includes('cancelled')) {
+                    console.warn(`[Exit] SL Order ${leg.slOrderId} was manually cancelled or rejected. Proceeding to place fresh exit order.`);
+                    // We let orderData remain null, so it falls through to placing a fresh order
+                } else if (slStatus.filled) {
+                    console.warn(`[Exit] SL Order ${leg.slOrderId} is already filled! Marking leg as exited.`);
+                    leg.exitOrderId = leg.slOrderId;
+                    leg.exitUniqueOrderId = leg.slUniqueOrderId;
+                    leg.exitType = exitType;
+                    leg.exitTime = getISTExchangeFormat();
+                    leg.currentLtp = slStatus.price || exitBaseLtp;
+                    leg.exited = true;
+                    leg.isExiting = false;
+                    return leg.slOrderId;
+                } else {
+                    // Order is open, proceed with modification
+                    const modifyPayload = {
+                        variety: "STOPLOSS",
+                        orderid: leg.slOrderId,
+                        ordertype: "LIMIT",
+                        producttype: config.producttype || "CARRYFORWARD",
+                        duration: config.duration || "DAY",
+                        price: finalPrice,
+                        triggerprice: "0",
+                        quantity: expectedQty.toString(),
+                        tradingsymbol: instrument.symbol,
+                        symboltoken: instrument.token,
+                        exchange: instrument.exch_seg,
+                    };
+                    await modifyOrderLocallyOrViaWorker(config, modifyPayload);
+                    
+                    orderData = { orderid: leg.slOrderId, uniqueorderid: leg.slUniqueOrderId };
+                    useSlOrder = true;
+                    console.log(`[Exit] Successfully modified SL order ${leg.slOrderId} to Exit LIMIT order at ₹${finalPrice}.`);
+                    if (activeStrategies && activeStrategies.has(strategyId)) {
+                        const { addStrategyLog } = require("./strategy.state");
+                        addStrategyLog(strategyId, `Converted SL order ${leg.slOrderId} to Exit LIMIT order at ₹${finalPrice}`, "INFO");
+                    }
                 }
             } catch (modErr) {
-                console.warn(`[Exit] Failed to modify SL order ${leg.slOrderId} for exit. Falling back to fresh order. Reason: ${modErr.message}`);
+                console.warn(`[Exit] Failed to check or modify SL order ${leg.slOrderId} for exit. Falling back to fresh order. Reason: ${modErr.message}`);
                 orderData = null;
             }
         }
