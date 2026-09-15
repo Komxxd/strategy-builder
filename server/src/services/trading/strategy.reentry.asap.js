@@ -76,18 +76,36 @@ async function handleReentryAsap({ leg, config, strategyId, addStrategyLog }) {
                 setTimeout(async () => {
                    const { waitForOrderFillPrice, placeStopLossWithRetry } = require("./strategy.execution");
                    try {
-                       const fill = await waitForOrderFillPrice(
-                           leg.uniqueOrderId,
-                           config.connectionId,
-                           false,
-                           leg.instrument,
-                           60000,
-                           2000,
-                           { ...params, side: leg.leg.side, isInstantFill: true }
-                       );
+                       let fillPrice;
+                       if (!isPaperTrading && params.ordertype === 'LIMIT') {
+                           const { chaseOrderFill } = require("./strategy.execution");
+                           fillPrice = await chaseOrderFill({
+                               orderId: leg.orderId,
+                               uniqueOrderId: leg.uniqueOrderId,
+                               instrument: leg.instrument,
+                               config,
+                               legSide: leg.leg.side,
+                               lots: leg.leg.lots,
+                               connectionId: config.connectionId,
+                               strategyId,
+                               baseLtp: instLtp,
+                               orderVariety: params.variety || "NORMAL",
+                               orderType: params.ordertype
+                           });
+                       } else {
+                           fillPrice = await waitForOrderFillPrice(
+                               leg.uniqueOrderId,
+                               config.connectionId,
+                               false,
+                               leg.instrument,
+                               60000,
+                               2000,
+                               { ...params, side: leg.leg.side, isInstantFill: true }
+                           );
+                       }
                        
-                       if (fill) {
-                           const fillPrice = fill;
+                       if (fillPrice) {
+                           const fill = fillPrice;
                            leg.entryPrice = fillPrice;
                            leg.entryTime = getISTExchangeFormat();
                            leg.original_traded_price = fillPrice;
@@ -114,6 +132,10 @@ async function handleReentryAsap({ leg, config, strategyId, addStrategyLog }) {
                                leg.initialSlTriggerPrice = prices?.trigger;
                                leg.slLimitPrice = prices?.limit;
                            }
+                       } else if (!isPaperTrading && params.ordertype === 'LIMIT') {
+                           const { pauseStrategy } = require("./strategy.lifecycle");
+                           pauseStrategy(strategyId, `Re-Entry Chase failed for ${leg.instrument?.symbol || 'leg'}: order not filled after 45s chase.`);
+                           return;
                        }
                    } catch (e) {
                         addStrategyLog(strategyId, `[RE-ASAP LIVE] Fill tracking failed for ${leg.instrument?.symbol}: ${e.message}`, "ERROR");

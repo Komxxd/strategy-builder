@@ -108,9 +108,11 @@ async function handleReentryHigh({ leg, config, strategyId, addStrategyLog, curr
         // Wait for fill in the background
         monitorReentryFill(leg, config, strategyId, addStrategyLog, {
             side: side,
+            variety: variety,
             ordertype: ordertype,
             price: parseFloat(finalPriceStr),
-            triggerprice: parseFloat(triggerPriceStr)
+            triggerprice: parseFloat(triggerPriceStr),
+            targetPrice: targetPrice
         });
 
     } catch (err) {
@@ -175,17 +177,36 @@ async function monitorReentryFill(leg, config, strategyId, addStrategyLog, order
     const { waitForOrderFillPrice } = require("./strategy.execution");
     
     try {
-        const fill = await waitForOrderFillPrice(
-            leg.uniqueOrderId,
-            config.connectionId,
-            isPaperTrading,
-            leg.instrument,
-            28800000, 
-            1000,
-            orderDetails
-        );
+        let fillPrice;
+        if (!isPaperTrading && orderDetails?.ordertype === 'LIMIT') {
+            const { chaseOrderFill } = require("./strategy.execution");
+            fillPrice = await chaseOrderFill({
+                orderId: leg.orderId,
+                uniqueOrderId: leg.uniqueOrderId,
+                instrument: leg.instrument,
+                config,
+                legSide: orderDetails.side,
+                lots: leg.leg.lots,
+                connectionId: config.connectionId,
+                strategyId,
+                baseLtp: orderDetails.targetPrice,
+                orderVariety: orderDetails.variety,
+                orderType: orderDetails.ordertype
+            });
+        } else {
+            fillPrice = await waitForOrderFillPrice(
+                leg.uniqueOrderId,
+                config.connectionId,
+                isPaperTrading,
+                leg.instrument,
+                28800000, 
+                1000,
+                orderDetails
+            );
+        }
 
-        if (fill) {
+        if (fillPrice) {
+            const fill = fillPrice;
             // Snapshot the peak reached during the wait period for display/history
             leg.final_peak_reached = leg.max_peak_price;
             
@@ -199,6 +220,10 @@ async function monitorReentryFill(leg, config, strategyId, addStrategyLog, order
 
             // Redeploy SL
             deployReentrySL(leg, config, strategyId, addStrategyLog);
+        } else if (!isPaperTrading && orderDetails?.ordertype === 'LIMIT') {
+            const { pauseStrategy } = require("./strategy.lifecycle");
+            pauseStrategy(strategyId, `Re-Entry Chase failed for ${leg.instrument?.symbol || 'leg'}: order not filled after 45s chase.`);
+            return;
         }
     } catch (e) {
         console.error("[RE-HIGH] Fill monitoring error:", e.message);

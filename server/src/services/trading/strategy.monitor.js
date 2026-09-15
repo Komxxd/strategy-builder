@@ -427,16 +427,35 @@ async function monitorStrategyLoop(strategyId, strategy) {
                         // Start fill watcher in background
                         setTimeout(async () => {
                             try {
-                                const fill = await waitForOrderFillPrice(
-                                    leg.uniqueOrderId,
-                                    config.connectionId,
-                                    isPaperTrading,
-                                    leg.instrument,
-                                    28800000,
-                                    1000,
-                                    { side, ordertype, price: parseFloat(finalPriceStr), triggerprice: parseFloat(triggerPriceStr) }
-                                );
-                                if (fill) {
+                                let fillPrice;
+                                if (!isPaperTrading && ordertype === 'LIMIT') {
+                                    const { chaseOrderFill } = require("./strategy.execution");
+                                    fillPrice = await chaseOrderFill({
+                                        orderId: leg.orderId,
+                                        uniqueOrderId: leg.uniqueOrderId,
+                                        instrument: leg.instrument,
+                                        config,
+                                        legSide: side,
+                                        lots: leg.leg.lots,
+                                        connectionId: config.connectionId,
+                                        strategyId,
+                                        baseLtp: targetPrice,
+                                        orderVariety: config.variety || "NORMAL",
+                                        orderType: ordertype
+                                    });
+                                } else {
+                                    fillPrice = await waitForOrderFillPrice(
+                                        leg.uniqueOrderId,
+                                        config.connectionId,
+                                        isPaperTrading,
+                                        leg.instrument,
+                                        28800000,
+                                        1000,
+                                        { side, ordertype, price: parseFloat(finalPriceStr), triggerprice: parseFloat(triggerPriceStr) }
+                                    );
+                                }
+                                if (fillPrice) {
+                                    const fill = fillPrice;
                                     leg.entryPrice = fill;
                                     leg.entryTime = getISTExchangeFormat();
                                     leg.original_traded_price = fill;
@@ -475,6 +494,10 @@ async function monitorStrategyLoop(strategyId, strategy) {
                                             leg.exchangeSlProcessed = false;
                                         }
                                     }
+                                } else if (!isPaperTrading && ordertype === 'LIMIT') {
+                                    const { pauseStrategy } = require("./strategy.lifecycle");
+                                    pauseStrategy(strategyId, `Re-Entry Chase failed for ${leg.instrument?.symbol || 'leg'}: order not filled after 45s chase.`);
+                                    return;
                                 }
                             } catch (e) {
                                 console.error("[RE-INIT] Fill monitoring failed:", e.message);

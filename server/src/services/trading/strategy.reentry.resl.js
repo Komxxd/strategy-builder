@@ -96,21 +96,41 @@ async function handleReentryReSL({ leg, config, strategyId, addStrategyLog, curr
         leg.state = "WAITING_FOR_FILL";
         setTimeout(async () => {
             try {
-                const fill = await waitForOrderFillPrice(
-                    leg.uniqueOrderId,
-                    config.connectionId,
-                    isPaperTrading,
-                    leg.instrument,
-                    28800000,
-                    1000,
-                    {
-                        side: side,
-                        ordertype: ordertype,
-                        price: parseFloat(finalPriceStr || 0),
-                        triggerprice: parseFloat(triggerPriceStr || 0)
-                    }
-                );
-                if (fill) {
+                let fillPrice;
+                if (!isPaperTrading && ordertype === 'LIMIT') {
+                    const { chaseOrderFill } = require("./strategy.execution");
+                    fillPrice = await chaseOrderFill({
+                        orderId: leg.orderId,
+                        uniqueOrderId: leg.uniqueOrderId,
+                        instrument: leg.instrument,
+                        config,
+                        legSide: side,
+                        lots: leg.leg.lots,
+                        connectionId: config.connectionId,
+                        strategyId,
+                        baseLtp: targetPrice,
+                        orderVariety: variety,
+                        orderType: ordertype
+                    });
+                } else {
+                    fillPrice = await waitForOrderFillPrice(
+                        leg.uniqueOrderId,
+                        config.connectionId,
+                        isPaperTrading,
+                        leg.instrument,
+                        28800000,
+                        1000,
+                        {
+                            side: side,
+                            ordertype: ordertype,
+                            price: parseFloat(finalPriceStr || 0),
+                            triggerprice: parseFloat(triggerPriceStr || 0)
+                        }
+                    );
+                }
+
+                if (fillPrice) {
+                    const fill = fillPrice;
                     leg.entryPrice = fill;
                     leg.entryTime = getISTExchangeFormat();
                     leg.original_traded_price = leg.entryPrice;
@@ -151,6 +171,10 @@ async function handleReentryReSL({ leg, config, strategyId, addStrategyLog, curr
                         leg.slLimitPrice = prices?.limit;
                         leg.exchangeSlProcessed = false;
                     }
+                } else if (!isPaperTrading && ordertype === 'LIMIT') {
+                    const { pauseStrategy } = require("./strategy.lifecycle");
+                    pauseStrategy(strategyId, `Re-Entry Chase failed for ${leg.instrument?.symbol || 'leg'}: order not filled after 45s chase.`);
+                    return;
                 }
             } catch (e) {
                 console.error("[RE-SL] Fill monitoring failed:", e.message);
