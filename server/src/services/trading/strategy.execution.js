@@ -340,7 +340,15 @@ async function placeStopLossExitOrder({ baseConfig, legSide, entryPrice, instrum
         triggerprice: prices.trigger.toString(),
     };
 
-    return await placeOrder(slConfig, instrument, connectionId);
+    const orderResponse = await placeOrder(slConfig, instrument, connectionId);
+    if (orderResponse) {
+        return {
+            ...orderResponse,
+            triggerprice: slConfig.triggerprice,
+            limitprice: slConfig.price
+        };
+    }
+    return null;
 }
 
 /**
@@ -358,7 +366,7 @@ async function placeStopLossWithRetry({ baseConfig, legSide, entryPrice, instrum
             baseConfig, legSide, entryPrice, instrument, lots, slType, slValue, slLimitMargin, slLimitMarginType, connectionId, overrideSlTriggerPrice
         });
         if (slOrder?.orderid) {
-            if (strategyId) addStrategyLog(strategyId, `SL order for ${instrument.symbol} placed at trigger ₹${slOrder.triggerprice || '---'}.`, "INFO");
+            if (strategyId) addStrategyLog(strategyId, `[SUCCESS] Placed Stop-Loss order for ${instrument.symbol} with broker (ID: ${slOrder.orderid}). Trigger: ₹${slOrder.triggerprice}, Limit: ₹${slOrder.limitprice}`, "INFO");
             return slOrder;
         }
     } catch (err) {
