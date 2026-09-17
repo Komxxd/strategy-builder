@@ -350,40 +350,26 @@ async function placeStopLossExitOrder({ baseConfig, legSide, entryPrice, instrum
  * this function will try up to 3 times before giving up.
  */
 async function placeStopLossWithRetry({ baseConfig, legSide, entryPrice, instrument, lots, slType, slValue, slLimitMargin, slLimitMarginType = 'POINTS', connectionId, strategyId, overrideSlTriggerPrice }) {
-    let attempts = 3;
-    let slOrder = null;
-    let lastError = "";
     const userId = strategyId ? activeStrategies.get(strategyId)?.user_id : null;
+    let slOrder = null;
 
-    while (attempts > 0) {
-        try {
-            slOrder = await placeStopLossExitOrder({
-                baseConfig, legSide, entryPrice, instrument, lots, slType, slValue, slLimitMargin, slLimitMarginType, connectionId, overrideSlTriggerPrice
-            });
-            if (slOrder?.orderid) {
-                if (attempts < 3) {
-                    marketSocketService.sendAlertToUser(userId, `SL order for ${instrument.symbol} successfully placed on attempt ${4 - attempts}.`, "success");
-                    if (strategyId) addStrategyLog(strategyId, `SL order for ${instrument.symbol} placed on attempt ${4 - attempts}.`, "INFO");
-                } else {
-                    if (strategyId) addStrategyLog(strategyId, `SL order for ${instrument.symbol} placed at trigger ₹${slOrder.triggerprice || '---'}.`, "INFO");
-                }
-                return slOrder;
-            }
-        } catch (err) {
-            lastError = err.message;
-            console.error(`[SL Retry] Attempt ${4 - attempts} for ${instrument.symbol} failed:`, lastError);
-            marketSocketService.sendAlertToUser(userId, `SL placement failed for ${instrument.symbol} (Attempt ${4 - attempts}): ${lastError}`, "error");
-            if (strategyId) addStrategyLog(strategyId, `SL placement FAILED for ${instrument.symbol} (Attempt ${4 - attempts}): ${lastError}`, "ERROR");
+    try {
+        slOrder = await placeStopLossExitOrder({
+            baseConfig, legSide, entryPrice, instrument, lots, slType, slValue, slLimitMargin, slLimitMarginType, connectionId, overrideSlTriggerPrice
+        });
+        if (slOrder?.orderid) {
+            if (strategyId) addStrategyLog(strategyId, `SL order for ${instrument.symbol} placed at trigger ₹${slOrder.triggerprice || '---'}.`, "INFO");
+            return slOrder;
         }
-
-        attempts--;
-        if (attempts > 0 && (!slOrder || !slOrder.orderid)) {
-            await new Promise(r => setTimeout(r, 5000)); // Wait 5 seconds before retrying
-        }
+    } catch (err) {
+        const lastError = err.message;
+        console.error(`[SL Placement] Failed for ${instrument.symbol}:`, lastError);
+        marketSocketService.sendAlertToUser(userId, `SL placement failed for ${instrument.symbol}: ${lastError}`, "error");
+        if (strategyId) addStrategyLog(strategyId, `SL placement FAILED for ${instrument.symbol}: ${lastError}`, "ERROR");
     }
 
-    marketSocketService.sendAlertToUser(userId, `CRITICAL: Stop Loss order for ${instrument.symbol} FAILED after all attempts. Position is UNPROTECTED!`, "error");
-    if (strategyId) addStrategyLog(strategyId, `CRITICAL: Stop Loss order for ${instrument.symbol} FAILED after all attempts. Position is UNPROTECTED!`, "CRITICAL");
+    marketSocketService.sendAlertToUser(userId, `CRITICAL: Stop Loss order for ${instrument.symbol} FAILED. Position is UNPROTECTED on the exchange!`, "error");
+    if (strategyId) addStrategyLog(strategyId, `CRITICAL: Stop Loss order for ${instrument.symbol} FAILED. Position is UNPROTECTED on the exchange!`, "CRITICAL");
     return null;
 }
 
