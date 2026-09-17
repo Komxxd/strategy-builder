@@ -153,6 +153,7 @@ function App() {
  };
 
  const handleStrategyAlert = (data) => {
+ if (data.strategyId) return; // Strategy-specific alerts handled by StrategyBuilder
  if (data.type ==='success') setSuccess(data.message);
  else setError(data.message);
  };

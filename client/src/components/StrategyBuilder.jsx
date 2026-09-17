@@ -2976,7 +2976,8 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  ...prev,
  [data.strategyId]: { 
  ...latestData,
- logs: currentStrategy.logs
+ logs: currentStrategy.logs,
+                                systemAlert: currentStrategy.systemAlert
  }
  };
  });
@@ -3043,7 +3044,7 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
   const existing = next[u.id];
   // Add if new, or update if status changed
   if (!existing || existing.status !== u.data.status) {
-  next[u.id] = u.data;
+  next[u.id] = { ...u.data, logs: existing?.logs || [], systemAlert: existing?.systemAlert };
   hasChanges = true;
   } else {
   // Periodic refresh of non-price data (pnl, etc)
@@ -3052,6 +3053,8 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
   const latestLegs = u.data.legs || [];
   const mergedStrategy = {
     ...u.data,
+    logs: existing?.logs || [],
+    systemAlert: existing?.systemAlert,
     legs: latestLegs.map((newLeg, idx) => {
       const existingLeg = existing.legs?.find(ex => 
           (ex.uniqueOrderId && newLeg.uniqueOrderId && ex.uniqueOrderId === newLeg.uniqueOrderId) ||
