@@ -495,8 +495,7 @@ async function monitorStrategyLoop(strategyId, strategy) {
                                         }
                                     }
                                 } else if (!isPaperTrading && ordertype === 'LIMIT') {
-                                    const { pauseStrategy } = require("./strategy.lifecycle");
-                                    pauseStrategy(strategyId, `Re-Entry Chase failed for ${leg.instrument?.symbol || 'leg'}: order not filled after 45s chase.`);
+                                    addStrategyLog(strategyId, `Re-Entry Chase failed for ${leg.instrument?.symbol || 'leg'}: order not filled after 45s chase.`, "WARNING");
                                     return;
                                 }
                             } catch (e) {

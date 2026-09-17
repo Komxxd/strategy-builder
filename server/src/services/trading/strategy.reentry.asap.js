@@ -133,8 +133,7 @@ async function handleReentryAsap({ leg, config, strategyId, addStrategyLog }) {
                                leg.slLimitPrice = prices?.limit;
                            }
                        } else if (!isPaperTrading && params.ordertype === 'LIMIT') {
-                           const { pauseStrategy } = require("./strategy.lifecycle");
-                           pauseStrategy(strategyId, `Re-Entry Chase failed for ${leg.instrument?.symbol || 'leg'}: order not filled after 45s chase.`);
+                           addStrategyLog(strategyId, `Re-Entry Chase failed for ${leg.instrument?.symbol || 'leg'}: order not filled after 45s chase.`, "WARNING");
                            return;
                        }
                    } catch (e) {
