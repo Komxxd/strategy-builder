@@ -12,6 +12,7 @@ import { Switch } from"@/components/ui/switch";
 import axios from'axios';
 import { io } from'socket.io-client';
 import { StrategyLogs } from'./StrategyLogs';
+import { StrategyAlertModal } from'./StrategyAlertModal';
 import { StrategyConfigModal } from'./StrategyConfigModal';
 import { ExecutionSettingsModal } from'./ExecutionSettingsModal';
 import { fetchBacktestDates, runBacktest, runCombinedBacktest, getBacktestStatus, getSettings, updateSettings } from'../api';
