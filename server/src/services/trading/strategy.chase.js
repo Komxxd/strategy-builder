@@ -54,7 +54,7 @@ async function checkOrderFillOnce(uniqueOrderId, connectionId, expectedQuantity 
  * @param {number} baseLtp - The LTP at the time the order was placed (used as base for progressive modifications)
  * @returns {number|null} Fill price, or null if not filled after ${parseInt(config.chase_time_seconds) || 45}s
  */
-async function chaseOrderFill({ orderId, uniqueOrderId, instrument, config, legSide, lots, connectionId, strategyId, baseLtp, forceLive = false, orderVariety = "NORMAL", orderType = "LIMIT" }) {
+async function chaseOrderFill({ orderId, uniqueOrderId, instrument, config, legSide, lots, connectionId, strategyId, baseLtp, forceLive = false, orderVariety = "NORMAL", orderType = "LIMIT", isReentryChase = false }) {
     const { activeStrategies, addStrategyLog } = require("./strategy.state");
     const activeStrat = strategyId ? activeStrategies.get(strategyId) : null;
     const isVirtual = config?.is_virtual === true || activeStrat?.is_virtual === true;
@@ -174,6 +174,10 @@ async function chaseOrderFill({ orderId, uniqueOrderId, instrument, config, legS
 
     // Cancel the unfilled order
     try {
+        if (isReentryChase) {
+            logChase(`EXHAUSTED: Re-entry chase time (${parseInt(config.chase_time_seconds) || 45}s) expired. Leaving order ${orderId} open on the exchange.`, "WARNING");
+            return null;
+        }
         await cancelOrder(config, "NORMAL", orderId);
         logChase(`EXHAUSTED: Cancelled unfilled order ${orderId} after ${parseInt(config.chase_time_seconds) || 45}s.`, "CRITICAL");
     } catch (cancelErr) {

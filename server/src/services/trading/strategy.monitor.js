@@ -454,6 +454,29 @@ async function monitorStrategyLoop(strategyId, strategy) {
                                         { side, ordertype, price: parseFloat(finalPriceStr), triggerprice: parseFloat(triggerPriceStr) }
                                     );
                                 }
+
+                                if (!fillPrice && !isPaperTrading && ordertype === "LIMIT") {
+
+                                    addStrategyLog(strategyId, `Re-Entry Chase exhausted. Order left on exchange. Monitoring for fill...`, "WARNING");
+
+                                    fillPrice = await waitForOrderFillPrice(
+
+                                        leg.uniqueOrderId,
+
+                                        config.connectionId,
+
+                                        false,
+
+                                        leg.instrument,
+
+                                        28800000,
+
+                                        1000
+
+                                    );
+
+                                }
+
                                 if (fillPrice) {
                                     const fill = fillPrice;
                                     leg.entryPrice = fill;
@@ -494,9 +517,6 @@ async function monitorStrategyLoop(strategyId, strategy) {
                                             leg.exchangeSlProcessed = false;
                                         }
                                     }
-                                } else if (!isPaperTrading && ordertype === 'LIMIT') {
-                                    addStrategyLog(strategyId, `Re-Entry Chase failed for ${leg.instrument?.symbol || 'leg'}: order not filled after ${parseInt(config.chase_time_seconds) || 45}s chase.`, "WARNING");
-                                    return;
                                 }
                             } catch (e) {
                                 console.error("[RE-INIT] Fill monitoring failed:", e.message);

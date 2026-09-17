@@ -101,7 +101,29 @@ async function handleLazyLeg({ leg, config, strategyId, addStrategyLog }) {
                                 { ...params, side: leg.leg.side, isInstantFill: true }
                             );
                         }
-                        
+
+                        if (!fillPrice && !isPaperTrading && ordertype === "LIMIT") {
+
+                            addStrategyLog(strategyId, `Re-Entry Chase exhausted. Order left on exchange. Monitoring for fill...`, "WARNING");
+
+                            fillPrice = await waitForOrderFillPrice(
+
+                                leg.uniqueOrderId,
+
+                                config.connectionId,
+
+                                false,
+
+                                leg.instrument,
+
+                                28800000,
+
+                                1000
+
+                            );
+
+                        }
+
                         if (fillPrice) {
                             leg.entryPrice = fillPrice;
                             leg.entryTime = getISTExchangeFormat();

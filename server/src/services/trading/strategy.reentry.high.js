@@ -205,6 +205,28 @@ async function monitorReentryFill(leg, config, strategyId, addStrategyLog, order
             );
         }
 
+        if (!fillPrice && !isPaperTrading && ordertype === "LIMIT") {
+
+            addStrategyLog(strategyId, `Re-Entry Chase exhausted. Order left on exchange. Monitoring for fill...`, "WARNING");
+
+            fillPrice = await waitForOrderFillPrice(
+
+                leg.uniqueOrderId,
+
+                config.connectionId,
+
+                false,
+
+                leg.instrument,
+
+                28800000,
+
+                1000
+
+            );
+
+        }
+
         if (fillPrice) {
             const fill = fillPrice;
             // Snapshot the peak reached during the wait period for display/history
