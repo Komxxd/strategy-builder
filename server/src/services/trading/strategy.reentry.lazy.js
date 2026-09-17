@@ -127,7 +127,7 @@ async function handleLazyLeg({ leg, config, strategyId, addStrategyLog }) {
                                 leg.slLimitPrice = prices?.limit;
                             }
                         } else if (!isPaperTrading && params.ordertype === 'LIMIT') {
-                            addStrategyLog(strategyId, `Re-Entry Chase failed for ${leg.instrument?.symbol || 'leg'}: order not filled after 45s chase.`, "WARNING");
+                            addStrategyLog(strategyId, `Re-Entry Chase failed for ${leg.instrument?.symbol || 'leg'}: order not filled after ${parseInt(config.chase_time_seconds) || 45}s chase.`, "WARNING");
                             return;
                         }
                     } catch (e) {

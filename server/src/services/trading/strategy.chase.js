@@ -52,7 +52,7 @@ async function checkOrderFillOnce(uniqueOrderId, connectionId, expectedQuantity 
  *   ...up to 45 seconds total.
  *
  * @param {number} baseLtp - The LTP at the time the order was placed (used as base for progressive modifications)
- * @returns {number|null} Fill price, or null if not filled after 45s
+ * @returns {number|null} Fill price, or null if not filled after ${parseInt(config.chase_time_seconds) || 45}s
  */
 async function chaseOrderFill({ orderId, uniqueOrderId, instrument, config, legSide, lots, connectionId, strategyId, baseLtp, forceLive = false, orderVariety = "NORMAL", orderType = "LIMIT" }) {
     const { activeStrategies, addStrategyLog } = require("./strategy.state");
@@ -175,7 +175,7 @@ async function chaseOrderFill({ orderId, uniqueOrderId, instrument, config, legS
     // Cancel the unfilled order
     try {
         await cancelOrder(config, "NORMAL", orderId);
-        logChase(`EXHAUSTED: Cancelled unfilled order ${orderId} after 45s.`, "CRITICAL");
+        logChase(`EXHAUSTED: Cancelled unfilled order ${orderId} after ${parseInt(config.chase_time_seconds) || 45}s.`, "CRITICAL");
     } catch (cancelErr) {
         const lastCheck = await checkOrderFillOnce(uniqueOrderId, connectionId, expectedQuantity);
         if (lastCheck.filled) return lastCheck.price;

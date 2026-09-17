@@ -618,7 +618,7 @@ async function placeExitOrder({ config, leg, instrument, exitType }) {
         } else {
             // Chase exhausted — order already cancelled inside chaseOrderFill
             leg.isExiting = false;
-            throw new Error(`EXIT_CHASE_EXHAUSTED: ${instrument.symbol} exit order not filled after 45s price chase. Order cancelled. Position may still be open!`);
+            throw new Error(`EXIT_CHASE_EXHAUSTED: ${instrument.symbol} exit order not filled after ${parseInt(config.chase_time_seconds) || 45}s price chase. Order cancelled. Position may still be open!`);
         }
 
         return orderData.orderid;

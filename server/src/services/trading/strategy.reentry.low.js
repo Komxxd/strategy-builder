@@ -221,7 +221,7 @@ async function monitorReentryFill(leg, config, strategyId, addStrategyLog, order
             // Redeploy SL
             deployReentrySL(leg, config, strategyId, addStrategyLog);
         } else if (!isPaperTrading && orderDetails?.ordertype === 'LIMIT') {
-            addStrategyLog(strategyId, `Re-Entry Chase failed for ${leg.instrument?.symbol || 'leg'}: order not filled after 45s chase.`, "WARNING");
+            addStrategyLog(strategyId, `Re-Entry Chase failed for ${leg.instrument?.symbol || 'leg'}: order not filled after ${parseInt(config.chase_time_seconds) || 45}s chase.`, "WARNING");
             return;
         }
     } catch (e) {
