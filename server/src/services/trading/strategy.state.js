@@ -172,8 +172,12 @@ function updateStrategyInMemory(executionId, data) {
         _latest: new Date().toISOString()
     };
 
-    if (strategy && strategy.config) {
+    if (strategy) {
         updateData.execution_details.config = strategy.config;
+        updateData.execution_details.logs = strategy.logs || [];
+        updateData.execution_details.legs = strategy.legs || [];
+        if (strategy.error) updateData.execution_details.error = strategy.error;
+        if (strategy.totalOriginalValue !== undefined) updateData.execution_details.totalOriginalValue = strategy.totalOriginalValue;
     }
 
     for (const key of Object.keys(data)) {
