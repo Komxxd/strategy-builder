@@ -3446,7 +3446,7 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  .map(([id, strategyData]) => {
   const isTerminal = ["COMPLETED","FAILED","TERMINATED","STOPPED","CANCELLED","SQUARED_OFF","EXITED"].includes(strategyData.status);
  return (
- <Card key={id} className={`w-full border-border animate-in fade-in slide-in-from-bottom-4 duration-500 ${strategyData.systemAlert ? 'border-red-500 border-2 ring-2 ring-red-200' : ''} ${strategyData.config?.is_paper_trading ?'bg-blue-50/50' :'bg-orange-50/50'} ${strategyData.status ==='EXITED' ?'opacity-80 grayscale' :''}`}>
+ <Card key={id} className={`w-full border-border animate-in fade-in slide-in-from-bottom-4 duration-500 ${strategyData.systemAlert ? 'border-red-500 border-2' : ''} ${strategyData.config?.is_paper_trading ?'bg-blue-50/50' :'bg-orange-50/50'} ${strategyData.status ==='EXITED' ?'opacity-80 grayscale' :''}`}>
  <CardContent className="p-3 space-y-2">
  <div
  className="flex flex-col xl:flex-row xl:items-center justify-between gap-3 cursor-pointer hover:bg-black/5 rounded-xl p-2 -m-2 transition-colors relative group"

@@ -402,6 +402,16 @@ function sendAlert(message, type = "error") {
  */
 function sendAlertToUser(userId, message, type = "error", strategyId = null) {
     if (io && userId) io.to(`user:${userId}`).emit("strategy_alert", { message, type, strategyId });
+    // Persist on in-memory strategy so it survives page refreshes
+    if (strategyId) {
+        try {
+            const { activeStrategies } = require("./trading/strategy.state");
+            const strategy = activeStrategies.get(strategyId);
+            if (strategy) {
+                strategy.systemAlert = { message, type, time: Date.now() };
+            }
+        } catch (e) { /* ignore if strategy.state not loaded yet */ }
+    }
 }
 
 /**

@@ -248,6 +248,7 @@ async function getStatus(strategyId) {
             exitType: s.exitType,
             instrument: s.instrument,
             logs: s.logs || [],
+            systemAlert: s.systemAlert || null,
             name: s.config?.name || "Deployed Strategy"
         };
     }
