@@ -10,6 +10,7 @@ import { AlertTriangle, StopCircle, Loader2, TrendingUp, Search, Timer, LayoutDa
 import { FolderTree } from './FolderTree';
 import { Switch } from"@/components/ui/switch";
 import axios from'axios';
+import { supabase } from'../lib/supabase';
 import { io } from'socket.io-client';
 import { StrategyLogs } from'./StrategyLogs';
 import { StrategyAlertModal } from'./StrategyAlertModal';
@@ -2913,10 +2914,15 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
 
  // Tier 1 - Live Streaming: WebSocket initialization
  useEffect(() => {
- console.log("[Socket] Connecting to:", SOCKET_URL);
- const socket = io(SOCKET_URL, {
+ let socket;
+ const connectSocket = async () => {
+ const { data: { session } } = await supabase.auth.getSession();
+ const userId = session?.user?.id || null;
+ console.log("[Socket] Connecting to:", SOCKET_URL, "userId:", userId);
+ socket = io(SOCKET_URL, {
  autoConnect: true,
- reconnection: true
+ reconnection: true,
+ auth: { userId }
  });
 
  socket.on('ltp_update', (data) => {
@@ -2999,8 +3005,11 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
 
         socket.on('connect', () => console.log('WebSocket Connected'));
 
+ }; // end connectSocket
+ connectSocket();
+
  return () => {
- socket.disconnect();
+ if (socket) socket.disconnect();
  };
  }, []);
 
