@@ -400,8 +400,8 @@ function sendAlert(message, type = "error") {
  * @param {string} message
  * @param {string} type - 'error' | 'success' | 'info'
  */
-function sendAlertToUser(userId, message, type = "error") {
-    if (io && userId) io.to(`user:${userId}`).emit("strategy_alert", { message, type });
+function sendAlertToUser(userId, message, type = "error", strategyId = null) {
+    if (io && userId) io.to(`user:${userId}`).emit("strategy_alert", { message, type, strategyId });
 }
 
 /**

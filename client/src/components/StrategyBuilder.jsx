@@ -6,7 +6,7 @@ import { Input } from'@/components/ui/input';
 import { Label } from'@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from'@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from'@/components/ui/tabs';
-import { StopCircle, Loader2, TrendingUp, Search, Timer, LayoutDashboard, Target, Save, Play, Plus, Trash2, ShieldCheck, Zap, Copy, MessageSquare, Ghost, X, Settings2, Clock, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, GripVertical, RefreshCw, Sliders, Eye, Database, Archive, Download, Upload, FileText, FolderPlus, Check, MoreVertical } from'lucide-react';
+import { AlertTriangle, StopCircle, Loader2, TrendingUp, Search, Timer, LayoutDashboard, Target, Save, Play, Plus, Trash2, ShieldCheck, Zap, Copy, MessageSquare, Ghost, X, Settings2, Clock, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, GripVertical, RefreshCw, Sliders, Eye, Database, Archive, Download, Upload, FileText, FolderPlus, Check, MoreVertical } from'lucide-react';
 import { FolderTree } from './FolderTree';
 import { Switch } from"@/components/ui/switch";
 import axios from'axios';
@@ -2188,6 +2188,7 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  const [activeTab, setActiveTab] = useState('live');
  const [logWindowOpen, setLogWindowOpen] = useState(false);
  const [logStrategyId, setLogStrategyId] = useState(null);
+    const [alertStrategyId, setAlertStrategyId] = useState(null);
  const [configWindowOpen, setConfigWindowOpen] = useState(false);
  const [viewConfig, setViewConfig] = useState(null);
  const [viewStrategyName, setViewStrategyName] = useState('');
@@ -2981,7 +2982,20 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  }).catch(e => console.error("Instant state sync failed on log:", e));
  });
 
- socket.on('connect', () => console.log('WebSocket Connected'));
+ 
+        socket.on("strategy_alert", (data) => {
+            if (!data.strategyId) return;
+            setRunningStrategies(prev => {
+                if (!prev[data.strategyId]) return prev;
+                const strategy = prev[data.strategyId];
+                return {
+                    ...prev,
+                    [data.strategyId]: { ...strategy, systemAlert: { message: data.message, type: data.type, time: Date.now() } }
+                };
+            });
+        });
+
+        socket.on('connect', () => console.log('WebSocket Connected'));
 
  return () => {
  socket.disconnect();
@@ -3439,7 +3453,16 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  <span className="text-xs font-bold text-black">
  {strategyData.name || strategyData.config?.name ||'Strategy Execution'}
  <span className="text-[10px] font-mono text-black/60 ml-1.5">#{id.split('-')[0] || id}</span>
- </span>
+                                                    </span>
+
+                                                    {strategyData.systemAlert && (
+                                                        <div 
+                                                            className="flex items-center relative" 
+                                                            onClick={(e) => { e.stopPropagation(); setAlertStrategyId(id); }}
+                                                        >
+                                                            <AlertTriangle className="h-4 w-4 text-red-500 animate-pulse cursor-pointer hover:text-red-600 transition-colors" />
+                                                        </div>
+                                                    )}
 
  <span className={`text-[9px] font-black px-1.5 py-0.5 rounded uppercase ${strategyData.is_virtual ? 'bg-purple-100/80 text-purple-700 border border-purple-200' : strategyData.config?.is_paper_trading ?'bg-blue-100/80 text-blue-700 border border-blue-200' :'bg-orange-100/80 text-orange-700 border border-orange-200'}`}>
  {strategyData.status} • {strategyData.is_virtual ? 'VIRTUAL (MONITORING)' : (strategyData.config?.is_paper_trading ?'PAPER' :'LIVE')} • {strategyData.config?.index}
@@ -4041,6 +4064,14 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  </CardContent>
  )}
  </Card>
+            <StrategyAlertModal
+                isOpen={!!alertStrategyId}
+                onClose={() => {
+                    setAlertStrategyId(null);
+                }}
+                alert={alertStrategyId ? runningStrategies[alertStrategyId]?.systemAlert : null}
+                strategyName={alertStrategyId ? (runningStrategies[alertStrategyId]?.name || runningStrategies[alertStrategyId]?.config?.name || 'Strategy') : ''}
+            />
  <StrategyLogs
  isOpen={logWindowOpen}
  onClose={() => setLogWindowOpen(false)}

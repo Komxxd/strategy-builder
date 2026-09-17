@@ -474,7 +474,7 @@ function pauseStrategy(strategyId, reason) {
     });
 
     const marketSocketService = require("../marketSocket.service");
-    marketSocketService.sendAlertToUser(strategy.user_id, `Strategy PAUSED — ${reason}`, "error");
+    marketSocketService.sendAlertToUser(strategy.user_id, `Strategy PAUSED — ${reason}`, "error", strategy.id);
 }
 
 function stopStrategy(strategyId, reason) {
@@ -501,7 +501,7 @@ function stopStrategy(strategyId, reason) {
     });
 
     const marketSocketService = require("../marketSocket.service");
-    marketSocketService.sendAlertToUser(strategy.user_id, `Strategy CLOSED — ${reason}`, "error");
+    marketSocketService.sendAlertToUser(strategy.user_id, `Strategy CLOSED — ${reason}`, "error", strategy.id);
 }
 
 async function squareOffStrategy(strategyId, userId) {
@@ -630,7 +630,7 @@ async function resumeStrategy(strategyId, userId) {
         addStrategyLog(strategyId, `Strategy RESUMED from PAUSED state. Monitoring restarted.`, "INFO");
     }
 
-    marketSocketService.sendAlertToUser(strategy.user_id, `Strategy resumed — monitoring active`, "success");
+    marketSocketService.sendAlertToUser(strategy.user_id, `Strategy resumed — monitoring active`, "success", strategy.id);
     updateStrategyInMemory(strategyId, {
         status: strategy.status,
         error: null,
@@ -830,7 +830,7 @@ async function switchVirtualMode(strategyId, targetVirtual, userId) {
         });
 
         addStrategyLog(strategyId, `Strategy switched to VIRTUAL mode. Open positions closed and moved to Closed Legs. Virtual monitoring legs spawned.`, "INFO");
-        marketSocketService.sendAlertToUser(strategy.user_id, `Strategy switched to VIRTUAL mode — active positions closed, virtual monitoring running`, "info");
+        marketSocketService.sendAlertToUser(strategy.user_id, `Strategy switched to VIRTUAL mode — active positions closed, virtual monitoring running`, "info", strategy.id);
         return true;
     } else {
         // --- SWITCHING BACK FROM VIRTUAL MODE ---
@@ -1059,7 +1059,7 @@ async function switchVirtualMode(strategyId, targetVirtual, userId) {
         });
 
         addStrategyLog(strategyId, `Strategy switched back from VIRTUAL mode. Re-entered active legs.`, "INFO");
-        marketSocketService.sendAlertToUser(strategy.user_id, `Strategy switched back to active mode`, "success");
+        marketSocketService.sendAlertToUser(strategy.user_id, `Strategy switched back to active mode`, "success", strategy.id);
         return true;
     }
 }

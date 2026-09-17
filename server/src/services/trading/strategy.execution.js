@@ -372,11 +372,11 @@ async function placeStopLossWithRetry({ baseConfig, legSide, entryPrice, instrum
     } catch (err) {
         const lastError = err.message;
         console.error(`[SL Placement] Failed for ${instrument.symbol}:`, lastError);
-        marketSocketService.sendAlertToUser(userId, `SL placement failed for ${instrument.symbol}: ${lastError}`, "error");
+        marketSocketService.sendAlertToUser(userId, `SL placement failed for ${instrument.symbol}: ${lastError}`, "error", strategyId);
         if (strategyId) addStrategyLog(strategyId, `SL placement FAILED for ${instrument.symbol}: ${lastError}`, "ERROR");
     }
 
-    marketSocketService.sendAlertToUser(userId, `CRITICAL: Stop Loss order for ${instrument.symbol} FAILED. Position is UNPROTECTED on the exchange!`, "error");
+    marketSocketService.sendAlertToUser(userId, `CRITICAL: Stop Loss order for ${instrument.symbol} FAILED. Position is UNPROTECTED on the exchange!`, "error", strategyId);
     if (strategyId) addStrategyLog(strategyId, `CRITICAL: Stop Loss order for ${instrument.symbol} FAILED. Position is UNPROTECTED on the exchange!`, "CRITICAL");
     return null;
 }
