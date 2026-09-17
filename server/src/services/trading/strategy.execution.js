@@ -378,7 +378,7 @@ async function placeStopLossWithRetry({ baseConfig, legSide, entryPrice, instrum
 
         attempts--;
         if (attempts > 0 && (!slOrder || !slOrder.orderid)) {
-            await new Promise(r => setTimeout(r, 2000)); // Wait 2 seconds before retrying
+            await new Promise(r => setTimeout(r, 5000)); // Wait 5 seconds before retrying
         }
     }
 
