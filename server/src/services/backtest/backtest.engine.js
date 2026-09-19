@@ -16,6 +16,7 @@ class BacktestEngine {
         this.userId = userId;
         
         this.strategy = null;
+        this.requires1SecData = true;
         this.results = {
             trades: [],
             dailySummary: {},
@@ -102,13 +103,18 @@ class BacktestEngine {
         }
 
         const minData = await this.readParquetFile(minFilePath);
+        
+        if (!this.requires1SecData) {
+            return minData;
+        }
+
         const secData = await this.readParquetFile(secFilePath);
 
         if (!secData || secData.length === 0) {
-            console.log(`[DEBUG] No 1s data found for ${type} at ${secFilePath}`);
+            // console.log(`[DEBUG] No 1s data found for ${type} at ${secFilePath}`);
             return minData;
         }
-        console.log(`[DEBUG] Loaded 1s data for ${type} from ${secFilePath}. Length: ${secData.length}`);
+        // console.log(`[DEBUG] Loaded 1s data for ${type} from ${secFilePath}. Length: ${secData.length}`);
 
         const extract = type === 'index' ? this.extractTime.bind(this) : this.extractTimeOption.bind(this);
         
@@ -270,6 +276,8 @@ class BacktestEngine {
         if (exitTime && exitTime.length === 5) exitTime += ':00';
         else if (!exitTime) exitTime = '15:15:00';
         const step = this.getStrikeStep(indexName);
+        
+        this.requires1SecData = (entryTime === '09:15:00');
         
         for (const date of dates) {
             console.log(`[Backtest Engine] Simulating Day: ${date}`);
