@@ -421,13 +421,20 @@ class BacktestEngine:
 
 
     def get_target_strike(self, leg, spot_price, step, index_name, year, month, expiry, date_str, entry_time):
+        strike_criteria = leg.get('strike_criteria')
+        effective_spot = spot_price
+        
+        if strike_criteria == 'SYNTHETIC_FUTURE':
+            sf = self.calculate_synthetic_future_backtest(index_name, year, month, expiry, date_str, spot_price, step, entry_time)
+            effective_spot = sf
+            
         strike_str = leg.get('strike') or leg.get('strike_selection') or 'ATM'
         type_ = 'ATM'
         import re
         match = re.match(r'^([A-Z]+)(\d*)$', strike_str)
         if match: type_ = match.group(1)
         
-        target_strike = self.calculate_atm(spot_price, step)
+        target_strike = self.calculate_atm(effective_spot, step)
         if type_ != 'ATM' and match.group(2):
             steps = int(match.group(2))
             if type_ == 'OTM':
@@ -435,7 +442,7 @@ class BacktestEngine:
             elif type_ == 'ITM':
                 target_strike = target_strike - (steps * step) if leg.get('option_type') == 'CE' else target_strike + (steps * step)
                 
-        if type_ == 'PREMIUM':
+        if strike_criteria == 'CLOSEST_PREMIUM' or type_ == 'PREMIUM':
             target_premium = float(leg.get('premium', 0))
             target_strike = self.find_closest_premium_strike(index_name, year, month, expiry, date_str, target_strike, step, leg.get('option_type'), target_premium, entry_time)
             
