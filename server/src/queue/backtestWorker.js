@@ -40,16 +40,17 @@ const worker = new Worker('backtest-jobs', async (job) => {
         } else if (job.name === 'combined') {
             const { strategyIds, fromDate, toDate, userId } = job.data;
             
-            const allResults = [];
-            for (const strategyId of strategyIds) {
+            const promises = strategyIds.map(async (strategyId) => {
                 const engine = new BacktestEngine(strategyId, fromDate, toDate, userId);
                 const results = await engine.run();
                 results.strategyId = strategyId;
                 if (results.trades) {
                     results.trades.forEach(t => t.strategyId = strategyId);
                 }
-                allResults.push(results);
-            }
+                return results;
+            });
+            
+            const allResults = await Promise.all(promises);
 
             // Combine all results
             const combined = {
@@ -136,8 +137,8 @@ const worker = new Worker('backtest-jobs', async (job) => {
 }, { 
     connection,
     // Concurrency: How many backtests to run in parallel on this droplet.
-    // Given memory limits and cpu usage, maybe limit to 2 or 4. Let's use 2.
-    concurrency: 2 
+    // Upgraded to 20 because the new Python backend caches market data in RAM.
+    concurrency: 20
 });
 
 worker.on('completed', (job) => {
