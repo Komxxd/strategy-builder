@@ -458,6 +458,7 @@ class BacktestEngine:
         # We will iterate through trades and assign PnL
         locked_pnl = 0
         pnl_series = []
+        open_pnl_series = []
         action_series = []
         
         trade_idx = 0
@@ -467,6 +468,7 @@ class BacktestEngine:
                 trade = trades[trade_idx]
                 if t < trade['entryTime']:
                     pnl_series.append(locked_pnl)
+                    open_pnl_series.append(locked_pnl)
                 elif t >= trade['entryTime'] and t <= trade['exitTime']:
                     if t == trade['entryTime']:
                         side = 'Sell' if leg.get('side') == 'SELL' else 'Buy'
@@ -476,8 +478,13 @@ class BacktestEngine:
                     
                     row = df.filter(pl.col('time') == t)
                     price = row['close'][0] if row.height > 0 else trade['entryPrice']
+                    open_price = row['open'][0] if row.height > 0 else trade['entryPrice']
+                    
                     diff = (trade['entryPrice'] - price) if leg.get('side') == 'SELL' else (price - trade['entryPrice'])
+                    open_diff = (trade['entryPrice'] - open_price) if leg.get('side') == 'SELL' else (open_price - trade['entryPrice'])
+                    
                     pnl_series.append(locked_pnl + (diff * leg.get('lots', 1)))
+                    open_pnl_series.append(locked_pnl + (open_diff * leg.get('lots', 1)))
                     
                     if t == trade['exitTime']:
                         exit_diff = (trade['entryPrice'] - trade['exitPrice']) if leg.get('side') == 'SELL' else (trade['exitPrice'] - trade['entryPrice'])
@@ -488,12 +495,15 @@ class BacktestEngine:
                         trade_idx += 1
                 else:
                     pnl_series.append(locked_pnl)
+                    open_pnl_series.append(locked_pnl)
             else:
                 pnl_series.append(locked_pnl)
+                open_pnl_series.append(locked_pnl)
             action_series.append(action)
                 
         return time_df.with_columns([
             pl.Series("pnl", pnl_series),
+            pl.Series("open_pnl", open_pnl_series),
             pl.Series("action", action_series)
         ])
 
@@ -563,7 +573,10 @@ class BacktestEngine:
                 # Build PnL series for aggregation
                 pnl_df = self.build_pnl_array(leg, trades, leg_df, entry_time, self.exit_time)
                 # Multiply by lotsize for accurate money value
-                pnl_df = pnl_df.with_columns((pl.col("pnl") * lotsize).alias("pnl"))
+                pnl_df = pnl_df.with_columns(
+                    (pl.col("pnl") * lotsize).alias("pnl"),
+                    (pl.col("open_pnl") * lotsize).alias("open_pnl")
+                )
                 leg_key = f"{final_strike}_{leg.get('option_type')}"
                 leg_pnl_dfs.append((leg_key, pnl_df))
                 
@@ -573,7 +586,15 @@ class BacktestEngine:
             overall_df = leg_pnl_dfs[0][1]
             for i in range(1, len(leg_pnl_dfs)):
                 overall_df = overall_df.join(leg_pnl_dfs[i][1], on="time", how="full", coalesce=True)
-                overall_df = overall_df.with_columns((pl.col("pnl").fill_null(0) + pl.col("pnl_right").fill_null(0)).alias("pnl")).drop("pnl_right")
+                overall_df = overall_df.with_columns(
+                    (pl.col("pnl").fill_null(0) + pl.col("pnl_right").fill_null(0)).alias("pnl"),
+                    (pl.col("open_pnl").fill_null(0) + pl.col("open_pnl_right").fill_null(0)).alias("open_pnl")
+                ).drop(["pnl_right", "open_pnl_right"])
+                
+            # Drop any other suffixed columns from the join
+            drop_cols = [c for c in overall_df.columns if c.endswith('_right')]
+            if drop_cols:
+                overall_df = overall_df.drop(drop_cols)
                 
             # Calculate total invested value for percentage calculations
             total_invested = 0
@@ -616,18 +637,40 @@ class BacktestEngine:
             
             overall_exit_time = self.exit_time
             overall_exit_reason = None
+            overall_hit_on = None
             
             if sl_amt > 0 or tgt_amt > 0:
-                hit_mask = pl.Series([False] * len(overall_df))
+                hit_mask_open = pl.Series([False] * len(overall_df))
+                hit_mask_close = pl.Series([False] * len(overall_df))
+                
                 if sl_amt > 0:
-                    hit_mask = hit_mask | (overall_df['pnl'] <= -sl_amt)
+                    hit_mask_open = hit_mask_open | (overall_df['open_pnl'] <= -sl_amt)
+                    hit_mask_close = hit_mask_close | (overall_df['pnl'] <= -sl_amt)
                 if tgt_amt > 0:
-                    hit_mask = hit_mask | (overall_df['pnl'] >= tgt_amt)
+                    hit_mask_open = hit_mask_open | (overall_df['open_pnl'] >= tgt_amt)
+                    hit_mask_close = hit_mask_close | (overall_df['pnl'] >= tgt_amt)
                     
-                if hit_mask.any():
-                    hit_idx = hit_mask.arg_true()[0]
+                hit_idx_open = hit_mask_open.arg_true()[0] if hit_mask_open.any() else None
+                hit_idx_close = hit_mask_close.arg_true()[0] if hit_mask_close.any() else None
+                
+                hit_idx = None
+                if hit_idx_open is not None and hit_idx_close is not None:
+                    if hit_idx_open <= hit_idx_close:
+                        hit_idx = hit_idx_open
+                        overall_hit_on = 'open'
+                    else:
+                        hit_idx = hit_idx_close
+                        overall_hit_on = 'close'
+                elif hit_idx_open is not None:
+                    hit_idx = hit_idx_open
+                    overall_hit_on = 'open'
+                elif hit_idx_close is not None:
+                    hit_idx = hit_idx_close
+                    overall_hit_on = 'close'
+                    
+                if hit_idx is not None:
                     overall_exit_time = overall_df['time'][hit_idx]
-                    overall_pnl_val = overall_df['pnl'][hit_idx]
+                    overall_pnl_val = overall_df['open_pnl'][hit_idx] if overall_hit_on == 'open' else overall_df['pnl'][hit_idx]
                     overall_exit_reason = 'OVER_SL' if (sl_amt > 0 and overall_pnl_val <= -sl_amt) else 'OVER_TGT'
                     
             # Truncate trades after overall_exit_time
@@ -650,6 +693,8 @@ class BacktestEngine:
                             row = l_df.filter(pl.col('time') == overall_exit_time)
                             if row.height > 0:
                                 if tr['exitReason'] == 'EXIT_TIME':
+                                    tr['exitPrice'] = row['open'][0]
+                                elif tr['exitReason'] in ('OVER_SL', 'OVER_TGT') and overall_hit_on == 'open':
                                     tr['exitPrice'] = row['open'][0]
                                 else:
                                     tr['exitPrice'] = row['close'][0]
