@@ -575,41 +575,85 @@ class BacktestEngine:
                 overall_df = overall_df.join(leg_pnl_dfs[i][1], on="time", how="full", coalesce=True)
                 overall_df = overall_df.with_columns((pl.col("pnl").fill_null(0) + pl.col("pnl_right").fill_null(0)).alias("pnl")).drop("pnl_right")
                 
-            overall_sl = float(self.config.get('overall_sl') or 0)
-            overall_target = float(self.config.get('overall_target') or 0)
+            # Calculate total invested value for percentage calculations
+            total_invested = 0
+            for leg_key, l_df in leg_pnl_dfs:
+                # Find the initial trade for this leg from daily_trades
+                for tr in daily_trades:
+                    if tr['symbol'] == leg_key:
+                        total_invested += tr['entryPrice'] * tr['qty']
+                        break
+                        
+            multiplier = float(self.config.get('quantity_multiplier', 1))
+            
+            # Parse overall SL config
+            overall_sl_enabled = self.config.get('overall_sl_enabled', False)
+            overall_sl_value = float(self.config.get('overall_sl_value') or 0)
+            overall_sl_type = self.config.get('overall_sl_type', 'PERCENTAGE')
+            legacy_sl = float(self.config.get('overall_sl') or 0)
+            if legacy_sl > 0 and not overall_sl_enabled:
+                overall_sl_enabled = True
+                overall_sl_value = legacy_sl
+                overall_sl_type = 'AMOUNT'
+                
+            sl_amt = 0
+            if overall_sl_enabled and overall_sl_value > 0:
+                sl_amt = (overall_sl_value / 100.0) * total_invested if overall_sl_type == 'PERCENTAGE' else (overall_sl_value * multiplier)
+                
+            # Parse overall Target config
+            overall_tgt_enabled = self.config.get('overall_target_enabled', False)
+            overall_tgt_value = float(self.config.get('overall_target_value') or 0)
+            overall_tgt_type = self.config.get('overall_target_type', 'PERCENTAGE')
+            legacy_tgt = float(self.config.get('overall_target') or 0)
+            if legacy_tgt > 0 and not overall_tgt_enabled:
+                overall_tgt_enabled = True
+                overall_tgt_value = legacy_tgt
+                overall_tgt_type = 'AMOUNT'
+                
+            tgt_amt = 0
+            if overall_tgt_enabled and overall_tgt_value > 0:
+                tgt_amt = (overall_tgt_value / 100.0) * total_invested if overall_tgt_type == 'PERCENTAGE' else (overall_tgt_value * multiplier)
             
             overall_exit_time = self.exit_time
             overall_exit_reason = None
             
-            if overall_sl > 0 or overall_target > 0:
-                hit_mask = pl.lit(False)
-                if overall_sl > 0:
-                    hit_mask = hit_mask | (overall_df['pnl'] <= -overall_sl)
-                if overall_target > 0:
-                    hit_mask = hit_mask | (overall_df['pnl'] >= overall_target)
+            if sl_amt > 0 or tgt_amt > 0:
+                hit_mask = pl.Series([False] * len(overall_df))
+                if sl_amt > 0:
+                    hit_mask = hit_mask | (overall_df['pnl'] <= -sl_amt)
+                if tgt_amt > 0:
+                    hit_mask = hit_mask | (overall_df['pnl'] >= tgt_amt)
                     
                 if hit_mask.any():
                     hit_idx = hit_mask.arg_true()[0]
                     overall_exit_time = overall_df['time'][hit_idx]
                     overall_pnl_val = overall_df['pnl'][hit_idx]
-                    overall_exit_reason = 'OVER_SL' if overall_pnl_val <= -overall_sl else 'OVER_TGT'
+                    overall_exit_reason = 'OVER_SL' if (sl_amt > 0 and overall_pnl_val <= -sl_amt) else 'OVER_TGT'
                     
             # Truncate trades after overall_exit_time
             truncated_trades = []
             for tr in daily_trades:
                 if tr['entryTime'] > overall_exit_time:
                     continue # Trade never happened
-                if tr['exitTime'] > overall_exit_time:
-                    tr['exitTime'] = overall_exit_time
-                    tr['exitReason'] = overall_exit_reason if overall_exit_reason else 'EXIT_TIME'
                     
-                    if tr['exitReason'] == 'EXIT_TIME':
-                        for l_key, l_df in leg_pnl_dfs:
-                            if l_key == tr['symbol']:
-                                row = l_df.filter(pl.col('time') == overall_exit_time)
-                                if row.height > 0:
+                if tr['exitTime'] >= overall_exit_time:
+                    if tr['exitTime'] > overall_exit_time:
+                        tr['exitTime'] = overall_exit_time
+                        
+                    if overall_exit_reason:
+                        tr['exitReason'] = overall_exit_reason
+                    elif tr['exitTime'] >= self.exit_time:
+                        tr['exitReason'] = 'EXIT_TIME'
+                    
+                    for l_key, l_df in leg_pnl_dfs:
+                        if l_key == tr['symbol']:
+                            row = l_df.filter(pl.col('time') == overall_exit_time)
+                            if row.height > 0:
+                                if tr['exitReason'] == 'EXIT_TIME':
                                     tr['exitPrice'] = row['open'][0]
-                                break
+                                else:
+                                    tr['exitPrice'] = row['close'][0]
+                            break
                                 
                     # Recalculate PnL with new exit price
                     exit_diff = (tr['entryPrice'] - tr['exitPrice']) if tr['side'] == 'SELL' else (tr['exitPrice'] - tr['entryPrice'])
@@ -619,28 +663,55 @@ class BacktestEngine:
                 
             day_chart = {}
             for leg_key, df in leg_pnl_dfs:
-                # Filter to overall_exit_time
-                df_filtered = df.filter(pl.col('time') <= overall_exit_time)
-                dicts = df_filtered.to_dicts()
+                # Find the locked PnL at overall_exit_time
+                exit_row = df.filter(pl.col('time') <= overall_exit_time)
+                locked_pnl = exit_row['pnl'][-1] if exit_row.height > 0 else 0
+                
+                # Forward fill PnL after overall_exit_time
+                df_filled = df.with_columns(
+                    pl.when(pl.col('time') <= overall_exit_time)
+                    .then(pl.col('pnl'))
+                    .otherwise(locked_pnl)
+                    .alias('pnl')
+                )
+                
+                dicts = df_filled.to_dicts()
                 if dicts:
-                    last_row = dicts[-1]
-                    existing_action = last_row.get('action') or ''
-                    
-                    # Find exit side and price for this leg
-                    for tr in truncated_trades:
-                        if tr['symbol'] == leg_key and tr['exitTime'] == overall_exit_time:
-                            if "Exit" not in existing_action:
-                                side = 'Buy' if tr['side'] == 'SELL' else 'Sell'
-                                price = tr['exitPrice']
-                                reason = tr['exitReason']
-                                sep = " | " if existing_action else ""
-                                last_row['action'] = f"{existing_action}{sep}Exit ({side}) [{reason}]: {price:.2f}".strip()
+                    # Find the exact row index for overall_exit_time to insert the action
+                    exit_idx = -1
+                    for idx, row in enumerate(dicts):
+                        if row['time'] == overall_exit_time:
+                            exit_idx = idx
                             break
-                            
+                    
+                    if exit_idx != -1:
+                        last_row = dicts[exit_idx]
+                        existing_action = last_row.get('action') or ''
+                        
+                        # Find exit side and price for this leg
+                        for tr in truncated_trades:
+                            if tr['symbol'] == leg_key and tr['exitTime'] == overall_exit_time:
+                                if "Exit" not in existing_action:
+                                    side = 'Buy' if tr['side'] == 'SELL' else 'Sell'
+                                    price = tr['exitPrice']
+                                    reason = tr['exitReason']
+                                    sep = " | " if existing_action else ""
+                                    last_row['action'] = f"{existing_action}{sep}Exit ({side}) [{reason}]: {price:.2f}".strip()
+                                break
+                                
                 day_chart[leg_key] = dicts
                 
-            overall_df_filtered = overall_df.filter(pl.col('time') <= overall_exit_time)
-            day_chart["OVERALL_PNL"] = overall_df_filtered.to_dicts()
+            # Forward fill overall_df
+            overall_exit_row = overall_df.filter(pl.col('time') <= overall_exit_time)
+            overall_locked_pnl = overall_exit_row['pnl'][-1] if overall_exit_row.height > 0 else 0
+            
+            overall_df_filled = overall_df.with_columns(
+                pl.when(pl.col('time') <= overall_exit_time)
+                .then(pl.col('pnl'))
+                .otherwise(overall_locked_pnl)
+                .alias('pnl')
+            )
+            day_chart["OVERALL_PNL"] = overall_df_filled.to_dicts()
                 
             self.results['chartData'][date_str] = day_chart
             
