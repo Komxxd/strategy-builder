@@ -290,6 +290,13 @@ class BacktestEngine:
         
         tsl_enabled = config.get('reentry_tsl_enabled', False) if is_reentry else config.get('tsl_enabled', False)
         tsl_on_close = config.get('reentry_tsl_on_close', False) if is_reentry else config.get('tsl_on_close', False)
+        tsl_on_close_high = config.get('reentry_tsl_on_close_high', False) if is_reentry else config.get('tsl_on_close_high', False)
+        tsl_on_close_low = config.get('reentry_tsl_on_close_low', False) if is_reentry else config.get('tsl_on_close_low', False)
+        
+        # As requested: "on close checked marked, on close high checked marked - normal trailing logic... 
+        # This should match the values and outputs of when we have no check marks"
+        if tsl_on_close_high or tsl_on_close_low:
+            tsl_on_close = False
         
         if initial_sl is None:
             return self._build_trade_res(entry_time, entry_price, df[-1]['time'][0], df[-1]['close'][0], 'END_OF_DAY', None), df[-1:], 'END_OF_DAY'
@@ -309,9 +316,10 @@ class BacktestEngine:
                 
             if hit_mask.any():
                 hit_idx = hit_mask.arg_true()[0]
-                return self._build_trade_res(entry_time, entry_price, df['time'][hit_idx], initial_sl, 'SL', initial_sl), df[hit_idx:], 'SL'
+                exit_price = df['close'][hit_idx] if tsl_on_close else initial_sl
+                return self._build_trade_res(entry_time, entry_price, df['time'][hit_idx], exit_price, 'SL', initial_sl, initial_sl=initial_sl), df[hit_idx:], 'SL'
             else:
-                return self._build_trade_res(entry_time, entry_price, df[-1]['time'][0], df[-1]['close'][0], 'END_OF_DAY', initial_sl), df[-1:], 'END_OF_DAY'
+                return self._build_trade_res(entry_time, entry_price, df[-1]['time'][0], df[-1]['close'][0], 'END_OF_DAY', initial_sl, initial_sl=initial_sl), df[-1:], 'END_OF_DAY'
                 
         else:
             tsl_type = config.get('reentry_tsl_type', 'PERCENTAGE') if is_reentry else config.get('tsl_type', 'PERCENTAGE')
@@ -327,14 +335,14 @@ class BacktestEngine:
                 if side == 'BUY':
                     peak_price = trail_ref.cum_max()
                     favorable_move = peak_price - entry_price
-                    steps = (favorable_move / move_threshold).floor()
+                    steps = (favorable_move / move_threshold).clip(lower_bound=0.0).floor()
                     dynamic_sl = initial_sl + (steps * trail_amount)
                     
                     hit_mask = df['close'] <= dynamic_sl if tsl_on_close else df['low'] <= dynamic_sl
                 else:
                     peak_price = trail_ref.cum_min()
                     favorable_move = entry_price - peak_price
-                    steps = (favorable_move / move_threshold).floor()
+                    steps = (favorable_move / move_threshold).clip(lower_bound=0.0).floor()
                     dynamic_sl = initial_sl - (steps * trail_amount)
                     
                     hit_mask = df['close'] >= dynamic_sl if tsl_on_close else df['high'] >= dynamic_sl
@@ -346,23 +354,30 @@ class BacktestEngine:
                 
                 if hit_mask.any():
                     hit_idx = hit_mask.arg_true()[0]
-                    return self._build_trade_res(entry_time, entry_price, df['time'][hit_idx], dynamic_sl[hit_idx], 'TSL', dynamic_sl[hit_idx]), df[hit_idx:], 'TSL'
+                    tsl_series = dict(zip(df['time'][:hit_idx+1].to_list(), dynamic_sl[:hit_idx+1].to_list()))
+                    exit_price = df['close'][hit_idx] if tsl_on_close else dynamic_sl[hit_idx]
+                    return self._build_trade_res(entry_time, entry_price, df['time'][hit_idx], exit_price, 'TSL', dynamic_sl[hit_idx], tsl_series, initial_sl), df[hit_idx:], 'TSL'
                 else:
-                    return self._build_trade_res(entry_time, entry_price, df[-1]['time'][0], df[-1]['close'][0], 'END_OF_DAY', dynamic_sl[-1]), df[-1:], 'END_OF_DAY'
+                    tsl_series = dict(zip(df['time'].to_list(), dynamic_sl.to_list()))
+                    return self._build_trade_res(entry_time, entry_price, df[-1]['time'][0], df[-1]['close'][0], 'END_OF_DAY', dynamic_sl[-1], tsl_series, initial_sl), df[-1:], 'END_OF_DAY'
             else:
                 return self.calculate_trade_vectorized(leg, df, {**config, 'tsl_enabled': False}, is_reentry)
                 
-    def _build_trade_res(self, entry_time, entry_price, exit_time, exit_price, reason, sl_price):
+    def _build_trade_res(self, entry_time, entry_price, exit_time, exit_price, reason, sl_price, tsl_series=None, initial_sl=None):
         return {
             'entryTime': entry_time, 'entryPrice': entry_price,
             'exitTime': exit_time, 'exitPrice': exit_price,
-            'exitReason': reason, 'tradeSlPrice': sl_price
+            'exitReason': reason, 'tradeSlPrice': sl_price,
+            'tslSeries': tsl_series or {},
+            'initialSlPrice': initial_sl if initial_sl is not None else sl_price
         }
 
     def calculate_leg_trades(self, leg, df, config, index_name, expiry, year, month, date_str, step):
         all_trades = []
         reentry_count = 0
-        max_reentry = int(leg.get('max_reentry', 1))
+        max_reentry = int(leg.get('no_of_reentry', 0)) if leg.get('reentry_enabled') else 0
+        
+        is_exhausted = True
         
         while df.height > 0:
             trade_info, remaining_df, exit_reason = self.calculate_trade_vectorized(leg, df, config, reentry_count > 0)
@@ -372,8 +387,14 @@ class BacktestEngine:
             if exit_reason == 'END_OF_DAY' or reentry_count >= max_reentry: break
                 
             rtp = None
-            mtp = None
             wait_dir = 'UP'
+            
+            # Check if reentry_type matches the exit reason!
+            re_type = leg.get('reentry_type', 'REENTRY_ON_SL')
+            if re_type == 'REENTRY_ON_SL' and exit_reason != 'SL':
+                break
+            if re_type == 'REENTRY_ON_TARGET' and exit_reason != 'TARGET':
+                break
             
             # Re-entry triggers
             if leg.get('recost_enabled'):
@@ -401,7 +422,9 @@ class BacktestEngine:
                 # We skip the exact SL hit candle if no_reentry_on_sl_candle
                 if leg.get('no_reentry_on_sl_candle'):
                     remaining_df = remaining_df[1:]
-                    if remaining_df.height == 0: break
+                    if remaining_df.height == 0:
+                        is_exhausted = False
+                        break
                 
                 cross_mask = remaining_df['low'] <= rtp if wait_dir == 'DOWN' else remaining_df['high'] >= rtp
                 if cross_mask.any():
@@ -412,11 +435,12 @@ class BacktestEngine:
                     # If we need dynamic strike, we would fetch_stitched_data again.
                     continue
                 else:
+                    is_exhausted = False
                     break
             else:
                 break
 
-        return all_trades
+        return all_trades, is_exhausted
 
 
 
@@ -473,11 +497,16 @@ class BacktestEngine:
                     if t == trade['entryTime']:
                         side = 'Sell' if leg.get('side') == 'SELL' else 'Buy'
                         prefix = 'Entry' if trade_idx == 0 else 'Re-Entry'
-                        sl_str = f" | Init SL: ₹{trade.get('tradeSlPrice', 0):.2f}" if trade.get('tradeSlPrice') else ""
+                        
+                        init_sl_val = trade.get('initialSlPrice') or trade.get('tradeSlPrice', 0)
+                        sl_str = f" | Init SL: ₹{init_sl_val:.2f}" if init_sl_val else ""
                         action = f"{prefix} ({side}): {trade['entryPrice']:.2f}{sl_str}"
                     
                     row = df.filter(pl.col('time') == t)
-                    price = row['close'][0] if row.height > 0 else trade['entryPrice']
+                    if t == trade['exitTime']:
+                        price = trade['exitPrice']
+                    else:
+                        price = row['close'][0] if row.height > 0 else trade['entryPrice']
                     open_price = row['open'][0] if row.height > 0 else trade['entryPrice']
                     
                     diff = (trade['entryPrice'] - price) if leg.get('side') == 'SELL' else (price - trade['entryPrice'])
@@ -486,12 +515,30 @@ class BacktestEngine:
                     pnl_series.append(locked_pnl + (diff * leg.get('lots', 1)))
                     open_pnl_series.append(locked_pnl + (open_diff * leg.get('lots', 1)))
                     
+                    # Track TSL updates
+                    current_sl = trade.get('tslSeries', {}).get(t)
+                    if current_sl is not None:
+                        if 'last_seen_sl' not in trade:
+                            trade['last_seen_sl'] = trade.get('tradeSlPrice')
+                            
+                        if current_sl != trade['last_seen_sl']:
+                            tsl_action = f"TSL updated to: ₹{current_sl:.2f}"
+                            if action:
+                                action = f"{action} | {tsl_action}"
+                            else:
+                                action = tsl_action
+                            trade['last_seen_sl'] = current_sl
+                            
                     if t == trade['exitTime']:
                         exit_diff = (trade['entryPrice'] - trade['exitPrice']) if leg.get('side') == 'SELL' else (trade['exitPrice'] - trade['entryPrice'])
                         locked_pnl += (exit_diff * leg.get('lots', 1))
                         
                         side = 'Buy' if leg.get('side') == 'SELL' else 'Sell'
-                        action = f"Exit ({side}) [{trade['exitReason']}]: {trade['exitPrice']:.2f}"
+                        exit_action = f"Exit ({side}) [{trade['exitReason']}]: {trade['exitPrice']:.2f}"
+                        if action:
+                            action = f"{action} | {exit_action}"
+                        else:
+                            action = exit_action
                         trade_idx += 1
                 else:
                     pnl_series.append(locked_pnl)
@@ -535,6 +582,9 @@ class BacktestEngine:
             daily_trades = []
             leg_pnl_dfs = []
             
+            all_legs_exhausted = True
+            max_exit_time = "00:00:00"
+            
             legs = self.config.get('legs', [])
             
             for leg in legs:
@@ -558,7 +608,15 @@ class BacktestEngine:
                 leg_df = leg_df.filter(pl.col('time') >= entry_time)
                 
                 # Calculate trades for this leg!
-                trades = self.calculate_leg_trades(leg, leg_df, leg, self.index_name, expiry, year, month, date_str, step)
+                trades, is_exhausted = self.calculate_leg_trades(leg, leg_df, leg, self.index_name, expiry, year, month, date_str, step)
+                
+                if not is_exhausted:
+                    all_legs_exhausted = False
+                    
+                if trades:
+                    last_trade_time = trades[-1]['exitTime']
+                    if last_trade_time > max_exit_time:
+                        max_exit_time = last_trade_time
                 
                 for tr in trades:
                     tr['qty'] = qty
@@ -643,11 +701,16 @@ class BacktestEngine:
                 hit_mask_open = pl.Series([False] * len(overall_df))
                 hit_mask_close = pl.Series([False] * len(overall_df))
                 
+                overall_sl_on_close = self.config.get('overall_sl_on_close', False)
+                overall_tgt_on_close = self.config.get('overall_target_on_close', False)
+                
                 if sl_amt > 0:
-                    hit_mask_open = hit_mask_open | (overall_df['open_pnl'] <= -sl_amt)
+                    if not overall_sl_on_close:
+                        hit_mask_open = hit_mask_open | (overall_df['open_pnl'] <= -sl_amt)
                     hit_mask_close = hit_mask_close | (overall_df['pnl'] <= -sl_amt)
                 if tgt_amt > 0:
-                    hit_mask_open = hit_mask_open | (overall_df['open_pnl'] >= tgt_amt)
+                    if not overall_tgt_on_close:
+                        hit_mask_open = hit_mask_open | (overall_df['open_pnl'] >= tgt_amt)
                     hit_mask_close = hit_mask_close | (overall_df['pnl'] >= tgt_amt)
                     
                 hit_idx_open = hit_mask_open.arg_true()[0] if hit_mask_open.any() else None
@@ -672,6 +735,11 @@ class BacktestEngine:
                     overall_exit_time = overall_df['time'][hit_idx]
                     overall_pnl_val = overall_df['open_pnl'][hit_idx] if overall_hit_on == 'open' else overall_df['pnl'][hit_idx]
                     overall_exit_reason = 'OVER_SL' if (sl_amt > 0 and overall_pnl_val <= -sl_amt) else 'OVER_TGT'
+                    
+            if all_legs_exhausted and max_exit_time != "00:00:00":
+                if overall_exit_time > max_exit_time:
+                    overall_exit_time = max_exit_time
+                    # DO NOT set overall_exit_reason, we want the legs to retain their natural exit reasons!
                     
             # Truncate trades after overall_exit_time
             truncated_trades = []
@@ -708,55 +776,29 @@ class BacktestEngine:
                 
             day_chart = {}
             for leg_key, df in leg_pnl_dfs:
-                # Find the locked PnL at overall_exit_time
-                exit_row = df.filter(pl.col('time') <= overall_exit_time)
-                locked_pnl = exit_row['pnl'][-1] if exit_row.height > 0 else 0
-                
-                # Forward fill PnL after overall_exit_time
-                df_filled = df.with_columns(
-                    pl.when(pl.col('time') <= overall_exit_time)
-                    .then(pl.col('pnl'))
-                    .otherwise(locked_pnl)
-                    .alias('pnl')
-                )
-                
-                dicts = df_filled.to_dicts()
+                # Filter to overall_exit_time
+                df_filtered = df.filter(pl.col('time') <= overall_exit_time)
+                dicts = df_filtered.to_dicts()
                 if dicts:
-                    # Find the exact row index for overall_exit_time to insert the action
-                    exit_idx = -1
-                    for idx, row in enumerate(dicts):
-                        if row['time'] == overall_exit_time:
-                            exit_idx = idx
-                            break
+                    last_row = dicts[-1]
+                    existing_action = last_row.get('action') or ''
                     
-                    if exit_idx != -1:
-                        last_row = dicts[exit_idx]
-                        existing_action = last_row.get('action') or ''
-                        
-                        # Find exit side and price for this leg
-                        for tr in truncated_trades:
-                            if tr['symbol'] == leg_key and tr['exitTime'] == overall_exit_time:
-                                if "Exit" not in existing_action:
-                                    side = 'Buy' if tr['side'] == 'SELL' else 'Sell'
-                                    price = tr['exitPrice']
-                                    reason = tr['exitReason']
-                                    sep = " | " if existing_action else ""
-                                    last_row['action'] = f"{existing_action}{sep}Exit ({side}) [{reason}]: {price:.2f}".strip()
-                                break
-                                
+                    # Find exit side and price for this leg
+                    for tr in truncated_trades:
+                        if tr['symbol'] == leg_key and tr['exitTime'] == overall_exit_time:
+                            if "Exit" not in existing_action:
+                                side = 'Buy' if tr['side'] == 'SELL' else 'Sell'
+                                price = tr['exitPrice']
+                                reason = tr['exitReason']
+                                sep = " | " if existing_action else ""
+                                last_row['action'] = f"{existing_action}{sep}Exit ({side}) [{reason}]: {price:.2f}".strip()
+                            break
+                            
                 day_chart[leg_key] = dicts
                 
-            # Forward fill overall_df
-            overall_exit_row = overall_df.filter(pl.col('time') <= overall_exit_time)
-            overall_locked_pnl = overall_exit_row['pnl'][-1] if overall_exit_row.height > 0 else 0
-            
-            overall_df_filled = overall_df.with_columns(
-                pl.when(pl.col('time') <= overall_exit_time)
-                .then(pl.col('pnl'))
-                .otherwise(overall_locked_pnl)
-                .alias('pnl')
-            )
-            day_chart["OVERALL_PNL"] = overall_df_filled.to_dicts()
+            # Filter overall_df to overall_exit_time
+            overall_df_filtered = overall_df.filter(pl.col('time') <= overall_exit_time)
+            day_chart["OVERALL_PNL"] = overall_df_filtered.to_dicts()
                 
             self.results['chartData'][date_str] = day_chart
             
