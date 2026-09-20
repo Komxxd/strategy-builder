@@ -472,7 +472,7 @@ class BacktestEngine:
                         side = 'Sell' if leg.get('side') == 'SELL' else 'Buy'
                         prefix = 'Entry' if trade_idx == 0 else 'Re-Entry'
                         sl_str = f" | Init SL: ₹{trade.get('tradeSlPrice', 0):.2f}" if trade.get('tradeSlPrice') else ""
-                        action = f"{prefix} ({side}) [Original]: {trade['entryPrice']:.2f}{sl_str}"
+                        action = f"{prefix} ({side}): {trade['entryPrice']:.2f}{sl_str}"
                     
                     row = df.filter(pl.col('time') == t)
                     price = row['close'][0] if row.height > 0 else trade['entryPrice']
@@ -482,9 +482,9 @@ class BacktestEngine:
                     if t == trade['exitTime']:
                         exit_diff = (trade['entryPrice'] - trade['exitPrice']) if leg.get('side') == 'SELL' else (trade['exitPrice'] - trade['entryPrice'])
                         locked_pnl += (exit_diff * leg.get('lots', 1))
-                        exit_pnl = exit_diff * leg.get('lots', 1)
-                        sign = "+" if exit_pnl > 0 else ""
-                        action = f"[{trade['exitReason']}_HIT] - Trailed SL/Exit Hit @ {trade['exitPrice']:.2f} (Locked: {sign}₹{exit_pnl:.2f})"
+                        
+                        side = 'Buy' if leg.get('side') == 'SELL' else 'Sell'
+                        action = f"Exit ({side}) [{trade['exitReason']}]: {trade['exitPrice']:.2f}"
                         trade_idx += 1
                 else:
                     pnl_series.append(locked_pnl)
@@ -601,8 +601,20 @@ class BacktestEngine:
                     continue # Trade never happened
                 if tr['exitTime'] > overall_exit_time:
                     tr['exitTime'] = overall_exit_time
-                    tr['exitReason'] = overall_exit_reason if overall_exit_reason else 'END_OF_DAY'
-                    # Note: We should ideally calculate the exact exit price here, but keeping it simple for now
+                    tr['exitReason'] = overall_exit_reason if overall_exit_reason else 'EXIT_TIME'
+                    
+                    if tr['exitReason'] == 'EXIT_TIME':
+                        for l_key, l_df in leg_pnl_dfs:
+                            if l_key == tr['symbol']:
+                                row = l_df.filter(pl.col('time') == overall_exit_time)
+                                if row.height > 0:
+                                    tr['exitPrice'] = row['open'][0]
+                                break
+                                
+                    # Recalculate PnL with new exit price
+                    exit_diff = (tr['entryPrice'] - tr['exitPrice']) if tr['side'] == 'SELL' else (tr['exitPrice'] - tr['entryPrice'])
+                    tr['tradePnL'] = exit_diff * tr['qty']
+                    
                 truncated_trades.append(tr)
                 
             day_chart = {}
@@ -610,11 +622,21 @@ class BacktestEngine:
                 # Filter to overall_exit_time
                 df_filtered = df.filter(pl.col('time') <= overall_exit_time)
                 dicts = df_filtered.to_dicts()
-                if dicts and overall_exit_reason:
+                if dicts:
                     last_row = dicts[-1]
                     existing_action = last_row.get('action') or ''
-                    sep = " | " if existing_action else ""
-                    last_row['action'] = f"{existing_action}{sep}Overall Strategy Exit: [{overall_exit_reason}]".strip()
+                    
+                    # Find exit side and price for this leg
+                    for tr in truncated_trades:
+                        if tr['symbol'] == leg_key and tr['exitTime'] == overall_exit_time:
+                            if "Exit" not in existing_action:
+                                side = 'Buy' if tr['side'] == 'SELL' else 'Sell'
+                                price = tr['exitPrice']
+                                reason = tr['exitReason']
+                                sep = " | " if existing_action else ""
+                                last_row['action'] = f"{existing_action}{sep}Exit ({side}) [{reason}]: {price:.2f}".strip()
+                            break
+                            
                 day_chart[leg_key] = dicts
                 
             overall_df_filtered = overall_df.filter(pl.col('time') <= overall_exit_time)
