@@ -62,3 +62,4 @@ server/src/temp/instruments.json
 
 *.sql
 
+python-backtest/
