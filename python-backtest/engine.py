@@ -473,7 +473,7 @@ class BacktestEngine:
 
             # Check if reentry_type matches the exit reason for standard reentries!
             re_type = leg.get('reentry_type', 'REENTRY_ON_SL')
-            if re_type == 'REENTRY_ON_SL' and exit_reason != 'SL':
+            if re_type == 'REENTRY_ON_SL' and exit_reason not in ('SL', 'TSL'):
                 break
             if re_type == 'REENTRY_ON_TARGET' and exit_reason != 'TARGET':
                 break
