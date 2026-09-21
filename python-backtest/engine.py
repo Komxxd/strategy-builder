@@ -598,8 +598,9 @@ class BacktestEngine:
                     search_df = remaining_df[1:] if remaining_df.height > 1 else remaining_df[0:0]
                 
                 if search_df.height > 0:
-                    # Find the peak price (cumulative max of close)
-                    cum_high = search_df['close'].cum_max()
+                    # Find the peak price (cumulative max of high)
+                    peak_col = pl.when(pl.col('time') == trade_info['exitTime']).then(pl.col('close')).otherwise(pl.col('high'))
+                    cum_high = search_df.select(peak_col).to_series().cum_max()
                     peak_start = max(exit_price, cum_high[0])
                     cum_high = cum_high.map_elements(lambda x: max(x, exit_price), return_dtype=pl.Float64)
                     
@@ -678,8 +679,9 @@ class BacktestEngine:
                     search_df = remaining_df[1:] if remaining_df.height > 1 else remaining_df[0:0]
                 
                 if search_df.height > 0:
-                    # Track the trough (cumulative min of close)
-                    cum_low = search_df['close'].cum_min()
+                    # Track the trough (cumulative min of low)
+                    trough_col = pl.when(pl.col('time') == trade_info['exitTime']).then(pl.col('close')).otherwise(pl.col('low'))
+                    cum_low = search_df.select(trough_col).to_series().cum_min()
                     cum_low = cum_low.map_elements(lambda x: min(x, exit_price), return_dtype=pl.Float64)
                     
                     # RTP = trough + val (price must rise from the trough)
@@ -924,8 +926,10 @@ class BacktestEngine:
                                 
                                 if base_rtp is not None:
                                     calc_str += f" | Calc RTP: ₹{self.round_to_tick(base_rtp):.2f}"
+                                    trade['last_seen_rtp'] = self.round_to_tick(base_rtp)
                         elif trade.get('next_rtp') is not None:
                             calc_str += f" | Calc RTP: ₹{trade['next_rtp']:.2f}"
+                            trade['last_seen_rtp'] = trade['next_rtp']
                         
                         if trade.get('next_mtp') is not None:
                             calc_str += f" | Calc MTP: ₹{trade['next_mtp']:.2f}"
@@ -1228,21 +1232,39 @@ class BacktestEngine:
                     existing_action = last_row.get('action') or ''
                     
                     # Find exit side and price for this leg
+                    leg_final_pnl = 0
                     for tr in truncated_trades:
-                        if tr['symbol'] == leg_key and tr['exitTime'] == overall_exit_time:
-                            if "Exit" not in existing_action:
-                                side = 'Buy' if tr['side'] == 'SELL' else 'Sell'
-                                price = tr['exitPrice']
-                                reason = tr['exitReason']
-                                sep = " | " if existing_action else ""
-                                last_row['action'] = f"{existing_action}{sep}Exit ({side}) [{reason}]: {price:.2f}".strip()
-                            break
+                        if tr['symbol'] == leg_key:
+                            leg_final_pnl += tr.get('tradePnL', 0)
+                            if tr['exitTime'] == overall_exit_time:
+                                if "Exit" not in existing_action:
+                                    side = 'Buy' if tr['side'] == 'SELL' else 'Sell'
+                                    price = tr['exitPrice']
+                                    reason = tr['exitReason']
+                                    sep = " | " if existing_action else ""
+                                    last_row['action'] = f"{existing_action}{sep}Exit ({side}) [{reason}]: {price:.2f}".strip()
+                    
+                    if last_row.get('time') == overall_exit_time:
+                        last_row['pnl'] = leg_final_pnl
+                        last_row['open_pnl'] = leg_final_pnl
                             
                 day_chart[leg_key] = dicts
                 
             # Filter overall_df to overall_exit_time
             overall_df_filtered = overall_df.filter(pl.col('time') <= overall_exit_time)
-            day_chart["OVERALL_PNL"] = overall_df_filtered.to_dicts()
+            overall_dicts = overall_df_filtered.to_dicts()
+            
+            if overall_dicts:
+                last_overall = overall_dicts[-1]
+                if last_overall.get('time') == overall_exit_time:
+                    total_final_pnl = 0
+                    for leg_key, d in day_chart.items():
+                        if d and d[-1].get('time') == overall_exit_time:
+                            total_final_pnl += d[-1].get('pnl', 0)
+                    last_overall['pnl'] = total_final_pnl
+                    last_overall['open_pnl'] = total_final_pnl
+                    
+            day_chart["OVERALL_PNL"] = overall_dicts
                 
             self.results['chartData'][date_str] = day_chart
             
