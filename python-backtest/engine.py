@@ -629,6 +629,7 @@ class BacktestEngine:
                                 pending_rtp_hit_time = search_df['time'][rtp_idx]
                                 trade_info['next_rtp'] = rtp
                                 trade_info['next_mtp'] = mtp
+                                trade_info['rtp_hit_time_triggered'] = search_df['time'][rtp_idx]
                                 trade_info['rtpSeries'] = dict(zip(search_df['time'][:rtp_idx+1].to_list(), rtp_series[:rtp_idx+1].to_list()))
                                 trade_info['reentry_method_triggered'] = 'REHIGH'
                                 pending_override_entry_price = mtp
@@ -706,6 +707,7 @@ class BacktestEngine:
                                 pending_rtp_hit_time = search_df['time'][rtp_idx]
                                 trade_info['next_rtp'] = rtp
                                 trade_info['next_mtp'] = mtp
+                                trade_info['rtp_hit_time_triggered'] = search_df['time'][rtp_idx]
                                 trade_info['rtpSeries'] = dict(zip(search_df['time'][:rtp_idx+1].to_list(), rtp_series[:rtp_idx+1].to_list()))
                                 trade_info['reentry_method_triggered'] = 'RELOW'
                                 pending_override_entry_price = mtp
@@ -753,6 +755,7 @@ class BacktestEngine:
                             pending_rtp = rtp
                             pending_mtp = mtp
                             pending_rtp_hit_time = rtp_hit_time
+                            trade_info['rtp_hit_time_triggered'] = rtp_hit_time
                             pending_override_entry_price = mtp
                             df = mtp_search[mtp_cross_idx:]
                             continue
@@ -821,26 +824,11 @@ class BacktestEngine:
         trade_idx = 0
         for t in time_df['time']:
             action = None
-            if trade_idx < len(trades):
+            prev_trade = trades[trade_idx - 1] if trade_idx > 0 else {}
+            
+            if trade_idx < len(trades) and t >= trades[trade_idx]['entryTime']:
                 trade = trades[trade_idx]
-                if t < trade['entryTime']:
-                    pnl_series.append(locked_pnl)
-                    open_pnl_series.append(locked_pnl)
-                    # Show RTP Hit annotation during waiting period
-                    prev_trade = trades[trade_idx - 1] if trade_idx > 0 else {}
-                    if prev_trade.get('rtp_hit_time') == t and prev_trade.get('reentry_mtp') is not None:
-                        action = f"[RTP Hit] ₹{prev_trade['reentry_rtp']:.2f} | Waiting MTP: ₹{prev_trade['reentry_mtp']:.2f}"
-                    # Show dynamic RTP updates
-                    current_rtp = prev_trade.get('rtpSeries', {}).get(t)
-                    if current_rtp is not None:
-                        if 'last_seen_rtp' not in prev_trade:
-                            prev_trade['last_seen_rtp'] = current_rtp
-                        elif current_rtp != prev_trade['last_seen_rtp']:
-                            rtp_action = f"RTP updated: ₹{current_rtp:.2f}"
-                            action = f"{action} | {rtp_action}" if action else rtp_action
-                            prev_trade['last_seen_rtp'] = current_rtp
-                            
-                elif t >= trade['entryTime'] and t <= trade['exitTime']:
+                if t <= trade['exitTime']:
                     if t == trade['entryTime']:
                         side = 'Sell' if leg.get('side') == 'SELL' else 'Buy'
                         reentry_method = trade.get('reentry_method')
@@ -935,6 +923,19 @@ class BacktestEngine:
             else:
                 pnl_series.append(locked_pnl)
                 open_pnl_series.append(locked_pnl)
+                if prev_trade:
+                    # Show RTP Hit annotation during waiting period
+                    if prev_trade.get('rtp_hit_time_triggered') == t and prev_trade.get('next_mtp') is not None:
+                        action = f"[RTP Hit] ₹{prev_trade['next_rtp']:.2f} | Waiting MTP: ₹{prev_trade['next_mtp']:.2f}"
+                    # Show dynamic RTP updates
+                    current_rtp = prev_trade.get('rtpSeries', {}).get(t)
+                    if current_rtp is not None:
+                        if 'last_seen_rtp' not in prev_trade:
+                            prev_trade['last_seen_rtp'] = current_rtp
+                        elif current_rtp != prev_trade['last_seen_rtp']:
+                            rtp_action = f"RTP updated: ₹{current_rtp:.2f}"
+                            action = f"{action} | {rtp_action}" if action else rtp_action
+                            prev_trade['last_seen_rtp'] = current_rtp
             action_series.append(action)
                 
         return time_df.with_columns([
