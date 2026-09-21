@@ -252,7 +252,7 @@ class BacktestEngine:
                 return self.round_to_tick(entry_price * (1 - sl_val / 100) if leg.get('side') == 'BUY' else entry_price * (1 + sl_val / 100))
         return None
 
-    def calculate_trade_vectorized(self, leg, df, config, is_reentry=False):
+    def calculate_trade_vectorized(self, leg, df, config, is_reentry=False, override_entry_price=None):
         if df.height == 0:
             return None, df, 'NO_DATA'
             
@@ -284,7 +284,7 @@ class BacktestEngine:
                 return None, df, 'MNTM_NOT_HIT'
         else:
             entry_time = df['time'][0]
-            entry_price = df['open'][0]
+            entry_price = override_entry_price if override_entry_price is not None else df['open'][0]
             
         initial_sl = self.calculate_sl_price(leg, entry_price, is_reentry)
         
@@ -372,24 +372,106 @@ class BacktestEngine:
             'initialSlPrice': initial_sl if initial_sl is not None else sl_price
         }
 
-    def calculate_leg_trades(self, leg, df, config, index_name, expiry, year, month, date_str, step):
+    def calculate_leg_trades(self, leg, df, config, index_name, expiry, year, month, date_str, step, index_df, current_strike):
         all_trades = []
         reentry_count = 0
         max_reentry = int(leg.get('no_of_reentry', 0)) if leg.get('reentry_enabled') else 0
-        
+        if leg.get('re_asap_enabled'):
+            max_reentry = int(leg.get('re_asap_max_entries', max_reentry))
+        if leg.get('recost_enabled') or leg.get('resl_enabled') or leg.get('rehigh_enabled') or leg.get('relow_enabled'):
+            max_reentry = max(max_reentry, int(leg.get('max_reentry', 1)))
+            
         is_exhausted = True
+        master_leg_df = df
+        pending_reentry_method = None
+        pending_rtp = None
+        pending_mtp = None
+        pending_rtp_hit_time = None
+        pending_override_entry_price = None
         
         while df.height > 0:
-            trade_info, remaining_df, exit_reason = self.calculate_trade_vectorized(leg, df, config, reentry_count > 0)
+            trade_info, remaining_df, exit_reason = self.calculate_trade_vectorized(leg, df, config, reentry_count > 0, pending_override_entry_price)
             
             if not trade_info: break
+            trade_info['strike'] = current_strike
+            trade_info['option_type'] = leg.get('option_type')
+            trade_info['side'] = leg.get('side')
+            trade_info['lots'] = leg.get('lots', 1)
+            trade_info['leg_config'] = leg.copy()
+            trade_info['reentry_method'] = pending_reentry_method
+            trade_info['reentry_rtp'] = pending_rtp
+            trade_info['reentry_mtp'] = pending_mtp
+            trade_info['rtp_hit_time'] = pending_rtp_hit_time
+            pending_reentry_method = None
+            pending_rtp = None
+            pending_mtp = None
+            pending_rtp_hit_time = None
+            pending_override_entry_price = None
             all_trades.append(trade_info)
-            if exit_reason == 'END_OF_DAY' or reentry_count >= max_reentry: break
+            if exit_reason == 'END_OF_DAY': break
+            if reentry_count >= max_reentry and not leg.get('lazy_leg_enabled'): break
                 
             rtp = None
             wait_dir = 'UP'
             
-            # Check if reentry_type matches the exit reason!
+            # LAZY LEG Logic
+            if leg.get('lazy_leg_enabled') and exit_reason == 'SL':
+                lazy_config = leg.get('lazy_leg')
+                if lazy_config:
+                    if remaining_df.height > 1:
+                        re_entry_time = remaining_df['time'][1]
+                        
+                        spot_row = index_df.filter(pl.col('time') == re_entry_time)
+                        if spot_row.height > 0:
+                            new_spot_price = spot_row['open'][0]
+                            new_target_strike = self.get_target_strike(lazy_config, new_spot_price, step, index_name, year, month, expiry, date_str, re_entry_time)
+                            
+                            res = self.get_valid_option_data_with_fallback(index_name, year, month, date_str, expiry, new_target_strike, lazy_config.get('option_type'), step, re_entry_time, 5, 'ALTERNATE')
+                            if res['data'] is not None and res['data'].height > 0:
+                                current_strike = res['strike']
+                                new_leg_df = res['data'].with_columns(
+                                    pl.col('datetime').cast(pl.Utf8).str.split(' ').list.last().str.slice(0, 8).alias('time')
+                                ).sort('time')
+                                
+                                df = new_leg_df.filter(pl.col('time') >= re_entry_time)
+                                
+                                # Lazy Leg Momentum Wait
+                                if lazy_config.get('simple_mntm_enabled'):
+                                    base_otp = df['open'][0]
+                                    mntm_mode = lazy_config.get('simple_mntm_mode', 'PLUS_PCT')
+                                    mntm_val = float(lazy_config.get('simple_mntm_value', 0))
+                                    mtp = base_otp
+                                    if mntm_mode == 'PLUS_PCT': mtp += (mtp * mntm_val / 100)
+                                    elif mntm_mode == 'PLUS_PTS': mtp += mntm_val
+                                    elif mntm_mode == 'MINUS_PCT': mtp -= (mtp * mntm_val / 100)
+                                    elif mntm_mode == 'MINUS_PTS': mtp -= mntm_val
+                                    mtp = self.round_to_tick(mtp)
+                                    
+                                    wait_dir = 'DOWN' if base_otp > mtp else 'UP'
+                                    cross_mask = df['low'] <= mtp if wait_dir == 'DOWN' else df['high'] >= mtp
+                                    if cross_mask.any():
+                                        cross_idx = cross_mask.arg_true()[0]
+                                        df = df[cross_idx:]
+                                        re_entry_time = df['time'][0]
+                                        pending_override_entry_price = mtp
+                                    else:
+                                        df = df[0:0]
+                                
+                                if df.height > 0:
+                                    pending_reentry_method = 'LAZY'
+                                    leg = lazy_config
+                                    reentry_count = 0
+                                    max_reentry = int(leg.get('re_asap_max_entries', 0))
+                                    master_leg_df = pl.concat([master_leg_df.filter(pl.col('time') < re_entry_time), df])
+                                    continue
+                                else:
+                                    is_exhausted = False
+                                    break
+                    
+                    is_exhausted = False
+                    break
+
+            # Check if reentry_type matches the exit reason for standard reentries!
             re_type = leg.get('reentry_type', 'REENTRY_ON_SL')
             if re_type == 'REENTRY_ON_SL' and exit_reason != 'SL':
                 break
@@ -397,6 +479,39 @@ class BacktestEngine:
                 break
             
             # Re-entry triggers
+            if leg.get('re_asap_enabled'):
+                pending_reentry_method = 'ASAP'
+                reentry_count += 1
+                if remaining_df.height > 1:
+                    re_entry_time = remaining_df['time'][1]
+                    
+                    # Fetch spot price to calculate new strike
+                    spot_row = index_df.filter(pl.col('time') == re_entry_time)
+                    if spot_row.height > 0:
+                        new_spot_price = spot_row['open'][0]
+                        new_target_strike = self.get_target_strike(leg, new_spot_price, step, index_name, year, month, expiry, date_str, re_entry_time)
+                        
+                        if new_target_strike != current_strike:
+                            res = self.get_valid_option_data_with_fallback(index_name, year, month, date_str, expiry, new_target_strike, leg.get('option_type'), step, re_entry_time, 5, 'ALTERNATE')
+                            if res['data'] is not None and res['data'].height > 0:
+                                current_strike = res['strike']
+                                new_leg_df = res['data']
+                                new_leg_df = new_leg_df.with_columns(
+                                    pl.col('datetime').cast(pl.Utf8).str.split(' ').list.last().str.slice(0, 8).alias('time')
+                                ).sort('time')
+                                
+                                df = new_leg_df.filter(pl.col('time') >= re_entry_time)
+                                # Stitch the master_leg_df
+                                master_leg_df = pl.concat([master_leg_df.filter(pl.col('time') < re_entry_time), df])
+                                continue
+                                
+                    # If strike hasn't changed or failed to fetch, just use the remaining_df
+                    df = remaining_df[1:]
+                    continue
+                else:
+                    is_exhausted = False
+                    break
+                    
             if leg.get('recost_enabled'):
                 mode, val = leg.get('recost_mode', 'RECOST_PLUS_PCT'), float(leg.get('recost_value', 0))
                 rtp = trade_info['entryPrice']
@@ -405,7 +520,21 @@ class BacktestEngine:
                 elif mode == 'RECOST_MINUS_PCT': rtp -= (rtp * val / 100)
                 elif mode == 'RECOST_MINUS_PTS': rtp -= val
                 rtp = self.round_to_tick(rtp)
+                trade_info['next_rtp'] = rtp
                 wait_dir = 'DOWN' if trade_info['tradeSlPrice'] > rtp else 'UP'
+                
+                # Calculate MTP if momentum is enabled
+                mtp = None
+                if leg.get('recost_mntm_enabled'):
+                    m_mode = leg.get('recost_mntm_mode', 'RECOST_PLUS_PCT')
+                    m_val = float(leg.get('recost_mntm_value', 0))
+                    mtp = rtp
+                    if m_mode == 'RECOST_PLUS_PCT': mtp += (mtp * m_val / 100)
+                    elif m_mode == 'RECOST_PLUS_PTS': mtp += m_val
+                    elif m_mode == 'RECOST_MINUS_PCT': mtp -= (mtp * m_val / 100)
+                    elif m_mode == 'RECOST_MINUS_PTS': mtp -= m_val
+                    mtp = self.round_to_tick(mtp)
+                    trade_info['next_mtp'] = mtp
                 
             elif leg.get('resl_enabled'):
                 mode, val = leg.get('resl_mode', 'RESL_PLUS_PCT'), float(leg.get('resl_value', 0))
@@ -415,9 +544,166 @@ class BacktestEngine:
                 elif mode == 'RESL_MINUS_PCT': rtp -= (rtp * val / 100)
                 elif mode == 'RESL_MINUS_PTS': rtp -= val
                 rtp = self.round_to_tick(rtp)
+                trade_info['next_rtp'] = rtp
                 wait_dir = 'DOWN' if trade_info['tradeSlPrice'] > rtp else 'UP'
                 
-            # If we have RTP, find crossing
+                mtp = None
+                if leg.get('resl_mntm_enabled'):
+                    m_mode = leg.get('resl_mntm_mode', 'RESL_PLUS_PCT')
+                    m_val = float(leg.get('resl_mntm_value', 0))
+                    mtp = rtp
+                    if 'PLUS_PCT' in m_mode or m_mode == 'PERCENTAGE': mtp += (mtp * m_val / 100)
+                    elif 'PLUS_PTS' in m_mode or m_mode == 'POINTS': mtp += m_val
+                    elif 'MINUS_PCT' in m_mode: mtp -= (mtp * m_val / 100)
+                    elif 'MINUS_PTS' in m_mode: mtp -= m_val
+                    mtp = self.round_to_tick(mtp)
+                    trade_info['next_mtp'] = mtp
+                    
+            elif leg.get('rehigh_enabled'):
+                exit_price = trade_info['exitPrice']
+                mode = leg.get('rehigh_mode', 'REHIGH_MINUS_PTS')
+                val = float(leg.get('rehigh_value', 0))
+                
+                # For REHIGH, we need to track the peak from exit onwards
+                search_df = remaining_df
+                if leg.get('no_reentry_on_sl_candle'):
+                    search_df = remaining_df[1:] if remaining_df.height > 1 else remaining_df[0:0]
+                
+                if search_df.height > 0:
+                    # Find the peak price (cumulative max of close)
+                    cum_high = search_df['close'].cum_max()
+                    peak_start = max(exit_price, cum_high[0])
+                    cum_high = cum_high.map_elements(lambda x: max(x, exit_price), return_dtype=pl.Float64)
+                    
+                    # RTP = peak - val (the price must fall from the peak)
+                    if mode == 'REHIGH_MINUS_PCT':
+                        rtp_series = cum_high * (1 - val / 100)
+                    elif mode == 'REHIGH_MINUS_PTS':
+                        rtp_series = cum_high - val
+                    else:
+                        rtp_series = cum_high
+                    
+                    rtp_series = rtp_series.map_elements(lambda x: self.round_to_tick(x), return_dtype=pl.Float64)
+                    
+                    # RTP hit: close drops to or below the rtp level
+                    rtp_hit_mask = search_df['close'] <= rtp_series
+                    
+                    if rtp_hit_mask.any():
+                        rtp_idx = rtp_hit_mask.arg_true()[0]
+                        rtp = rtp_series[rtp_idx]
+                        
+                        mtp = None
+                        if leg.get('rehigh_mntm_enabled'):
+                            m_mode = leg.get('rehigh_mntm_mode', 'REHIGH_PLUS_PCT')
+                            m_val = float(leg.get('rehigh_mntm_value', 0))
+                            mtp = rtp
+                            if m_mode in ('REHIGH_PLUS_PCT', 'PLUS_PCT', 'PERCENTAGE'): mtp += (mtp * m_val / 100)
+                            elif m_mode in ('REHIGH_PLUS_PTS', 'PLUS_PTS', 'POINTS'): mtp += m_val
+                            elif m_mode in ('REHIGH_MINUS_PCT', 'MINUS_PCT'): mtp -= (mtp * m_val / 100)
+                            elif m_mode in ('REHIGH_MINUS_PTS', 'MINUS_PTS'): mtp -= m_val
+                            mtp = self.round_to_tick(mtp)
+                            
+                            # Find MTP crossing after RTP hit
+                            mtp_search = search_df[rtp_idx:]
+                            mtp_wait_dir = 'DOWN' if mtp < rtp else 'UP'
+                            check_col = pl.when(pl.col('time') == trade_info['exitTime']).then(pl.col('close')).otherwise(pl.col('low') if mtp_wait_dir == 'DOWN' else pl.col('high'))
+                            mtp_mask = mtp_search.select(check_col <= mtp if mtp_wait_dir == 'DOWN' else check_col >= mtp).to_series()
+                            if mtp_mask.any():
+                                mtp_idx = mtp_mask.arg_true()[0]
+                                reentry_count += 1
+                                pending_reentry_method = 'REHIGH'
+                                pending_rtp = rtp
+                                pending_mtp = mtp
+                                pending_rtp_hit_time = search_df['time'][rtp_idx]
+                                trade_info['next_rtp'] = rtp
+                                trade_info['next_mtp'] = mtp
+                                pending_override_entry_price = mtp
+                                df = mtp_search[mtp_idx:]
+                                continue
+                        else:
+                            # No MTP, enter at RTP
+                            reentry_count += 1
+                            pending_reentry_method = 'REHIGH'
+                            pending_rtp = rtp
+                            trade_info['next_rtp'] = rtp
+                            pending_override_entry_price = rtp
+                            df = search_df[rtp_idx:]
+                            continue
+                
+                is_exhausted = False
+                break
+                
+            elif leg.get('relow_enabled'):
+                exit_price = trade_info['exitPrice']
+                mode = leg.get('relow_mode', 'RELOW_PLUS_PTS')
+                val = float(leg.get('relow_value', 0))
+                
+                search_df = remaining_df
+                if leg.get('no_reentry_on_sl_candle'):
+                    search_df = remaining_df[1:] if remaining_df.height > 1 else remaining_df[0:0]
+                
+                if search_df.height > 0:
+                    # Track the trough (cumulative min of close)
+                    cum_low = search_df['close'].cum_min()
+                    cum_low = cum_low.map_elements(lambda x: min(x, exit_price), return_dtype=pl.Float64)
+                    
+                    # RTP = trough + val (price must rise from the trough)
+                    if mode == 'RELOW_PLUS_PCT':
+                        rtp_series = cum_low * (1 + val / 100)
+                    elif mode == 'RELOW_PLUS_PTS':
+                        rtp_series = cum_low + val
+                    else:
+                        rtp_series = cum_low
+                    
+                    rtp_series = rtp_series.map_elements(lambda x: self.round_to_tick(x), return_dtype=pl.Float64)
+                    
+                    # RTP hit: close rises to or above the rtp level
+                    rtp_hit_mask = search_df['close'] >= rtp_series
+                    
+                    if rtp_hit_mask.any():
+                        rtp_idx = rtp_hit_mask.arg_true()[0]
+                        rtp = rtp_series[rtp_idx]
+                        
+                        mtp = None
+                        if leg.get('relow_mntm_enabled'):
+                            m_mode = leg.get('relow_mntm_mode', 'RELOW_PLUS_PCT')
+                            m_val = float(leg.get('relow_mntm_value', 0))
+                            mtp = rtp
+                            if m_mode in ('RELOW_PLUS_PCT', 'PLUS_PCT', 'PERCENTAGE'): mtp += (mtp * m_val / 100)
+                            elif m_mode in ('RELOW_PLUS_PTS', 'PLUS_PTS', 'POINTS'): mtp += m_val
+                            elif m_mode in ('RELOW_MINUS_PCT', 'MINUS_PCT'): mtp -= (mtp * m_val / 100)
+                            elif m_mode in ('RELOW_MINUS_PTS', 'MINUS_PTS'): mtp -= m_val
+                            mtp = self.round_to_tick(mtp)
+                            
+                            mtp_search = search_df[rtp_idx:]
+                            mtp_wait_dir = 'DOWN' if mtp < rtp else 'UP'
+                            check_col = pl.when(pl.col('time') == trade_info['exitTime']).then(pl.col('close')).otherwise(pl.col('low') if mtp_wait_dir == 'DOWN' else pl.col('high'))
+                            mtp_mask = mtp_search.select(check_col <= mtp if mtp_wait_dir == 'DOWN' else check_col >= mtp).to_series()
+                            if mtp_mask.any():
+                                mtp_idx = mtp_mask.arg_true()[0]
+                                reentry_count += 1
+                                pending_reentry_method = 'RELOW'
+                                pending_rtp = rtp
+                                pending_mtp = mtp
+                                pending_rtp_hit_time = search_df['time'][rtp_idx]
+                                trade_info['next_rtp'] = rtp
+                                trade_info['next_mtp'] = mtp
+                                pending_override_entry_price = mtp
+                                df = mtp_search[mtp_idx:]
+                                continue
+                        else:
+                            reentry_count += 1
+                            pending_reentry_method = 'RELOW'
+                            pending_rtp = rtp
+                            trade_info['next_rtp'] = rtp
+                            pending_override_entry_price = rtp
+                            df = search_df[rtp_idx:]
+                            continue
+                
+                is_exhausted = False
+                break
+                
+            # If we have RTP (RECOST/RESL), find crossing + MTP
             if rtp is not None:
                 # We skip the exact SL hit candle if no_reentry_on_sl_candle
                 if leg.get('no_reentry_on_sl_candle'):
@@ -426,21 +712,46 @@ class BacktestEngine:
                         is_exhausted = False
                         break
                 
-                cross_mask = remaining_df['low'] <= rtp if wait_dir == 'DOWN' else remaining_df['high'] >= rtp
+                check_col = pl.when(pl.col('time') == trade_info['exitTime']).then(pl.col('close')).otherwise(pl.col('low') if wait_dir == 'DOWN' else pl.col('high'))
+                cross_mask = remaining_df.select(check_col <= rtp if wait_dir == 'DOWN' else check_col >= rtp).to_series()
                 if cross_mask.any():
                     cross_idx = cross_mask.arg_true()[0]
-                    reentry_count += 1
-                    df = remaining_df[cross_idx:]
-                    # MTP Logic goes here (simplified for now)
-                    # If we need dynamic strike, we would fetch_stitched_data again.
-                    continue
+                    
+                    # Check if MTP is configured
+                    rtp_hit_time = remaining_df['time'][cross_idx]
+                    if mtp is not None and mtp != rtp:
+                        mtp_search = remaining_df[cross_idx:]
+                        mtp_wait_dir = 'DOWN' if mtp < rtp else 'UP'
+                        check_col = pl.when(pl.col('time') == trade_info['exitTime']).then(pl.col('close')).otherwise(pl.col('low') if mtp_wait_dir == 'DOWN' else pl.col('high'))
+                        mtp_mask = mtp_search.select(check_col <= mtp if mtp_wait_dir == 'DOWN' else check_col >= mtp).to_series()
+                        if mtp_mask.any():
+                            mtp_cross_idx = mtp_mask.arg_true()[0]
+                            reentry_count += 1
+                            pending_reentry_method = 'RECOST' if leg.get('recost_enabled') else 'RESL'
+                            pending_rtp = rtp
+                            pending_mtp = mtp
+                            pending_rtp_hit_time = rtp_hit_time
+                            pending_override_entry_price = mtp
+                            df = mtp_search[mtp_cross_idx:]
+                            continue
+                        else:
+                            is_exhausted = False
+                            break
+                    else:
+                        # No MTP, enter directly at RTP
+                        reentry_count += 1
+                        pending_reentry_method = 'RECOST' if leg.get('recost_enabled') else 'RESL'
+                        pending_rtp = rtp
+                        pending_override_entry_price = rtp
+                        df = remaining_df[cross_idx:]
+                        continue
                 else:
                     is_exhausted = False
                     break
             else:
                 break
-
-        return all_trades, is_exhausted
+                
+        return all_trades, is_exhausted, master_leg_df
 
 
 
@@ -493,14 +804,29 @@ class BacktestEngine:
                 if t < trade['entryTime']:
                     pnl_series.append(locked_pnl)
                     open_pnl_series.append(locked_pnl)
+                    # Show RTP Hit annotation during waiting period
+                    if trade.get('rtp_hit_time') == t and trade.get('reentry_mtp') is not None:
+                        action = f"[RTP Hit] ₹{trade['reentry_rtp']:.2f} | Waiting MTP: ₹{trade['reentry_mtp']:.2f}"
                 elif t >= trade['entryTime'] and t <= trade['exitTime']:
                     if t == trade['entryTime']:
                         side = 'Sell' if leg.get('side') == 'SELL' else 'Buy'
-                        prefix = 'Entry' if trade_idx == 0 else 'Re-Entry'
+                        reentry_method = trade.get('reentry_method')
+                        if trade_idx == 0 and not reentry_method:
+                            prefix = 'Entry'
+                        elif reentry_method:
+                            prefix = f'Re-Entry [{reentry_method}]'
+                        else:
+                            prefix = 'Re-Entry'
                         
                         init_sl_val = trade.get('initialSlPrice') or trade.get('tradeSlPrice', 0)
                         sl_str = f" | Init SL: ₹{init_sl_val:.2f}" if init_sl_val else ""
-                        action = f"{prefix} ({side}): {trade['entryPrice']:.2f}{sl_str}"
+                        # Show RTP/MTP that triggered this re-entry
+                        rtp_mtp_str = ""
+                        if trade.get('reentry_rtp') is not None:
+                            rtp_mtp_str += f" | RTP: ₹{trade['reentry_rtp']:.2f}"
+                        if trade.get('reentry_mtp') is not None:
+                            rtp_mtp_str += f" | MTP: ₹{trade['reentry_mtp']:.2f}"
+                        action = f"{prefix} ({side}): {trade['entryPrice']:.2f}{sl_str}{rtp_mtp_str}"
                     
                     row = df.filter(pl.col('time') == t)
                     if t == trade['exitTime']:
@@ -534,7 +860,13 @@ class BacktestEngine:
                         locked_pnl += (exit_diff * leg.get('lots', 1))
                         
                         side = 'Buy' if leg.get('side') == 'SELL' else 'Sell'
-                        exit_action = f"Exit ({side}) [{trade['exitReason']}]: {trade['exitPrice']:.2f}"
+                        # Show calculated RTP/MTP for next re-entry
+                        calc_str = ""
+                        if trade.get('next_rtp') is not None:
+                            calc_str += f" | Calc RTP: ₹{trade['next_rtp']:.2f}"
+                        if trade.get('next_mtp') is not None:
+                            calc_str += f" | Calc MTP: ₹{trade['next_mtp']:.2f}"
+                        exit_action = f"Exit ({side}) [{trade['exitReason']}]: {trade['exitPrice']:.2f}{calc_str}"
                         if action:
                             action = f"{action} | {exit_action}"
                         else:
@@ -549,8 +881,8 @@ class BacktestEngine:
             action_series.append(action)
                 
         return time_df.with_columns([
-            pl.Series("pnl", pnl_series),
-            pl.Series("open_pnl", open_pnl_series),
+            pl.Series("pnl", pnl_series, dtype=pl.Float64),
+            pl.Series("open_pnl", open_pnl_series, dtype=pl.Float64),
             pl.Series("action", action_series)
         ])
 
@@ -608,7 +940,7 @@ class BacktestEngine:
                 leg_df = leg_df.filter(pl.col('time') >= entry_time)
                 
                 # Calculate trades for this leg!
-                trades, is_exhausted = self.calculate_leg_trades(leg, leg_df, leg, self.index_name, expiry, year, month, date_str, step)
+                trades, is_exhausted, stitched_leg_df = self.calculate_leg_trades(leg, leg_df, leg, self.index_name, expiry, year, month, date_str, step, index_df, final_strike)
                 
                 if not is_exhausted:
                     all_legs_exhausted = False
@@ -619,25 +951,46 @@ class BacktestEngine:
                         max_exit_time = last_trade_time
                 
                 for tr in trades:
-                    tr['qty'] = qty
-                    tr['tradeValue'] = tr['entryPrice'] * qty
-                    exit_diff = (tr['entryPrice'] - tr['exitPrice']) if leg.get('side') == 'SELL' else (tr['exitPrice'] - tr['entryPrice'])
-                    tr['tradePnL'] = exit_diff * qty
+                    actual_qty = int(tr.get('lots', leg.get('lots', 1))) * lotsize
+                    tr['qty'] = actual_qty
+                    tr['tradeValue'] = tr['entryPrice'] * actual_qty
+                    
+                    tr_side = tr.get('side', leg.get('side', 'SELL'))
+                    exit_diff = (tr['entryPrice'] - tr['exitPrice']) if tr_side == 'SELL' else (tr['exitPrice'] - tr['entryPrice'])
+                    tr['tradePnL'] = exit_diff * actual_qty
                     tr['leg_id'] = leg.get('id')
-                    tr['symbol'] = f"{final_strike}_{leg.get('option_type')}"
-                    tr['side'] = leg.get('side')
+                    
+                    opt_type = tr.get('option_type', leg.get('option_type', 'CE'))
+                    tr['symbol'] = f"{tr.get('strike', final_strike)}_{opt_type}"
+                    tr['side'] = tr_side
                     daily_trades.append(tr)
                     
-                # Build PnL series for aggregation
-                pnl_df = self.build_pnl_array(leg, trades, leg_df, entry_time, self.exit_time)
-                # Multiply by lotsize for accurate money value
-                pnl_df = pnl_df.with_columns(
-                    (pl.col("pnl") * lotsize).alias("pnl"),
-                    (pl.col("open_pnl") * lotsize).alias("open_pnl")
-                )
-                leg_key = f"{final_strike}_{leg.get('option_type')}"
-                leg_pnl_dfs.append((leg_key, pnl_df))
-                
+                if not trades:
+                    # No trades at all, just build a flat array with the initial strike
+                    pnl_df = self.build_pnl_array(leg, [], stitched_leg_df, entry_time, self.exit_time)
+                    pnl_df = pnl_df.with_columns(
+                        (pl.col("pnl") * lotsize).alias("pnl"),
+                        (pl.col("open_pnl") * lotsize).alias("open_pnl")
+                    )
+                    leg_key = f"{final_strike}_{leg.get('option_type')}"
+                    leg_pnl_dfs.append((leg_key, pnl_df))
+                else:
+                    # Group trades by their exact strike/symbol so each gets its own chart column
+                    groups = {}
+                    for tr in trades:
+                        groups.setdefault(tr['symbol'], []).append(tr)
+                        
+                    for symbol, sym_trades in groups.items():
+                        actual_leg = sym_trades[0].get('leg_config', leg)
+                        pnl_df = self.build_pnl_array(actual_leg, sym_trades, stitched_leg_df, entry_time, self.exit_time)
+                        
+                        actual_lotsize = int(actual_leg.get('lots', 1)) * (lotsize / int(leg.get('lots', 1))) if lotsize > 0 else lotsize
+                        
+                        pnl_df = pnl_df.with_columns(
+                            (pl.col("pnl") * actual_lotsize).alias("pnl"),
+                            (pl.col("open_pnl") * actual_lotsize).alias("open_pnl")
+                        )
+                        leg_pnl_dfs.append((symbol, pnl_df))
             if not leg_pnl_dfs: continue
             
             # --- Overall SL / Target Aggregation ---
@@ -647,12 +1000,11 @@ class BacktestEngine:
                 overall_df = overall_df.with_columns(
                     (pl.col("pnl").fill_null(0) + pl.col("pnl_right").fill_null(0)).alias("pnl"),
                     (pl.col("open_pnl").fill_null(0) + pl.col("open_pnl_right").fill_null(0)).alias("open_pnl")
-                ).drop(["pnl_right", "open_pnl_right"])
-                
-            # Drop any other suffixed columns from the join
-            drop_cols = [c for c in overall_df.columns if c.endswith('_right')]
-            if drop_cols:
-                overall_df = overall_df.drop(drop_cols)
+                )
+                # Drop all suffixed columns from the join so the next join doesn't clash
+                drop_cols = [c for c in overall_df.columns if c.endswith('_right')]
+                if drop_cols:
+                    overall_df = overall_df.drop(drop_cols)
                 
             # Calculate total invested value for percentage calculations
             total_invested = 0
@@ -778,6 +1130,22 @@ class BacktestEngine:
             for leg_key, df in leg_pnl_dfs:
                 # Filter to overall_exit_time
                 df_filtered = df.filter(pl.col('time') <= overall_exit_time)
+                
+                # Check if this specific strike was traded, and filter to its active periods to cut off the table when inactive
+                # Only cut off for strike-changing re-entries (ASAP/LAZY). For same-strike re-entries (RECOST/RESL/REHIGH/RELOW), show full candles.
+                has_trades = False
+                has_strike_change = False
+                mask = pl.lit(False)
+                for tr in truncated_trades:
+                    if tr['symbol'] == leg_key:
+                        has_trades = True
+                        if tr.get('reentry_method') in ('ASAP', 'LAZY'):
+                            has_strike_change = True
+                        mask = mask | ((pl.col('time') >= tr['entryTime']) & (pl.col('time') <= tr['exitTime']))
+                
+                if has_trades and has_strike_change:
+                    df_filtered = df_filtered.filter(mask)
+                    
                 dicts = df_filtered.to_dicts()
                 if dicts:
                     last_row = dicts[-1]
