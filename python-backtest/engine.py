@@ -399,6 +399,10 @@ class BacktestEngine:
         pending_rtp_hit_time = None
         pending_override_entry_price = None
         
+        base_resl_rtp = None
+        base_resl_mtp = None
+        base_resl_sl_hit = None
+        
         while df.height > 0:
             trade_info, remaining_df, exit_reason = self.calculate_trade_vectorized(leg, df, config, reentry_count > 0, pending_override_entry_price)
             
@@ -547,27 +551,41 @@ class BacktestEngine:
                     trade_info['next_mtp'] = mtp
                 
             elif leg.get('resl_enabled'):
-                mode, val = leg.get('resl_mode', 'RESL_PLUS_PCT'), float(leg.get('resl_value', 0))
-                rtp = trade_info['tradeSlPrice']
-                if mode == 'RESL_PLUS_PCT': rtp += (rtp * val / 100)
-                elif mode == 'RESL_PLUS_PTS': rtp += val
-                elif mode == 'RESL_MINUS_PCT': rtp -= (rtp * val / 100)
-                elif mode == 'RESL_MINUS_PTS': rtp -= val
-                rtp = self.round_to_tick(rtp)
-                trade_info['next_rtp'] = rtp
-                wait_dir = 'DOWN' if trade_info['tradeSlPrice'] > rtp else 'UP'
-                
-                mtp = None
-                if leg.get('resl_mntm_enabled'):
-                    m_mode = leg.get('resl_mntm_mode', 'RESL_PLUS_PCT')
-                    m_val = float(leg.get('resl_mntm_value', 0))
-                    mtp = rtp
-                    if 'PLUS_PCT' in m_mode or m_mode == 'PERCENTAGE': mtp += (mtp * m_val / 100)
-                    elif 'PLUS_PTS' in m_mode or m_mode == 'POINTS': mtp += m_val
-                    elif 'MINUS_PCT' in m_mode: mtp -= (mtp * m_val / 100)
-                    elif 'MINUS_PTS' in m_mode: mtp -= m_val
-                    mtp = self.round_to_tick(mtp)
+                if reentry_count > 0 and base_resl_rtp is not None:
+                    rtp = base_resl_rtp
+                    mtp = base_resl_mtp
+                    sl_hit = base_resl_sl_hit
+                    trade_info['next_rtp'] = rtp
                     trade_info['next_mtp'] = mtp
+                    wait_dir = 'DOWN' if sl_hit > rtp else 'UP'
+                else:
+                    mode, val = leg.get('resl_mode', 'RESL_PLUS_PCT'), float(leg.get('resl_value', 0))
+                    sl_hit = trade_info['tradeSlPrice']
+                    rtp = sl_hit
+                    if mode == 'RESL_PLUS_PCT': rtp += (rtp * val / 100)
+                    elif mode == 'RESL_PLUS_PTS': rtp += val
+                    elif mode == 'RESL_MINUS_PCT': rtp -= (rtp * val / 100)
+                    elif mode == 'RESL_MINUS_PTS': rtp -= val
+                    rtp = self.round_to_tick(rtp)
+                    trade_info['next_rtp'] = rtp
+                    wait_dir = 'DOWN' if sl_hit > rtp else 'UP'
+                    
+                    mtp = None
+                    if leg.get('resl_mntm_enabled'):
+                        m_mode = leg.get('resl_mntm_mode', 'RESL_PLUS_PCT')
+                        m_val = float(leg.get('resl_mntm_value', 0))
+                        mtp = rtp
+                        if 'PLUS_PCT' in m_mode or m_mode == 'PERCENTAGE': mtp += (mtp * m_val / 100)
+                        elif 'PLUS_PTS' in m_mode or m_mode == 'POINTS': mtp += m_val
+                        elif 'MINUS_PCT' in m_mode: mtp -= (mtp * m_val / 100)
+                        elif 'MINUS_PTS' in m_mode: mtp -= m_val
+                        mtp = self.round_to_tick(mtp)
+                        trade_info['next_mtp'] = mtp
+                    
+                    base_resl_rtp = rtp
+                    base_resl_mtp = mtp
+                    base_resl_sl_hit = sl_hit
+                    
                     
             elif leg.get('rehigh_enabled'):
                 exit_price = trade_info['exitPrice']
