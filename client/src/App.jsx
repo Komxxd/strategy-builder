@@ -13,7 +13,7 @@ import {
  Settings, Rocket, ChevronRight, Menu, LogOut, Loader2, Lock, History, ChevronLeft,
  Wifi, WifiOff, User
 } from'lucide-react';
-import { logoutBackend, loginBackend, connectSocket, disconnectSocket, getBrokerStatus, getConnectionStatus } from'./api';
+import { logoutBackend, loginBackend, connectSocket, disconnectSocket, getBrokerStatus, getConnectionStatus, logoutUserBroker } from'./api';
 import { StrategyHistory } from'./components/StrategyHistory';
 import { BacktestResultsView } from'./components/BacktestResultsView';
 import { BrokerSetup } from'./components/BrokerSetup';
@@ -162,18 +162,30 @@ function App() {
  setInstrumentsLastUpdated(data.lastUpdated);
  };
 
- const handleForceLogout = async (data) => {
- console.log("[Auth] Force logout received:", data.message);
- try {
- await handleLogout();
- } catch (err) {
- console.error("[Auth] Supabase logout error:", err);
- } finally {
- // Guarantee the user is kicked out by clearing storage and hard redirecting
- localStorage.clear();
- window.location.href = '/login';
- }
- };
+  const handleForceLogout = async (data) => {
+    console.log("[Auth] Force logout received:", data?.message);
+    
+    // 1. Explicitly logout broker session
+    try {
+      await logoutUserBroker();
+      console.log("[Auth] Broker session logged out.");
+    } catch (err) {
+      console.error("[Auth] Broker logout error:", err);
+    }
+
+    // 2. Clear application session
+    try {
+      await handleLogout();
+      console.log("[Auth] Application session logged out.");
+    } catch (err) {
+      console.error("[Auth] Supabase logout error:", err);
+    }
+    
+    // 3. Hard reset browser state
+    localStorage.clear();
+    sessionStorage.clear();
+    window.location.replace('/login');
+  };
 
  socket.on('broker_status', handleBrokerStatus);
  socket.on('socket_status', handleSocketStatus);
