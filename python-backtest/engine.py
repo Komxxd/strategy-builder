@@ -607,21 +607,26 @@ class BacktestEngine:
                     # RTP = peak - val (the price must fall from the peak)
                     if mode == 'REHIGH_MINUS_PCT':
                         rtp_series = cum_high * (1 - val / 100)
+                        initial_rtp = exit_price * (1 - val / 100)
                     elif mode == 'REHIGH_MINUS_PTS':
                         rtp_series = cum_high - val
+                        initial_rtp = exit_price - val
                     else:
                         rtp_series = cum_high
+                        initial_rtp = exit_price
                     
                     rtp_series = rtp_series.map_elements(lambda x: self.round_to_tick(x), return_dtype=pl.Float64)
+                    initial_rtp = self.round_to_tick(initial_rtp)
+                    check_rtp_series = rtp_series.shift(1).fill_null(initial_rtp)
                     
-                    # RTP hit: low drops to or below the rtp level (except on exit candle)
+                    # RTP hit: low drops to or below the previous candle's rtp level
                     check_col = pl.when(pl.col('time') == trade_info['exitTime']).then(pl.col('close')).otherwise(pl.col('low'))
                     check_series = search_df.select(check_col).to_series()
-                    rtp_hit_mask = check_series <= rtp_series
+                    rtp_hit_mask = check_series <= check_rtp_series
                     
                     if rtp_hit_mask.any():
                         rtp_idx = rtp_hit_mask.arg_true()[0]
-                        rtp = rtp_series[rtp_idx]
+                        rtp = check_rtp_series[rtp_idx]
                         
                         mtp = None
                         if leg.get('rehigh_mntm_enabled'):
@@ -687,21 +692,26 @@ class BacktestEngine:
                     # RTP = trough + val (price must rise from the trough)
                     if mode == 'RELOW_PLUS_PCT':
                         rtp_series = cum_low * (1 + val / 100)
+                        initial_rtp = exit_price * (1 + val / 100)
                     elif mode == 'RELOW_PLUS_PTS':
                         rtp_series = cum_low + val
+                        initial_rtp = exit_price + val
                     else:
                         rtp_series = cum_low
+                        initial_rtp = exit_price
                     
                     rtp_series = rtp_series.map_elements(lambda x: self.round_to_tick(x), return_dtype=pl.Float64)
+                    initial_rtp = self.round_to_tick(initial_rtp)
+                    check_rtp_series = rtp_series.shift(1).fill_null(initial_rtp)
                     
-                    # RTP hit: high rises to or above the rtp level (except on exit candle)
+                    # RTP hit: high rises to or above the previous candle's rtp level
                     check_col = pl.when(pl.col('time') == trade_info['exitTime']).then(pl.col('close')).otherwise(pl.col('high'))
                     check_series = search_df.select(check_col).to_series()
-                    rtp_hit_mask = check_series >= rtp_series
+                    rtp_hit_mask = check_series >= check_rtp_series
                     
                     if rtp_hit_mask.any():
                         rtp_idx = rtp_hit_mask.arg_true()[0]
-                        rtp = rtp_series[rtp_idx]
+                        rtp = check_rtp_series[rtp_idx]
                         
                         mtp = None
                         if leg.get('relow_mntm_enabled'):
@@ -842,7 +852,7 @@ class BacktestEngine:
         action_series = []
         
         trade_idx = 0
-        for t in time_df['time']:
+        for time_idx, t in enumerate(time_df['time']):
             action = None
             prev_trade = trades[trade_idx - 1] if trade_idx > 0 else {}
             
@@ -914,15 +924,19 @@ class BacktestEngine:
                                 if rmeth == 'REHIGH':
                                     mode = leg_cfg.get('rehigh_mode', 'REHIGH_MINUS_PTS')
                                     val = float(leg_cfg.get('rehigh_value', 0))
-                                    if mode == 'REHIGH_MINUS_PCT': base_rtp = trade['exitPrice'] * (1 - val / 100)
-                                    elif mode == 'REHIGH_MINUS_PTS': base_rtp = trade['exitPrice'] - val
-                                    else: base_rtp = trade['exitPrice']
+                                    candle_close = time_df['close'][time_idx]
+                                    peak = max(trade['exitPrice'], candle_close)
+                                    if mode == 'REHIGH_MINUS_PCT': base_rtp = peak * (1 - val / 100)
+                                    elif mode == 'REHIGH_MINUS_PTS': base_rtp = peak - val
+                                    else: base_rtp = peak
                                 elif rmeth == 'RELOW':
                                     mode = leg_cfg.get('relow_mode', 'RELOW_PLUS_PTS')
                                     val = float(leg_cfg.get('relow_value', 0))
-                                    if mode == 'RELOW_PLUS_PCT': base_rtp = trade['exitPrice'] * (1 + val / 100)
-                                    elif mode == 'RELOW_PLUS_PTS': base_rtp = trade['exitPrice'] + val
-                                    else: base_rtp = trade['exitPrice']
+                                    candle_close = time_df['close'][time_idx]
+                                    trough = min(trade['exitPrice'], candle_close)
+                                    if mode == 'RELOW_PLUS_PCT': base_rtp = trough * (1 + val / 100)
+                                    elif mode == 'RELOW_PLUS_PTS': base_rtp = trough + val
+                                    else: base_rtp = trough
                                 
                                 if base_rtp is not None:
                                     calc_str += f" | Calc RTP: ₹{self.round_to_tick(base_rtp):.2f}"
