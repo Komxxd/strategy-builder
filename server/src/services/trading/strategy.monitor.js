@@ -197,25 +197,46 @@ async function monitorStrategyLoop(strategyId, strategy) {
 
                     rtp = roundToTick(rtp);
                     leg.re_high_trigger_price = rtp;
-                    leg.rtp = rtp;
+
+                    // RTP on Close: track peak every tick, but check RTP hit against the previous candle's committed value.
+                    // At second 59 (candle close), commit the new RTP for the next minute.
+                    const rtpOnClose = leg.leg.rehigh_rtp_on_close;
+                    let checkRtp = rtp; // Default: real-time RTP
+
+                    if (rtpOnClose) {
+                        const rehighSeconds = parseInt(currentTime.split(":")[2], 10);
+                        // Use the previously committed RTP for hit-checking this minute
+                        checkRtp = leg.committed_rtp !== undefined ? leg.committed_rtp : rtp;
+                        leg.rtp = checkRtp; // Show committed RTP on dashboard
+
+                        if (rehighSeconds === 59) {
+                            // At candle close: commit the current peak's RTP for the next minute
+                            if (leg.committed_rtp !== rtp) {
+                                addStrategyLog(strategyId, `[RE-HIGH] Candle Close — Committing RTP: ₹${rtp} (Peak: ₹${peak})`, "INFO");
+                            }
+                            leg.committed_rtp = rtp;
+                        }
+                    } else {
+                        leg.rtp = rtp;
+                    }
 
                     // CASE A: With Momentum (Wait for pullback, then place MTP)
                     if (leg.leg.rehigh_mntm_enabled) {
                         // Calculate PROJECTED MTP for dashboard visibility
                         const mntmMode = leg.leg.rehigh_mntm_mode || "REHIGH_PLUS_PCT";
                         const mntmVal = parseFloat(leg.leg.rehigh_mntm_value || 0);
-                        let projectedMtp = rtp;
-                        if (mntmMode === "REHIGH_PLUS_PCT" || mntmMode === "PLUS_PCT" || mntmMode === "PERCENTAGE") projectedMtp = rtp + (rtp * mntmVal / 100);
-                        else if (mntmMode === "REHIGH_PLUS_PTS" || mntmMode === "PLUS_PTS" || mntmMode === "POINTS") projectedMtp = rtp + mntmVal;
-                        else if (mntmMode === "REHIGH_MINUS_PCT" || mntmMode === "MINUS_PCT") projectedMtp = rtp - (rtp * mntmVal / 100);
-                        else if (mntmMode === "REHIGH_MINUS_PTS" || mntmMode === "MINUS_PTS") projectedMtp = rtp - mntmVal;
+                        let projectedMtp = checkRtp;
+                        if (mntmMode === "REHIGH_PLUS_PCT" || mntmMode === "PLUS_PCT" || mntmMode === "PERCENTAGE") projectedMtp = checkRtp + (checkRtp * mntmVal / 100);
+                        else if (mntmMode === "REHIGH_PLUS_PTS" || mntmMode === "PLUS_PTS" || mntmMode === "POINTS") projectedMtp = checkRtp + mntmVal;
+                        else if (mntmMode === "REHIGH_MINUS_PCT" || mntmMode === "MINUS_PCT") projectedMtp = checkRtp - (checkRtp * mntmVal / 100);
+                        else if (mntmMode === "REHIGH_MINUS_PTS" || mntmMode === "MINUS_PTS") projectedMtp = checkRtp - mntmVal;
                         leg.mtp = roundToTick(projectedMtp);
 
                         if (isNewPeak) {
-                            addStrategyLog(strategyId, `[RE-HIGH] PEAK: ₹${peak} | RTP: ₹${rtp} | MTP: ₹${leg.mtp}`, "INFO");
+                            addStrategyLog(strategyId, `[RE-HIGH] PEAK: ₹${peak} | RTP: ₹${checkRtp}${rtpOnClose ? ' (on close)' : ''} | MTP: ₹${leg.mtp}`, "INFO");
                         }
 
-                        if (tickPrice <= rtp) {
+                        if (tickPrice <= checkRtp) {
                             await handleReentryHigh({ leg, config, strategyId, addStrategyLog, currentTick: tickPrice, isMtpPlacement: true });
                         }
                     }
@@ -223,10 +244,10 @@ async function monitorStrategyLoop(strategyId, strategy) {
                     else {
                         leg.mtp = null; // Clear MTP for dashboard
                         if (isNewPeak) {
-                            addStrategyLog(strategyId, `[RE-HIGH] PEAK: ₹${peak} | RTP: ₹${rtp}`, "INFO");
+                            addStrategyLog(strategyId, `[RE-HIGH] PEAK: ₹${peak} | RTP: ₹${checkRtp}${rtpOnClose ? ' (on close)' : ''}`, "INFO");
                         }
 
-                        if (tickPrice <= rtp) {
+                        if (tickPrice <= checkRtp) {
                             await handleReentryHigh({ leg, config, strategyId, addStrategyLog, currentTick: tickPrice, isMtpPlacement: false });
                         }
                     }
@@ -251,25 +272,46 @@ async function monitorStrategyLoop(strategyId, strategy) {
 
                     rtp = roundToTick(rtp);
                     leg.re_low_trigger_price = rtp;
-                    leg.rtp = rtp;
+
+                    // RTP on Close: track low every tick, but check RTP hit against the previous candle's committed value.
+                    // At second 59 (candle close), commit the new RTP for the next minute.
+                    const rtpOnClose = leg.leg.relow_rtp_on_close;
+                    let checkRtp = rtp; // Default: real-time RTP
+
+                    if (rtpOnClose) {
+                        const relowSeconds = parseInt(currentTime.split(":")[2], 10);
+                        // Use the previously committed RTP for hit-checking this minute
+                        checkRtp = leg.committed_rtp !== undefined ? leg.committed_rtp : rtp;
+                        leg.rtp = checkRtp; // Show committed RTP on dashboard
+
+                        if (relowSeconds === 59) {
+                            // At candle close: commit the current low's RTP for the next minute
+                            if (leg.committed_rtp !== rtp) {
+                                addStrategyLog(strategyId, `[RE-LOW] Candle Close — Committing RTP: ₹${rtp} (Low: ₹${low})`, "INFO");
+                            }
+                            leg.committed_rtp = rtp;
+                        }
+                    } else {
+                        leg.rtp = rtp;
+                    }
 
                     // CASE A: With Momentum
                     if (leg.leg.relow_mntm_enabled) {
                         // Calculate PROJECTED MTP for dashboard visibility
                         const mntmMode = leg.leg.relow_mntm_mode || "RELOW_PLUS_PCT";
                         const mntmVal = parseFloat(leg.leg.relow_mntm_value || 0);
-                        let projectedMtp = rtp;
-                        if (mntmMode === "RELOW_PLUS_PCT" || mntmMode === "PLUS_PCT" || mntmMode === "PERCENTAGE") projectedMtp = rtp + (rtp * mntmVal / 100);
-                        else if (mntmMode === "RELOW_PLUS_PTS" || mntmMode === "PLUS_PTS" || mntmMode === "POINTS") projectedMtp = rtp + mntmVal;
-                        else if (mntmMode === "RELOW_MINUS_PCT" || mntmMode === "MINUS_PCT") projectedMtp = rtp - (rtp * mntmVal / 100);
-                        else if (mntmMode === "RELOW_MINUS_PTS" || mntmMode === "MINUS_PTS") projectedMtp = rtp - mntmVal;
+                        let projectedMtp = checkRtp;
+                        if (mntmMode === "RELOW_PLUS_PCT" || mntmMode === "PLUS_PCT" || mntmMode === "PERCENTAGE") projectedMtp = checkRtp + (checkRtp * mntmVal / 100);
+                        else if (mntmMode === "RELOW_PLUS_PTS" || mntmMode === "PLUS_PTS" || mntmMode === "POINTS") projectedMtp = checkRtp + mntmVal;
+                        else if (mntmMode === "RELOW_MINUS_PCT" || mntmMode === "MINUS_PCT") projectedMtp = checkRtp - (checkRtp * mntmVal / 100);
+                        else if (mntmMode === "RELOW_MINUS_PTS" || mntmMode === "MINUS_PTS") projectedMtp = checkRtp - mntmVal;
                         leg.mtp = roundToTick(projectedMtp);
 
                         if (isNewLow) {
-                            addStrategyLog(strategyId, `[RE-LOW] LOW: ₹${low} | RTP: ₹${rtp} | MTP: ₹${leg.mtp}`, "INFO");
+                            addStrategyLog(strategyId, `[RE-LOW] LOW: ₹${low} | RTP: ₹${checkRtp}${rtpOnClose ? ' (on close)' : ''} | MTP: ₹${leg.mtp}`, "INFO");
                         }
 
-                        if (tickPrice >= rtp) {
+                        if (tickPrice >= checkRtp) {
                             await handleReentryLow({ leg, config, strategyId, addStrategyLog, currentTick: tickPrice, isMtpPlacement: true });
                         }
                     }
@@ -277,10 +319,10 @@ async function monitorStrategyLoop(strategyId, strategy) {
                     else {
                         leg.mtp = null; // Clear MTP for dashboard
                         if (isNewLow) {
-                            addStrategyLog(strategyId, `[RE-LOW] LOW: ₹${low} | RTP: ₹${rtp}`, "INFO");
+                            addStrategyLog(strategyId, `[RE-LOW] LOW: ₹${low} | RTP: ₹${checkRtp}${rtpOnClose ? ' (on close)' : ''}`, "INFO");
                         }
 
-                        if (tickPrice >= rtp) {
+                        if (tickPrice >= checkRtp) {
                             await handleReentryLow({ leg, config, strategyId, addStrategyLog, currentTick: tickPrice, isMtpPlacement: false });
                         }
                     }

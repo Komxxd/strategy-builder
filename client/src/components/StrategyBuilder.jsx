@@ -62,12 +62,14 @@ const DEFAULT_LEG = {
  rehigh_enabled: false,
  rehigh_mode:'REHIGH_MINUS_PTS',
  rehigh_value: 1,
+ rehigh_rtp_on_close: false,
  rehigh_mntm_enabled: false,
  rehigh_mntm_mode:'REHIGH_PLUS_PTS',
  rehigh_mntm_value: 0,
  relow_enabled: false,
  relow_mode:'RELOW_PLUS_PTS',
  relow_value: 1,
+ relow_rtp_on_close: false,
  relow_mntm_enabled: false,
  relow_mntm_mode:'RELOW_PLUS_PTS',
  relow_mntm_value: 0,
@@ -1303,6 +1305,17 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
  </div>
 
  <div className="space-y-2 pt-1">
+ <div className="flex items-center gap-4">
+ <div className="flex items-center gap-2">
+ <input
+ type="checkbox"
+ id={`rehigh-rtp-on-close-${idPrefix}`}
+ className="w-3.5 h-3.5 rounded text-amber-600 focus:ring-amber-500 cursor-pointer"
+ checked={leg.rehigh_rtp_on_close || false}
+ onChange={(e) => onChange({ ...leg, rehigh_rtp_on_close: e.target.checked })}
+ />
+ <Label htmlFor={`rehigh-rtp-on-close-${idPrefix}`} className="text-[10px] cursor-pointer text-amber-700">RTP on Close</Label>
+ </div>
  <div className="flex items-center gap-2">
  <input
  type="checkbox"
@@ -1312,6 +1325,7 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
  onChange={(e) => onChange({ ...leg, rehigh_mntm_enabled: e.target.checked })}
  />
  <Label htmlFor={`rehigh-mntm-${idPrefix}`} className="text-[10px] cursor-pointer">Re-Entry Momentum</Label>
+ </div>
  </div>
 
  {leg.rehigh_mntm_enabled && (
@@ -1555,6 +1569,17 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
  </div>
 
  <div className="space-y-2 pt-1">
+ <div className="flex items-center gap-4">
+ <div className="flex items-center gap-2">
+ <input
+ type="checkbox"
+ id={`relow-rtp-on-close-${idPrefix}`}
+ className="w-3.5 h-3.5 rounded text-amber-600 focus:ring-amber-500 cursor-pointer"
+ checked={leg.relow_rtp_on_close || false}
+ onChange={(e) => onChange({ ...leg, relow_rtp_on_close: e.target.checked })}
+ />
+ <Label htmlFor={`relow-rtp-on-close-${idPrefix}`} className="text-[10px] cursor-pointer text-amber-700">RTP on Close</Label>
+ </div>
  <div className="flex items-center gap-2">
  <input
  type="checkbox"
@@ -1564,6 +1589,7 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
  onChange={(e) => onChange({ ...leg, relow_mntm_enabled: e.target.checked })}
  />
  <Label htmlFor={`relow-mntm-${idPrefix}`} className="text-[10px] cursor-pointer">Re-Entry Momentum</Label>
+ </div>
  </div>
 
  {leg.relow_mntm_enabled && (
