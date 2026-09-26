@@ -137,8 +137,12 @@ const worker = new Worker('backtest-jobs', async (job) => {
 }, { 
     connection,
     // Concurrency: How many backtests to run in parallel on this droplet.
-    // Upgraded to 20 because the new Python backend caches market data in RAM.
-    concurrency: 20
+    // Keep low on small droplets (1GB RAM) since each backtest loads parquet data into the Python process.
+    concurrency: 2,
+    // Give long-running backtests more room before being considered stalled
+    lockDuration: 60000,        // 60s lock (default: 30s)
+    stalledInterval: 60000,     // Check for stalls every 60s (default: 30s)
+    maxStalledCount: 2          // Allow 2 stall checks before failing (default: 1)
 });
 
 worker.on('completed', (job) => {

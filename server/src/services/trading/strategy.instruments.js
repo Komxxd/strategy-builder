@@ -274,22 +274,29 @@ async function findClosestPremiumInstrument(indexName, optionType, targetPremium
     }
 
     let allFetchedData = [];
-    for (let i = 0; i < tokenChunks.length; i++) {
+    
+    // Fetch all chunks simultaneously to drastically reduce API wait times
+    const fetchPromises = tokenChunks.map(async (chunk, i) => {
         try {
-            const chunk = tokenChunks[i];
             const ltpRes = await getLtpSecure({
                 exchange,
                 symboltoken: chunk,
                 connectionId
             });
             if (ltpRes?.status && ltpRes?.data?.fetched) {
-                allFetchedData = allFetchedData.concat(ltpRes.data.fetched);
+                return ltpRes.data.fetched;
             } else if (ltpRes?.message) {
                 console.error(`SmartAPI Error on chunk ${i}: ${ltpRes.message}`);
             }
         } catch (err) {
             console.error(`Error fetching chunk ${i} for nearest premium:`, err.message);
         }
+        return [];
+    });
+
+    const chunkResults = await Promise.all(fetchPromises);
+    for (const resArray of chunkResults) {
+        allFetchedData = allFetchedData.concat(resArray);
     }
 
     if (allFetchedData.length === 0) {

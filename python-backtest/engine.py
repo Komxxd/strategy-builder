@@ -1143,21 +1143,28 @@ class BacktestEngine:
             overall_exit_reason = None
             overall_hit_on = None
             
-            if sl_amt > 0 or tgt_amt > 0:
-                hit_mask_open = pl.Series([False] * len(overall_df))
-                hit_mask_close = pl.Series([False] * len(overall_df))
+            if (sl_amt > 0 or tgt_amt > 0) and len(overall_df) > 0:
+                hit_mask_open = pl.Series([False] * len(overall_df), dtype=pl.Boolean)
+                hit_mask_close = pl.Series([False] * len(overall_df), dtype=pl.Boolean)
                 
                 overall_sl_on_close = self.config.get('overall_sl_on_close', False)
                 overall_tgt_on_close = self.config.get('overall_target_on_close', False)
                 
+                # Reconstruct PnL series from raw Python values to guarantee Float64 dtype.
+                # After full joins, columns can have Null dtype (not just null values),
+                # and .cast()/.fill_null() don't reliably fix Null dtype in all Polars versions.
+                safe_open_pnl = pl.Series([float(v) if v is not None else 0.0 for v in overall_df['open_pnl'].to_list()])
+                safe_close_pnl = pl.Series([float(v) if v is not None else 0.0 for v in overall_df['pnl'].to_list()])
+                
                 if sl_amt > 0:
                     if not overall_sl_on_close:
-                        hit_mask_open = hit_mask_open | (overall_df['open_pnl'] <= -sl_amt)
-                    hit_mask_close = hit_mask_close | (overall_df['pnl'] <= -sl_amt)
+                        hit_mask_open = hit_mask_open | (safe_open_pnl <= -sl_amt)
+                    hit_mask_close = hit_mask_close | (safe_close_pnl <= -sl_amt)
                 if tgt_amt > 0:
                     if not overall_tgt_on_close:
-                        hit_mask_open = hit_mask_open | (overall_df['open_pnl'] >= tgt_amt)
-                    hit_mask_close = hit_mask_close | (overall_df['pnl'] >= tgt_amt)
+                        hit_mask_open = hit_mask_open | (safe_open_pnl >= tgt_amt)
+                    hit_mask_close = hit_mask_close | (safe_close_pnl >= tgt_amt)
+
                     
                 hit_idx_open = hit_mask_open.arg_true()[0] if hit_mask_open.any() else None
                 hit_idx_close = hit_mask_close.arg_true()[0] if hit_mask_close.any() else None
@@ -1279,8 +1286,12 @@ class BacktestEngine:
                     last_overall['open_pnl'] = total_final_pnl
                     
             day_chart["OVERALL_PNL"] = overall_dicts
-                
             self.results['chartData'][date_str] = day_chart
+            
+            # Keep only the most recent 7 days of chart data to prevent massive payloads and OOM
+            if len(self.results['chartData']) > 7:
+                oldest_date = next(iter(self.results['chartData']))
+                del self.results['chartData'][oldest_date]
             
             dte = 0
             curr = datetime.strptime(date_str, "%Y-%m-%d") + timedelta(days=1)
