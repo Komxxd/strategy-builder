@@ -1285,9 +1285,13 @@ class BacktestEngine:
                     last_overall['pnl'] = total_final_pnl
                     last_overall['open_pnl'] = total_final_pnl
                     
-            if len(date_range) <= 31:
-                day_chart["OVERALL_PNL"] = overall_dicts
-                self.results['chartData'][date_str] = day_chart
+            day_chart["OVERALL_PNL"] = overall_dicts
+            self.results['chartData'][date_str] = day_chart
+            
+            # Keep only the most recent 7 days of chart data to prevent massive payloads and OOM
+            if len(self.results['chartData']) > 7:
+                oldest_date = next(iter(self.results['chartData']))
+                del self.results['chartData'][oldest_date]
             
             dte = 0
             curr = datetime.strptime(date_str, "%Y-%m-%d") + timedelta(days=1)
