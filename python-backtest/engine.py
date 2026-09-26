@@ -1143,7 +1143,7 @@ class BacktestEngine:
             overall_exit_reason = None
             overall_hit_on = None
             
-            if sl_amt > 0 or tgt_amt > 0:
+            if (sl_amt > 0 or tgt_amt > 0) and len(overall_df) > 0:
                 hit_mask_open = pl.Series([False] * len(overall_df), dtype=pl.Boolean)
                 hit_mask_close = pl.Series([False] * len(overall_df), dtype=pl.Boolean)
                 
