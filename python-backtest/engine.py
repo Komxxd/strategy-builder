@@ -1285,9 +1285,9 @@ class BacktestEngine:
                     last_overall['pnl'] = total_final_pnl
                     last_overall['open_pnl'] = total_final_pnl
                     
-            day_chart["OVERALL_PNL"] = overall_dicts
-                
-            self.results['chartData'][date_str] = day_chart
+            if len(date_range) <= 31:
+                day_chart["OVERALL_PNL"] = overall_dicts
+                self.results['chartData'][date_str] = day_chart
             
             dte = 0
             curr = datetime.strptime(date_str, "%Y-%m-%d") + timedelta(days=1)
