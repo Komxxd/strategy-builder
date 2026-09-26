@@ -1144,25 +1144,26 @@ class BacktestEngine:
             overall_hit_on = None
             
             if sl_amt > 0 or tgt_amt > 0:
-                hit_mask_open = pl.Series([False] * len(overall_df))
-                hit_mask_close = pl.Series([False] * len(overall_df))
+                hit_mask_open = pl.Series([False] * len(overall_df), dtype=pl.Boolean)
+                hit_mask_close = pl.Series([False] * len(overall_df), dtype=pl.Boolean)
                 
                 overall_sl_on_close = self.config.get('overall_sl_on_close', False)
                 overall_tgt_on_close = self.config.get('overall_target_on_close', False)
                 
-                # Cast to Float64 first — after a full join the column dtype can be `Null`
-                # (not just null values) if all rows are unmatched, and fill_null alone won't fix the dtype
-                safe_open_pnl = overall_df['open_pnl'].cast(pl.Float64, strict=False).fill_null(0)
-                safe_close_pnl = overall_df['pnl'].cast(pl.Float64, strict=False).fill_null(0)
+                # Reconstruct PnL series from raw Python values to guarantee Float64 dtype.
+                # After full joins, columns can have Null dtype (not just null values),
+                # and .cast()/.fill_null() don't reliably fix Null dtype in all Polars versions.
+                safe_open_pnl = pl.Series([float(v) if v is not None else 0.0 for v in overall_df['open_pnl'].to_list()])
+                safe_close_pnl = pl.Series([float(v) if v is not None else 0.0 for v in overall_df['pnl'].to_list()])
                 
                 if sl_amt > 0:
                     if not overall_sl_on_close:
-                        hit_mask_open = hit_mask_open | (safe_open_pnl <= -sl_amt).fill_null(False)
-                    hit_mask_close = hit_mask_close | (safe_close_pnl <= -sl_amt).fill_null(False)
+                        hit_mask_open = hit_mask_open | (safe_open_pnl <= -sl_amt)
+                    hit_mask_close = hit_mask_close | (safe_close_pnl <= -sl_amt)
                 if tgt_amt > 0:
                     if not overall_tgt_on_close:
-                        hit_mask_open = hit_mask_open | (safe_open_pnl >= tgt_amt).fill_null(False)
-                    hit_mask_close = hit_mask_close | (safe_close_pnl >= tgt_amt).fill_null(False)
+                        hit_mask_open = hit_mask_open | (safe_open_pnl >= tgt_amt)
+                    hit_mask_close = hit_mask_close | (safe_close_pnl >= tgt_amt)
 
                     
                 hit_idx_open = hit_mask_open.arg_true()[0] if hit_mask_open.any() else None
