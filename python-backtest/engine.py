@@ -1150,14 +1150,19 @@ class BacktestEngine:
                 overall_sl_on_close = self.config.get('overall_sl_on_close', False)
                 overall_tgt_on_close = self.config.get('overall_target_on_close', False)
                 
+                # Fill nulls in pnl columns before comparison (nulls can arise from full joins)
+                safe_open_pnl = overall_df['open_pnl'].fill_null(0)
+                safe_close_pnl = overall_df['pnl'].fill_null(0)
+                
                 if sl_amt > 0:
                     if not overall_sl_on_close:
-                        hit_mask_open = hit_mask_open | (overall_df['open_pnl'] <= -sl_amt)
-                    hit_mask_close = hit_mask_close | (overall_df['pnl'] <= -sl_amt)
+                        hit_mask_open = hit_mask_open | (safe_open_pnl <= -sl_amt).fill_null(False)
+                    hit_mask_close = hit_mask_close | (safe_close_pnl <= -sl_amt).fill_null(False)
                 if tgt_amt > 0:
                     if not overall_tgt_on_close:
-                        hit_mask_open = hit_mask_open | (overall_df['open_pnl'] >= tgt_amt)
-                    hit_mask_close = hit_mask_close | (overall_df['pnl'] >= tgt_amt)
+                        hit_mask_open = hit_mask_open | (safe_open_pnl >= tgt_amt).fill_null(False)
+                    hit_mask_close = hit_mask_close | (safe_close_pnl >= tgt_amt).fill_null(False)
+
                     
                 hit_idx_open = hit_mask_open.arg_true()[0] if hit_mask_open.any() else None
                 hit_idx_close = hit_mask_close.arg_true()[0] if hit_mask_close.any() else None
