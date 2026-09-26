@@ -1150,9 +1150,10 @@ class BacktestEngine:
                 overall_sl_on_close = self.config.get('overall_sl_on_close', False)
                 overall_tgt_on_close = self.config.get('overall_target_on_close', False)
                 
-                # Fill nulls in pnl columns before comparison (nulls can arise from full joins)
-                safe_open_pnl = overall_df['open_pnl'].fill_null(0)
-                safe_close_pnl = overall_df['pnl'].fill_null(0)
+                # Cast to Float64 first — after a full join the column dtype can be `Null`
+                # (not just null values) if all rows are unmatched, and fill_null alone won't fix the dtype
+                safe_open_pnl = overall_df['open_pnl'].cast(pl.Float64, strict=False).fill_null(0)
+                safe_close_pnl = overall_df['pnl'].cast(pl.Float64, strict=False).fill_null(0)
                 
                 if sl_amt > 0:
                     if not overall_sl_on_close:
