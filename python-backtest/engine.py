@@ -341,9 +341,10 @@ class BacktestEngine:
                     if tsl_on_close:
                         hit_mask = df['close'] <= dynamic_sl
                     else:
-                        check_col = pl.when(pl.arange(0, df.height) == 0).then(pl.col('close')).otherwise(pl.col('low'))
-                        check_series = df.select(check_col).to_series()
-                        hit_mask = check_series <= dynamic_sl
+                        pre_trail_sl = dynamic_sl.shift(1).fill_null(initial_sl)
+                        hit_pre = df['low'] <= pre_trail_sl
+                        hit_post = df['low'] <= dynamic_sl
+                        hit_mask = hit_pre | hit_post
                 else:
                     peak_price = trail_ref.cum_min()
                     favorable_move = entry_price - peak_price
@@ -353,9 +354,10 @@ class BacktestEngine:
                     if tsl_on_close:
                         hit_mask = df['close'] >= dynamic_sl
                     else:
-                        check_col = pl.when(pl.arange(0, df.height) == 0).then(pl.col('close')).otherwise(pl.col('high'))
-                        check_series = df.select(check_col).to_series()
-                        hit_mask = check_series >= dynamic_sl
+                        pre_trail_sl = dynamic_sl.shift(1).fill_null(initial_sl)
+                        hit_pre = df['high'] >= pre_trail_sl
+                        hit_post = df['high'] >= dynamic_sl
+                        hit_mask = hit_pre | hit_post
                         
                 if tsl_on_close:
                     hit_mask_arr = hit_mask.to_numpy()
@@ -364,9 +366,19 @@ class BacktestEngine:
                 
                 if hit_mask.any():
                     hit_idx = hit_mask.arg_true()[0]
-                    tsl_series = dict(zip(df['time'][:hit_idx+1].to_list(), dynamic_sl[:hit_idx+1].to_list()))
-                    exit_price = df['close'][hit_idx] if tsl_on_close else dynamic_sl[hit_idx]
-                    return self._build_trade_res(entry_time, entry_price, df['time'][hit_idx], exit_price, 'TSL', dynamic_sl[hit_idx], tsl_series, initial_sl), df[hit_idx:], 'TSL'
+                    
+                    tsl_vals = dynamic_sl[:hit_idx+1].to_list()
+                    if not tsl_on_close and hit_pre[hit_idx]:
+                        tsl_vals[-1] = pre_trail_sl[hit_idx]
+                        
+                    tsl_series = dict(zip(df['time'][:hit_idx+1].to_list(), tsl_vals))
+                    
+                    if tsl_on_close:
+                        exit_price = df['close'][hit_idx]
+                    else:
+                        exit_price = pre_trail_sl[hit_idx] if hit_pre[hit_idx] else dynamic_sl[hit_idx]
+                        
+                    return self._build_trade_res(entry_time, entry_price, df['time'][hit_idx], exit_price, 'TSL' if not (not tsl_on_close and hit_pre[hit_idx]) else 'SL', exit_price, tsl_series, initial_sl), df[hit_idx:], 'TSL' if not (not tsl_on_close and hit_pre[hit_idx]) else 'SL'
                 else:
                     tsl_series = dict(zip(df['time'].to_list(), dynamic_sl.to_list()))
                     return self._build_trade_res(entry_time, entry_price, df[-1]['time'][0], df[-1]['close'][0], 'END_OF_DAY', dynamic_sl[-1], tsl_series, initial_sl), df[-1:], 'END_OF_DAY'
