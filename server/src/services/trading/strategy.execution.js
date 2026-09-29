@@ -506,12 +506,12 @@ async function placeExitOrder({ config, leg, instrument, exitType }) {
                 const pnlPts = leg.leg.side === "BUY" ? (exitBaseLtp - leg.entryPrice) : (leg.entryPrice - exitBaseLtp);
                 const multiplier = parseFloat(config.quantity_multiplier) || 1;
                 const qty = leg.leg.lots * parseInt(leg.instrument?.lotsize || 1) * multiplier;
-                leg.bookedPnlPoints = pnlPts;
-                leg.bookedPnlRupees = pnlPts * qty;
-                leg.pnlPoints = pnlPts;
-                leg.pnlRupees = leg.bookedPnlRupees;
+                leg.currentActivePnlPoints = pnlPts;
+                leg.currentActivePnlRupees = pnlPts * qty;
+                leg.pnlPoints = (leg.bookedPnlPoints || 0) + pnlPts;
+                leg.pnlRupees = (leg.bookedPnlRupees || 0) + (pnlPts * qty);
                 if (leg.original_traded_price) {
-                    leg.pnlPercent = (pnlPts / leg.original_traded_price) * 100;
+                    leg.pnlPercent = (leg.pnlPoints / leg.original_traded_price) * 100;
                 }
             }
             console.log(`[Exit] Virtual/Paper exit simulated for ${instrument.symbol} at ₹${exitBaseLtp}. No order sent to exchange.`);
@@ -611,6 +611,19 @@ async function placeExitOrder({ config, leg, instrument, exitType }) {
         if (fillPrice) {
             // FIX: Update leg with the actual execution price so PnL calculation is accurate
             leg.currentLtp = fillPrice;
+            
+            if (leg.entryPrice) {
+                const pnlPts = leg.leg.side === "BUY" ? (fillPrice - leg.entryPrice) : (leg.entryPrice - fillPrice);
+                const multiplier = parseFloat(config.quantity_multiplier) || 1;
+                const qty = leg.leg.lots * parseInt(leg.instrument?.lotsize || 1) * multiplier;
+                leg.currentActivePnlPoints = pnlPts;
+                leg.currentActivePnlRupees = pnlPts * qty;
+                leg.pnlPoints = (leg.bookedPnlPoints || 0) + pnlPts;
+                leg.pnlRupees = (leg.bookedPnlRupees || 0) + (pnlPts * qty);
+                if (leg.original_traded_price) {
+                    leg.pnlPercent = (leg.pnlPoints / leg.original_traded_price) * 100;
+                }
+            }
             
             leg.exited = true;
             leg.isExiting = false;
