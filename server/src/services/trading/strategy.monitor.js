@@ -699,7 +699,51 @@ async function monitorStrategyLoop(strategyId, strategy) {
         for (const leg of strategy.legs) {
             if (leg.exited || leg.state === "WAITING_FOR_RECOST" || !leg.entryPrice) continue;
             if (leg.state !== "ACTIVE" && leg.state !== "VIRTUAL_MONITORING") continue;
-            const evalResult = evaluateLegLimits({ leg, config, strategyId, addStrategyLog, isMinuteClose });
+            
+            let isEntryMinute = false;
+            if (config.no_sl_on_entry_candle && leg.entryTime) {
+                const { getISTTime } = require("./strategy.time");
+                const currentMinute = getISTTime().substring(0, 5);
+                const entryMinute = leg.entryTime.substring(0, 5);
+                isEntryMinute = (currentMinute === entryMinute);
+            }
+
+            if (!isEntryMinute && config.no_sl_on_entry_candle && !leg.slOrderId && leg.entryPrice && config.variety === "STOPLOSS" && !config.is_paper_trading && !leg.is_virtual_leg && leg.state !== "WAITING_FOR_RECOST") {
+                const isReentered = leg.reentry_count > 0;
+                const isSlEnabled = isReentered && leg.leg.reentry_sl_enabled ? true : leg.leg.sl_enabled !== false;
+                const activeSlValue = isReentered && leg.leg.reentry_sl_enabled ? leg.leg.reentry_sl_value : leg.leg.stop_loss;
+                
+                if (isSlEnabled && activeSlValue > 0 && leg.slOrderId !== "DISABLED") {
+                    try {
+                        const slOrder = await placeStopLossWithRetry({
+                            baseConfig: config,
+                            legSide: leg.leg.side,
+                            entryPrice: leg.entryPrice,
+                            instrument: leg.instrument,
+                            lots: leg.leg.lots,
+                            slType: isReentered && leg.leg.reentry_sl_enabled ? leg.leg.reentry_sl_type : (leg.leg.sl_type || "PERCENTAGE"),
+                            slValue: activeSlValue,
+                            slLimitMargin: leg.leg.sl_limit_margin,
+                            slLimitMarginType: leg.leg.sl_limit_margin_type,
+                            connectionId: config.connectionId,
+                            strategyId: strategyId,
+                            isDeferred: true
+                        });
+                        if (slOrder && slOrder.orderid) {
+                            leg.slOrderId = slOrder.orderid;
+                            leg.slUniqueOrderId = slOrder.uniqueorderid;
+                            addStrategyLog(strategyId, `[Deferred SL] Placed StopLoss for ${leg.instrument.symbol} after entry minute close.`, "INFO");
+                        } else {
+                            leg.slOrderId = "DISABLED";
+                        }
+                    } catch(err) {
+                        addStrategyLog(strategyId, `[Deferred SL] Failed to place StopLoss for ${leg.instrument.symbol}: ${err.message}`, "ERROR");
+                        leg.slOrderId = "DISABLED";
+                    }
+                }
+            }
+
+            const evalResult = evaluateLegLimits({ leg, config, strategyId, addStrategyLog, isMinuteClose, isEntryMinute });
             
             // Debug TSL re-entry
             if (leg.reentry_count > 0 && leg.leg.tsl_enabled) {

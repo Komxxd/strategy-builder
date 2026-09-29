@@ -357,7 +357,14 @@ async function placeStopLossExitOrder({ baseConfig, legSide, entryPrice, instrum
  * If the first attempt to place an SL fails (e.g. network error),
  * this function will try up to 3 times before giving up.
  */
-async function placeStopLossWithRetry({ baseConfig, legSide, entryPrice, instrument, lots, slType, slValue, slLimitMargin, slLimitMarginType = 'POINTS', connectionId, strategyId, overrideSlTriggerPrice }) {
+async function placeStopLossWithRetry({ baseConfig, legSide, entryPrice, instrument, lots, slType, slValue, slLimitMargin, slLimitMarginType = 'POINTS', connectionId, strategyId, overrideSlTriggerPrice, isDeferred = false }) {
+    if (baseConfig?.no_sl_on_entry_candle && !isDeferred) {
+        if (strategyId) {
+            const { addStrategyLog } = require("./strategy.state");
+            addStrategyLog(strategyId, `Deferred SL placement for ${instrument.symbol} because 'No SL on entry candle' is enabled.`, "INFO");
+        }
+        return { orderid: null, uniqueorderid: null, deferred: true };
+    }
     const userId = strategyId ? activeStrategies.get(strategyId)?.user_id : null;
     let slOrder = null;
 

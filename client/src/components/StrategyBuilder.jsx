@@ -1991,6 +1991,19 @@ export const StrategyFormContent = ({ config, setConfig, editingId, setEditingId
  onChange={(e) => setConfig({ ...config, exit_time: e.target.value })}
  />
  </div>
+
+ <div className="space-y-1 w-full min-w-[120px] md:w-[180px] flex-none flex flex-col justify-center">
+ <div className="flex items-center gap-2 mt-4">
+ <Switch
+ checked={config.no_sl_on_entry_candle || false}
+ onCheckedChange={(val) => setConfig({ ...config, no_sl_on_entry_candle: val })}
+ id="no-sl-entry"
+ />
+ <Label htmlFor="no-sl-entry" className="text-[10px] font-medium text-gray-700 cursor-pointer">
+ No SL on Entry Candle
+ </Label>
+ </div>
+ </div>
  </div>
 
  <div className="flex flex-wrap items-start gap-4 md:gap-5 px-0 w-full pt-2 border-t border-gray-50 mt-2 mb-1">

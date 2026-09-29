@@ -61,7 +61,7 @@ function checkOverallPnlLimits({ config, totalPnlRupees, avgPnl, isMinuteClose }
     return { hit: false };
 }
 
-function evaluateLegLimits({ leg, config, strategyId, addStrategyLog, isMinuteClose }) {
+function evaluateLegLimits({ leg, config, strategyId, addStrategyLog, isMinuteClose, isEntryMinute }) {
     let result = {
         isHit: false,
         exitReason: "LEG_STOP_LOSS",
@@ -186,7 +186,7 @@ function evaluateLegLimits({ leg, config, strategyId, addStrategyLog, isMinuteCl
         }
 
         const activeTrigger = result.tslStepped ? result.tslUpdates.newTrigger : leg.slTriggerPrice;
-        if (activeTrigger) {
+        if (activeTrigger && !isEntryMinute) {
             if (leg.leg.side === "BUY" && leg.currentLtp <= activeTrigger) {
                 result.isHit = true;
                 result.exitReason = "TRAILING_STOP_LOSS";
@@ -210,7 +210,7 @@ function evaluateLegLimits({ leg, config, strategyId, addStrategyLog, isMinuteCl
     }
 
     // 2. Evaluate Static Stop Loss (if not already hit by TSL)
-    if (!result.isHit) {
+    if (!result.isHit && !isEntryMinute) {
         const isReentered = leg.reentry_count > 0;
         const activeSlValue = isReentered && leg.leg.reentry_sl_enabled ? parseFloat(leg.leg.reentry_sl_value || 0) : parseFloat(leg.leg.stop_loss || 0);
         const isSlEnabled = isReentered && leg.leg.reentry_sl_enabled ? true : leg.leg.sl_enabled !== false;
