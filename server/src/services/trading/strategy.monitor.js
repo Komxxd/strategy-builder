@@ -704,7 +704,8 @@ async function monitorStrategyLoop(strategyId, strategy) {
             if (config.no_sl_on_entry_candle && leg.entryTime) {
                 const { getISTTime } = require("./strategy.time");
                 const currentMinute = getISTTime().substring(0, 5);
-                const entryMinute = leg.entryTime.substring(0, 5);
+                const entryTimeStr = leg.entryTime.includes(' ') ? leg.entryTime.split(' ')[1] : leg.entryTime;
+                const entryMinute = entryTimeStr.substring(0, 5);
                 isEntryMinute = (currentMinute === entryMinute);
             }
 
