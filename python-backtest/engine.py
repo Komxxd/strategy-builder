@@ -308,7 +308,7 @@ class BacktestEngine:
                 hit_mask = df['high'] >= initial_sl if side == 'SELL' else df['low'] <= initial_sl
                 
             # Filter out entry minute if TSL on Close or no_sl_on_entry_candle
-            if tsl_on_close or config.get('no_sl_on_entry_candle'):
+            if tsl_on_close or self.config.get('no_sl_on_entry_candle'):
                 # Set hit_mask to False at index 0
                 hit_mask_arr = hit_mask.to_numpy()
                 if len(hit_mask_arr) > 0:
@@ -360,7 +360,7 @@ class BacktestEngine:
                         hit_post = df['high'] >= dynamic_sl
                         hit_mask = hit_pre | hit_post
                         
-                if tsl_on_close or config.get('no_sl_on_entry_candle'):
+                if tsl_on_close or self.config.get('no_sl_on_entry_candle'):
                     hit_mask_arr = hit_mask.to_numpy()
                     if len(hit_mask_arr) > 0:
                         hit_mask_arr[0] = False
