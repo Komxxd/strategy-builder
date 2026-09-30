@@ -310,10 +310,8 @@ class BacktestEngine:
             # Filter out entry minute if TSL on Close or no_sl_on_entry_candle
             if tsl_on_close or self.config.get('no_sl_on_entry_candle'):
                 # Set hit_mask to False at index 0
-                hit_mask_arr = hit_mask.to_numpy()
-                if len(hit_mask_arr) > 0:
-                    hit_mask_arr[0] = False
-                hit_mask = pl.Series(hit_mask_arr)
+                if len(hit_mask) > 0:
+                    hit_mask = pl.concat([pl.Series([False]), hit_mask.slice(1)])
                 
             if hit_mask.any():
                 hit_idx = hit_mask.arg_true()[0]
@@ -361,10 +359,8 @@ class BacktestEngine:
                         hit_mask = hit_pre | hit_post
                         
                 if tsl_on_close or self.config.get('no_sl_on_entry_candle'):
-                    hit_mask_arr = hit_mask.to_numpy()
-                    if len(hit_mask_arr) > 0:
-                        hit_mask_arr[0] = False
-                    hit_mask = pl.Series(hit_mask_arr)
+                    if len(hit_mask) > 0:
+                        hit_mask = pl.concat([pl.Series([False]), hit_mask.slice(1)])
                 
                 if hit_mask.any():
                     hit_idx = hit_mask.arg_true()[0]
