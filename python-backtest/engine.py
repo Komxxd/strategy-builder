@@ -342,8 +342,7 @@ class BacktestEngine:
                     else:
                         pre_trail_sl = dynamic_sl.shift(1).fill_null(initial_sl)
                         hit_pre = df['low'] <= pre_trail_sl
-                        hit_post = df['low'] <= dynamic_sl
-                        hit_mask = hit_pre | hit_post
+                        hit_mask = hit_pre
                 else:
                     peak_price = trail_ref.cum_min()
                     favorable_move = entry_price - peak_price
@@ -355,8 +354,7 @@ class BacktestEngine:
                     else:
                         pre_trail_sl = dynamic_sl.shift(1).fill_null(initial_sl)
                         hit_pre = df['high'] >= pre_trail_sl
-                        hit_post = df['high'] >= dynamic_sl
-                        hit_mask = hit_pre | hit_post
+                        hit_mask = hit_pre
                         
                 if tsl_on_close or self.config.get('no_sl_on_entry_candle'):
                     if len(hit_mask) > 0:
