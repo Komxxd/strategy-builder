@@ -648,7 +648,7 @@ class BacktestEngine:
                             mtp = self.round_to_tick(mtp)
                             
                             # Find MTP crossing after RTP hit
-                            mtp_search = search_df[rtp_idx:]
+                            mtp_search = search_df[rtp_idx + 1:]
                             mtp_wait_dir = 'DOWN' if mtp < rtp else 'UP'
                             check_col = pl.when(pl.col('time') == trade_info['exitTime']).then(pl.col('close')).otherwise(pl.col('low') if mtp_wait_dir == 'DOWN' else pl.col('high'))
                             mtp_mask = mtp_search.select(check_col <= mtp if mtp_wait_dir == 'DOWN' else check_col >= mtp).to_series()
@@ -732,7 +732,7 @@ class BacktestEngine:
                             elif m_mode in ('RELOW_MINUS_PTS', 'MINUS_PTS'): mtp -= m_val
                             mtp = self.round_to_tick(mtp)
                             
-                            mtp_search = search_df[rtp_idx:]
+                            mtp_search = search_df[rtp_idx + 1:]
                             mtp_wait_dir = 'DOWN' if mtp < rtp else 'UP'
                             check_col = pl.when(pl.col('time') == trade_info['exitTime']).then(pl.col('close')).otherwise(pl.col('low') if mtp_wait_dir == 'DOWN' else pl.col('high'))
                             mtp_mask = mtp_search.select(check_col <= mtp if mtp_wait_dir == 'DOWN' else check_col >= mtp).to_series()
@@ -782,7 +782,7 @@ class BacktestEngine:
                     # Check if MTP is configured
                     rtp_hit_time = remaining_df['time'][cross_idx]
                     if mtp is not None and mtp != rtp:
-                        mtp_search = remaining_df[cross_idx:]
+                        mtp_search = remaining_df[cross_idx + 1:]
                         mtp_wait_dir = 'DOWN' if mtp < rtp else 'UP'
                         check_col = pl.when(pl.col('time') == trade_info['exitTime']).then(pl.col('close')).otherwise(pl.col('low') if mtp_wait_dir == 'DOWN' else pl.col('high'))
                         mtp_mask = mtp_search.select(check_col <= mtp if mtp_wait_dir == 'DOWN' else check_col >= mtp).to_series()
