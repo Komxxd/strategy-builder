@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Folder, FolderOpen, ChevronRight, ChevronDown, File, Trash2, Edit2, FolderPlus, Database } from 'lucide-react';
+import { Folder, FolderOpen, ChevronRight, ChevronDown, File, Trash2, Edit2, FolderPlus, Database, Download } from 'lucide-react';
 import { Button } from './ui/button';
 
 const FolderNode = ({
@@ -10,6 +10,7 @@ const FolderNode = ({
   onDropStrategy,
   onDeleteFolder,
   onRenameFolder,
+  onDownloadFolder,
   onCreateFolder,
   onReorderFolder,
   onChangeParentFolder,
@@ -238,6 +239,18 @@ const FolderNode = ({
           <Button
             variant="ghost"
             size="sm"
+            className="h-6 w-6 p-0 hover:bg-slate-200 rounded text-slate-500"
+            onClick={(e) => {
+              e.stopPropagation();
+              if (onDownloadFolder) onDownloadFolder(folder);
+            }}
+            title="Download Folder"
+          >
+            <Download className="h-3 w-3" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
             className="h-6 w-6 p-0 hover:bg-red-100 hover:text-red-600 rounded text-slate-500"
             onClick={(e) => {
               e.stopPropagation();
@@ -263,6 +276,7 @@ const FolderNode = ({
               onDropStrategy={onDropStrategy}
               onDeleteFolder={onDeleteFolder}
               onRenameFolder={onRenameFolder}
+              onDownloadFolder={onDownloadFolder}
               onCreateFolder={onCreateFolder}
               onReorderFolder={onReorderFolder}
               onChangeParentFolder={onChangeParentFolder}
@@ -313,6 +327,7 @@ export const FolderTree = ({
   onDropStrategy,
   onDeleteFolder,
   onRenameFolder,
+  onDownloadFolder,
   onCreateFolder,
   onReorderFolder,
   onChangeParentFolder,
@@ -358,6 +373,7 @@ export const FolderTree = ({
           onDropStrategy={onDropStrategy}
           onDeleteFolder={onDeleteFolder}
           onRenameFolder={onRenameFolder}
+          onDownloadFolder={onDownloadFolder}
           onCreateFolder={onCreateFolder}
           onReorderFolder={onReorderFolder}
           onChangeParentFolder={onChangeParentFolder}

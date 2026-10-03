@@ -2286,6 +2286,45 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  document.body.removeChild(downloadAnchorNode);
  URL.revokeObjectURL(url);
  };
+  const handleDownloadFolder = (folder) => {
+    const collectFolders = (parentId) => {
+      const childFolders = folders.filter(f => f.parent_id === parentId);
+      let allChildFolders = [...childFolders];
+      for (const child of childFolders) {
+        allChildFolders = allChildFolders.concat(collectFolders(child.id));
+      }
+      return allChildFolders;
+    };
+    
+    const allFoldersToExport = [folder, ...collectFolders(folder.id)];
+    const folderIds = allFoldersToExport.map(f => f.id);
+    
+    const strategiesToExport = savedStrategies
+      .filter(s => folderIds.includes(s.folder_id))
+      .map(s => {
+        const stratData = { ...s.config, name: s.name || s.config?.name || 'Exported Strategy' };
+        delete stratData.id;
+        delete stratData.user_id;
+        return { ...stratData, folder_id: s.folder_id };
+      });
+      
+    const exportData = {
+      type: 'folder_export',
+      root_folder_id: folder.id,
+      folders: allFoldersToExport.map(f => ({ id: f.id, name: f.name, parent_id: f.parent_id })),
+      strategies: strategiesToExport
+    };
+
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const downloadAnchorNode = document.createElement('a');
+    downloadAnchorNode.setAttribute("href", url);
+    downloadAnchorNode.setAttribute("download", `${folder.name}.json`);
+    document.body.appendChild(downloadAnchorNode);
+    downloadAnchorNode.click();
+    document.body.removeChild(downloadAnchorNode);
+    URL.revokeObjectURL(url);
+  };
 
   const handleDownloadPdfDirect = (strategy) => {
     setViewConfig(strategy.config);
@@ -2308,31 +2347,87 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  reader.onload = async (event) => {
  try {
  const uploadedConfig = JSON.parse(event.target.result);
- delete uploadedConfig.id;
- delete uploadedConfig.user_id;
-
- let baseName = uploadedConfig.name || "Imported Strategy";
- let finalName = baseName;
- let counter = 1;
- while(savedStrategies.find(s => s.name.trim().toLowerCase() === finalName.trim().toLowerCase())) {
- finalName = `${baseName} (${counter})`;
- counter++;
- }
- uploadedConfig.name = finalName;
-
- const finalConfig = {
- ...uploadedConfig,
- variety: 'STOPLOSS',
- producttype: 'CARRYFORWARD',
- ordertype: 'LIMIT',
- duration: 'DAY'
- };
-
  setLoading(true);
- await axios.post(`${API_BASE_URL}/strategy/save`, finalConfig);
- fetchSavedStrategies();
+
+ if (uploadedConfig.type === 'folder_export') {
+   const folderIdMap = {};
+   const oldRootFolder = uploadedConfig.folders.find(f => f.id === uploadedConfig.root_folder_id);
+   
+   let baseName = oldRootFolder.name || "Imported Folder";
+   let finalName = baseName;
+   let counter = 1;
+   while(folders.find(f => f.name.trim().toLowerCase() === finalName.trim().toLowerCase() && !f.parent_id)) {
+     finalName = `${baseName} (${counter})`;
+     counter++;
+   }
+
+   const importFolder = async (oldFolder, newParentId = null) => {
+     const nameToUse = oldFolder.id === uploadedConfig.root_folder_id ? finalName : oldFolder.name;
+     const res = await axios.post(`${API_BASE_URL}/folders`, { name: nameToUse, parent_id: newParentId });
+     const newFolderId = res.data.data.id;
+     folderIdMap[oldFolder.id] = newFolderId;
+     
+     const children = uploadedConfig.folders.filter(f => f.parent_id === oldFolder.id);
+     for (const child of children) {
+       await importFolder(child, newFolderId);
+     }
+   };
+   
+   await importFolder(oldRootFolder, null);
+   
+   let currentStrategyNames = savedStrategies.map(s => s.name.trim().toLowerCase());
+   for (const strat of uploadedConfig.strategies) {
+     const newFolderId = folderIdMap[strat.folder_id];
+     if (!newFolderId) continue;
+     
+     let baseName = strat.name || "Imported Strategy";
+     let finalStratName = baseName;
+     let stratCounter = 1;
+     while(currentStrategyNames.includes(finalStratName.trim().toLowerCase())) {
+       finalStratName = `${baseName} (${stratCounter})`;
+       stratCounter++;
+     }
+     currentStrategyNames.push(finalStratName.trim().toLowerCase());
+     strat.name = finalStratName;
+
+     const finalConfig = {
+       ...strat,
+       variety: 'STOPLOSS',
+       producttype: 'CARRYFORWARD',
+       ordertype: 'LIMIT',
+       duration: 'DAY',
+       folder_id: newFolderId
+     };
+     await axios.post(`${API_BASE_URL}/strategy/save`, finalConfig);
+   }
+   await fetchFolders();
+   await fetchSavedStrategies();
+ } else {
+   delete uploadedConfig.id;
+   delete uploadedConfig.user_id;
+
+   let baseName = uploadedConfig.name || "Imported Strategy";
+   let finalName = baseName;
+   let counter = 1;
+   while(savedStrategies.find(s => s.name.trim().toLowerCase() === finalName.trim().toLowerCase())) {
+     finalName = `${baseName} (${counter})`;
+     counter++;
+   }
+   uploadedConfig.name = finalName;
+
+   const finalConfig = {
+     ...uploadedConfig,
+     variety: 'STOPLOSS',
+     producttype: 'CARRYFORWARD',
+     ordertype: 'LIMIT',
+     duration: 'DAY'
+   };
+
+   await axios.post(`${API_BASE_URL}/strategy/save`, finalConfig);
+   await fetchSavedStrategies();
+ }
  } catch (err) {
- alert("Error importing strategy: " + (err.response?.data?.message || err.message || "Invalid JSON"));
+ alert("Error importing: " + (err.response?.data?.message || err.message || "Invalid JSON"));
  } finally {
  setLoading(false);
  e.target.value = ''; // Reset input
@@ -4100,6 +4195,7 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
                       onDropStrategy={handleMoveStrategy}
                       onDeleteFolder={handleDeleteFolder}
                       onRenameFolder={handleRenameFolder}
+                      onDownloadFolder={handleDownloadFolder}
                       onCreateFolder={handleCreateFolder}
                       onReorderFolder={handleReorderFolder}
                       onChangeParentFolder={handleChangeParentFolder}
