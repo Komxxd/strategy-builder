@@ -927,7 +927,7 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
       />
     </div>
     <div className="space-y-1">
-      <Label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground block mb-2">SL Multiplier</Label>
+      <Label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground block mb-2">SL Multiplier on Entry Candle</Label>
       <div className="flex items-center gap-2">
         <Switch
           checked={leg.reentry_sl_multiplier_entry_candle || false}
@@ -1191,7 +1191,7 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
  </div>
  
   <div className="space-y-1">
-    <Label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground block mb-2">SL Multiplier</Label>
+    <Label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground block mb-2">SL Multiplier on Entry Candle</Label>
     <div className="flex items-center gap-2">
       <Switch
         checked={leg.reentry_sl_multiplier_entry_candle || false}
@@ -1473,7 +1473,7 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
       />
     </div>
     <div className="space-y-1">
-      <Label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground block mb-2">SL Multiplier</Label>
+      <Label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground block mb-2">SL Multiplier on Entry Candle</Label>
       <div className="flex items-center gap-2">
         <Switch
           checked={leg.reentry_sl_multiplier_entry_candle || false}
@@ -1757,7 +1757,7 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
       />
     </div>
     <div className="space-y-1">
-      <Label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground block mb-2">SL Multiplier</Label>
+      <Label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground block mb-2">SL Multiplier on Entry Candle</Label>
       <div className="flex items-center gap-2">
         <Switch
           checked={leg.reentry_sl_multiplier_entry_candle || false}
