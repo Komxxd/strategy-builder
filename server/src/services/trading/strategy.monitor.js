@@ -134,6 +134,16 @@ async function monitorStrategyLoop(strategyId, strategy) {
                                         if (config.variety === "STOPLOSS" && leg.entryPrice && isSlEnabled) {
                                             const activeSlType = leg.leg.reentry_sl_enabled ? leg.leg.reentry_sl_type : (leg.leg.sl_type || "PERCENTAGE");
                                             const activeSlValue = leg.leg.reentry_sl_enabled ? leg.leg.reentry_sl_value : leg.leg.stop_loss;
+                                            
+                                            let slValueToUse = activeSlValue;
+                                            const isReentered = leg.reentry_count > 0;
+                                            if (isReentered && leg.leg.reentry_sl_multiplier_entry_candle && leg.leg.reentry_sl_multiplier_value) {
+                                                slValueToUse = activeSlValue * parseFloat(leg.leg.reentry_sl_multiplier_value);
+                                                leg.sl_multiplier_applied = true;
+                                            } else if (!isReentered && leg.leg.sl_multiplier_entry_candle && leg.leg.sl_multiplier_value) {
+                                                slValueToUse = activeSlValue * parseFloat(leg.leg.sl_multiplier_value);
+                                                leg.sl_multiplier_applied = true;
+                                            }
 
                                             const slOrder = await placeStopLossWithRetry({
                                                 baseConfig: config,
@@ -142,14 +152,14 @@ async function monitorStrategyLoop(strategyId, strategy) {
                                                 instrument: leg.instrument,
                                                 lots: leg.leg.lots,
                                                 slType: activeSlType,
-                                                slValue: activeSlValue,
+                                                slValue: slValueToUse,
                                                 slLimitMargin: config.entry_limit_offset,
                                                 slLimitMarginType: config.entry_limit_offset_type || 'POINTS',
                                                 connectionId: config.connectionId,
                                                 strategyId: strategyId
                                             });
                                             if (slOrder?.orderid) {
-                                                const prices = computeStopLossExitPrices(leg.entryPrice, leg.leg.side, activeSlType, activeSlValue, config.entry_limit_offset, config.entry_limit_offset_type || 'POINTS');
+                                                const prices = computeStopLossExitPrices(leg.entryPrice, leg.leg.side, activeSlType, slValueToUse, config.entry_limit_offset, config.entry_limit_offset_type || 'POINTS');
                                                 leg.slOrderId = slOrder.orderid;
                                                 leg.slUniqueOrderId = slOrder.uniqueorderid;
                                                 leg.slTriggerPrice = prices?.trigger;
@@ -345,12 +355,22 @@ async function monitorStrategyLoop(strategyId, strategy) {
                         addStrategyLog(strategyId, `Simple Momentum Target Reached: ₹${target} for ${leg.instrument.symbol}. Entry triggered.`, "INFO");
 
                         if (config.variety === "STOPLOSS" && leg.entryPrice && leg.leg.sl_enabled !== false) {
+                            let slValueToUse = leg.leg.stop_loss;
+                            const isReentered = leg.reentry_count > 0;
+                            if (isReentered && leg.leg.reentry_sl_multiplier_entry_candle && leg.leg.reentry_sl_multiplier_value) {
+                                slValueToUse = leg.leg.stop_loss * parseFloat(leg.leg.reentry_sl_multiplier_value);
+                                leg.sl_multiplier_applied = true;
+                            } else if (!isReentered && leg.leg.sl_multiplier_entry_candle && leg.leg.sl_multiplier_value) {
+                                slValueToUse = leg.leg.stop_loss * parseFloat(leg.leg.sl_multiplier_value);
+                                leg.sl_multiplier_applied = true;
+                            }
+
                             const slOrder = await placeStopLossWithRetry({
                                 baseConfig: config, legSide: leg.leg.side, entryPrice: leg.entryPrice, instrument: leg.instrument, lots: leg.leg.lots,
-                                slType: leg.leg.sl_type || "PERCENTAGE", slValue: leg.leg.stop_loss, slLimitMargin: getLimitOffsetAmt(leg.entryPrice, config),
+                                slType: leg.leg.sl_type || "PERCENTAGE", slValue: slValueToUse, slLimitMargin: getLimitOffsetAmt(leg.entryPrice, config),
                                 slLimitMarginType: config.entry_limit_offset_type || 'POINTS', connectionId: config.connectionId, strategyId: strategyId
                             });
-                            const prices = computeStopLossExitPrices(leg.entryPrice, leg.leg.side, leg.leg.sl_type || "PERCENTAGE", leg.leg.stop_loss, getLimitOffsetAmt(leg.entryPrice, config), config.entry_limit_offset_type || 'POINTS');
+                            const prices = computeStopLossExitPrices(leg.entryPrice, leg.leg.side, leg.leg.sl_type || "PERCENTAGE", slValueToUse, getLimitOffsetAmt(leg.entryPrice, config), config.entry_limit_offset_type || 'POINTS');
                             if (slOrder?.orderid) {
                                 leg.slOrderId = slOrder.orderid;
                                 leg.slUniqueOrderId = slOrder.uniqueorderid;
@@ -535,6 +555,16 @@ async function monitorStrategyLoop(strategyId, strategy) {
                                         const activeSlType = leg.leg.reentry_sl_enabled ? leg.leg.reentry_sl_type : (leg.leg.sl_type || "PERCENTAGE");
                                         const activeSlValue = leg.leg.reentry_sl_enabled ? leg.leg.reentry_sl_value : leg.leg.stop_loss;
 
+                                        let slValueToUse = activeSlValue;
+                                        const isReentered = leg.reentry_count > 0;
+                                        if (isReentered && leg.leg.reentry_sl_multiplier_entry_candle && leg.leg.reentry_sl_multiplier_value) {
+                                            slValueToUse = activeSlValue * parseFloat(leg.leg.reentry_sl_multiplier_value);
+                                            leg.sl_multiplier_applied = true;
+                                        } else if (!isReentered && leg.leg.sl_multiplier_entry_candle && leg.leg.sl_multiplier_value) {
+                                            slValueToUse = activeSlValue * parseFloat(leg.leg.sl_multiplier_value);
+                                            leg.sl_multiplier_applied = true;
+                                        }
+
                                         const slOrder = await placeStopLossWithRetry({
                                             baseConfig: config,
                                             legSide: side,
@@ -542,7 +572,7 @@ async function monitorStrategyLoop(strategyId, strategy) {
                                             instrument: leg.instrument,
                                             lots: leg.leg.lots,
                                             slType: activeSlType,
-                                            slValue: activeSlValue,
+                                            slValue: slValueToUse,
                                             slLimitMargin: config.entry_limit_offset,
                                             slLimitMarginType: config.entry_limit_offset_type || 'POINTS',
                                             connectionId: config.connectionId,
@@ -550,7 +580,7 @@ async function monitorStrategyLoop(strategyId, strategy) {
                                         });
 
                                         if (slOrder?.orderid) {
-                                            const prices = computeStopLossExitPrices(fill, side, activeSlType, activeSlValue, config.entry_limit_offset, config.entry_limit_offset_type || 'POINTS');
+                                            const prices = computeStopLossExitPrices(fill, side, activeSlType, slValueToUse, config.entry_limit_offset, config.entry_limit_offset_type || 'POINTS');
                                             leg.slOrderId = slOrder.orderid;
                                             leg.slUniqueOrderId = slOrder.uniqueorderid;
                                             leg.slTriggerPrice = prices?.trigger;
@@ -701,7 +731,9 @@ async function monitorStrategyLoop(strategyId, strategy) {
             if (leg.state !== "ACTIVE" && leg.state !== "VIRTUAL_MONITORING") continue;
             
             let isEntryMinute = false;
-            if (config.no_sl_on_entry_candle && leg.entryTime) {
+            const isReenteredForTimer = leg.reentry_count > 0;
+            const hasMultiplier = isReenteredForTimer ? leg.leg.reentry_sl_multiplier_entry_candle : leg.leg.sl_multiplier_entry_candle;
+            if ((config.no_sl_on_entry_candle || hasMultiplier) && leg.entryTime) {
                 const { getISTTime } = require("./strategy.time");
                 const currentMinute = getISTTime().substring(0, 5);
                 const entryTimeStr = leg.entryTime.includes(' ') ? leg.entryTime.split(' ')[1] : leg.entryTime;
@@ -709,37 +741,70 @@ async function monitorStrategyLoop(strategyId, strategy) {
                 isEntryMinute = (currentMinute === entryMinute);
             }
 
-            if (!isEntryMinute && config.no_sl_on_entry_candle && !leg.slOrderId && leg.entryPrice && config.variety === "STOPLOSS" && !config.is_paper_trading && !leg.is_virtual_leg && leg.state !== "WAITING_FOR_RECOST") {
-                const isReentered = leg.reentry_count > 0;
-                const isSlEnabled = isReentered && leg.leg.reentry_sl_enabled ? true : leg.leg.sl_enabled !== false;
-                const activeSlValue = isReentered && leg.leg.reentry_sl_enabled ? leg.leg.reentry_sl_value : leg.leg.stop_loss;
-                
-                if (isSlEnabled && activeSlValue > 0 && leg.slOrderId !== "DISABLED") {
-                    try {
-                        const slOrder = await placeStopLossWithRetry({
-                            baseConfig: config,
-                            legSide: leg.leg.side,
-                            entryPrice: leg.entryPrice,
-                            instrument: leg.instrument,
-                            lots: leg.leg.lots,
-                            slType: isReentered && leg.leg.reentry_sl_enabled ? leg.leg.reentry_sl_type : (leg.leg.sl_type || "PERCENTAGE"),
-                            slValue: activeSlValue,
-                            slLimitMargin: leg.leg.sl_limit_margin,
-                            slLimitMarginType: leg.leg.sl_limit_margin_type,
-                            connectionId: config.connectionId,
-                            strategyId: strategyId,
-                            isDeferred: true
-                        });
-                        if (slOrder && slOrder.orderid) {
-                            leg.slOrderId = slOrder.orderid;
-                            leg.slUniqueOrderId = slOrder.uniqueorderid;
-                            addStrategyLog(strategyId, `[Deferred SL] Placed StopLoss for ${leg.instrument.symbol} after entry minute close.`, "INFO");
-                        } else {
+            if (!isEntryMinute) {
+                if (config.no_sl_on_entry_candle && !leg.slOrderId && leg.entryPrice && config.variety === "STOPLOSS" && !config.is_paper_trading && !leg.is_virtual_leg && leg.state !== "WAITING_FOR_RECOST") {
+                    const isReentered = leg.reentry_count > 0;
+                    const isSlEnabled = isReentered && leg.leg.reentry_sl_enabled ? true : leg.leg.sl_enabled !== false;
+                    const activeSlValue = isReentered && leg.leg.reentry_sl_enabled ? leg.leg.reentry_sl_value : leg.leg.stop_loss;
+                    
+                    if (isSlEnabled && activeSlValue > 0 && leg.slOrderId !== "DISABLED") {
+                        try {
+                            const slOrder = await placeStopLossWithRetry({
+                                baseConfig: config,
+                                legSide: leg.leg.side,
+                                entryPrice: leg.entryPrice,
+                                instrument: leg.instrument,
+                                lots: leg.leg.lots,
+                                slType: isReentered && leg.leg.reentry_sl_enabled ? leg.leg.reentry_sl_type : (leg.leg.sl_type || "PERCENTAGE"),
+                                slValue: activeSlValue,
+                                slLimitMargin: leg.leg.sl_limit_margin,
+                                slLimitMarginType: leg.leg.sl_limit_margin_type,
+                                connectionId: config.connectionId,
+                                strategyId: strategyId,
+                                isDeferred: true
+                            });
+                            if (slOrder && slOrder.orderid) {
+                                leg.slOrderId = slOrder.orderid;
+                                leg.slUniqueOrderId = slOrder.uniqueorderid;
+                                addStrategyLog(strategyId, `[Deferred SL] Placed StopLoss for ${leg.instrument.symbol} after entry minute close.`, "INFO");
+                            } else {
+                                leg.slOrderId = "DISABLED";
+                            }
+                        } catch(err) {
+                            addStrategyLog(strategyId, `[Deferred SL] Failed to place StopLoss for ${leg.instrument.symbol}: ${err.message}`, "ERROR");
                             leg.slOrderId = "DISABLED";
                         }
-                    } catch(err) {
-                        addStrategyLog(strategyId, `[Deferred SL] Failed to place StopLoss for ${leg.instrument.symbol}: ${err.message}`, "ERROR");
-                        leg.slOrderId = "DISABLED";
+                    }
+                }
+
+                if (leg.sl_multiplier_applied && leg.slOrderId && leg.slOrderId !== "DISABLED" && config.variety === "STOPLOSS") {
+                    const isReentered = leg.reentry_count > 0;
+                    const activeSlValue = isReentered && leg.leg.reentry_sl_enabled ? leg.leg.reentry_sl_value : leg.leg.stop_loss;
+                    const activeSlType = isReentered && leg.leg.reentry_sl_enabled ? leg.leg.reentry_sl_type : (leg.leg.sl_type || "PERCENTAGE");
+                    
+                    const prices = computeStopLossExitPrices(leg.entryPrice, leg.leg.side, activeSlType, activeSlValue, config.entry_limit_offset, config.entry_limit_offset_type || 'POINTS');
+                    if (prices) {
+                        try {
+                            const multiplier = parseFloat(config.quantity_multiplier) || 1;
+                            const quantityInShares = (leg.leg.lots * parseInt(leg.instrument.lotsize) * multiplier).toString();
+                            
+                            await modifyOrderLocallyOrViaWorker(config, {
+                                variety: "STOPLOSS", orderid: leg.slOrderId, ordertype: "STOPLOSS_LIMIT", producttype: config.producttype || "CARRYFORWARD",
+                                duration: config.duration || "DAY", price: prices.limit.toString(), quantity: quantityInShares,
+                                tradingsymbol: leg.instrument.symbol, symboltoken: leg.instrument.token, exchange: leg.instrument.exch_seg,
+                                triggerprice: prices.trigger.toString(),
+                            });
+                            leg.sl_multiplier_applied = false;
+                            
+                            // update memory prices so monitoring doesn't trigger unexpectedly early or late
+                            leg.slTriggerPrice = prices.trigger;
+                            leg.slLimitPrice = prices.limit;
+                            leg.initialSlTriggerPrice = prices.trigger;
+                            
+                            addStrategyLog(strategyId, `[SL Multiplier] Reverted SL order for ${leg.instrument.symbol} to normal price ₹${prices.trigger} after entry minute.`, "INFO");
+                        } catch(err) {
+                            addStrategyLog(strategyId, `[SL Multiplier] Failed to revert SL order for ${leg.instrument.symbol}: ${err.message}`, "ERROR");
+                        }
                     }
                 }
             }

@@ -491,6 +491,28 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
  </div>
  </div>
  )}
+
+ {leg.sl_enabled !== false && (
+  <div className="flex items-center space-x-2 mt-2 p-2 bg-slate-50 border border-slate-100 rounded-md">
+    <Switch
+      checked={leg.sl_multiplier_entry_candle || false}
+      onCheckedChange={(val) => onChange({ ...leg, sl_multiplier_entry_candle: val })}
+    />
+    <Label className="text-[10px] font-medium text-slate-700 leading-tight flex-1">
+      SL Multiplier on Entry Candle
+    </Label>
+    {leg.sl_multiplier_entry_candle && (
+      <Input
+        className="h-7 w-[60px] text-[10px]"
+        type="number"
+        step="0.1"
+        placeholder="x2"
+        value={leg.sl_multiplier_value || ""}
+        onChange={(e) => onChange({ ...leg, sl_multiplier_value: parseFloat(e.target.value) })}
+      />
+    )}
+  </div>
+ )}
  </div>
 
  <div className="w-full lg:flex-1 space-y-1.5">
@@ -1152,7 +1174,27 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
  onChange={(e) => onChange({ ...leg, reentry_sl_value: parseFloat(e.target.value) })}
  />
  </div>
- </div>
+ 
+  <div className="space-y-1">
+    <Label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground block mb-2">SL Multiplier</Label>
+    <div className="flex items-center gap-2">
+      <Switch
+        checked={leg.reentry_sl_multiplier_entry_candle || false}
+        onCheckedChange={(val) => onChange({ ...leg, reentry_sl_multiplier_entry_candle: val })}
+      />
+      {leg.reentry_sl_multiplier_entry_candle && (
+        <Input
+          className="h-9 rounded-lg text-[10px] flex-1"
+          type="number"
+          step="0.1"
+          placeholder="x2"
+          value={leg.reentry_sl_multiplier_value || ""}
+          onChange={(e) => onChange({ ...leg, reentry_sl_multiplier_value: parseFloat(e.target.value) })}
+        />
+      )}
+    </div>
+  </div>
+</div>
  )}
 
  {leg.reentry_sl_enabled && (

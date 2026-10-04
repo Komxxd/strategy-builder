@@ -239,13 +239,19 @@ class BacktestEngine:
         if price is None or math.isnan(price): return 0
         return float(max(tick, round(price / tick) * tick))
 
-    def calculate_sl_price(self, leg, entry_price, is_reentry):
+    def calculate_sl_price(self, leg, entry_price, is_reentry, is_entry_candle=False):
         is_sl_enabled = True if (is_reentry and leg.get('reentry_sl_enabled')) else leg.get('sl_enabled') is not False
         active_sl_type = leg.get('reentry_sl_type', 'PERCENTAGE') if (is_reentry and leg.get('reentry_sl_enabled')) else leg.get('sl_type', 'PERCENTAGE')
         active_sl_value = leg.get('reentry_sl_value') if (is_reentry and leg.get('reentry_sl_enabled')) else leg.get('stop_loss')
         
         if is_sl_enabled and active_sl_value is not None and float(active_sl_value) > 0:
             sl_val = float(active_sl_value)
+            if is_entry_candle:
+                if is_reentry and leg.get('reentry_sl_multiplier_entry_candle') and leg.get('reentry_sl_multiplier_value'):
+                    sl_val *= float(leg.get('reentry_sl_multiplier_value'))
+                elif not is_reentry and leg.get('sl_multiplier_entry_candle') and leg.get('sl_multiplier_value'):
+                    sl_val *= float(leg.get('sl_multiplier_value'))
+                
             if active_sl_type == 'POINTS':
                 return self.round_to_tick(entry_price - sl_val if leg.get('side') == 'BUY' else entry_price + sl_val)
             else:
@@ -286,7 +292,9 @@ class BacktestEngine:
             entry_time = df['time'][0]
             entry_price = override_entry_price if override_entry_price is not None else df['open'][0]
             
-        initial_sl = self.calculate_sl_price(leg, entry_price, is_reentry)
+        initial_sl_normal = self.calculate_sl_price(leg, entry_price, is_reentry, is_entry_candle=False)
+        initial_sl_entry = self.calculate_sl_price(leg, entry_price, is_reentry, is_entry_candle=True)
+        initial_sl = initial_sl_normal
         
         tsl_enabled = config.get('reentry_tsl_enabled', False) if is_reentry else config.get('tsl_enabled', False)
         tsl_on_close = config.get('reentry_tsl_on_close', False) if is_reentry else config.get('tsl_on_close', False)
@@ -302,10 +310,14 @@ class BacktestEngine:
             return self._build_trade_res(entry_time, entry_price, df[-1]['time'][0], df[-1]['close'][0], 'END_OF_DAY', None), df[-1:], 'END_OF_DAY'
 
         if not tsl_enabled:
+            sl_series = initial_sl_normal
+            if initial_sl_entry != initial_sl_normal:
+                sl_series = pl.Series([initial_sl_entry] + [initial_sl_normal] * (df.height - 1))
+
             if tsl_on_close:
-                hit_mask = df['close'] >= initial_sl if side == 'SELL' else df['close'] <= initial_sl
+                hit_mask = df['close'] >= sl_series if side == 'SELL' else df['close'] <= sl_series
             else:
-                hit_mask = df['high'] >= initial_sl if side == 'SELL' else df['low'] <= initial_sl
+                hit_mask = df['high'] >= sl_series if side == 'SELL' else df['low'] <= sl_series
                 
             # Filter out entry minute if TSL on Close or no_sl_on_entry_candle
             if tsl_on_close or self.config.get('no_sl_on_entry_candle'):
@@ -336,11 +348,13 @@ class BacktestEngine:
                     favorable_move = peak_price - entry_price
                     steps = (favorable_move / move_threshold).clip(lower_bound=0.0).floor()
                     dynamic_sl = initial_sl + (steps * trail_amount)
+                    if initial_sl_entry != initial_sl_normal and len(dynamic_sl) > 0:
+                        dynamic_sl = dynamic_sl.scatter(0, initial_sl_entry)
                     
                     if tsl_on_close:
                         hit_mask = df['close'] <= dynamic_sl
                     else:
-                        pre_trail_sl = dynamic_sl.shift(1).fill_null(initial_sl)
+                        pre_trail_sl = dynamic_sl.shift(1).fill_null(initial_sl_entry)
                         hit_pre = df['low'] <= pre_trail_sl
                         hit_mask = hit_pre
                 else:
@@ -348,11 +362,13 @@ class BacktestEngine:
                     favorable_move = entry_price - peak_price
                     steps = (favorable_move / move_threshold).clip(lower_bound=0.0).floor()
                     dynamic_sl = initial_sl - (steps * trail_amount)
+                    if initial_sl_entry != initial_sl_normal and len(dynamic_sl) > 0:
+                        dynamic_sl = dynamic_sl.scatter(0, initial_sl_entry)
                     
                     if tsl_on_close:
                         hit_mask = df['close'] >= dynamic_sl
                     else:
-                        pre_trail_sl = dynamic_sl.shift(1).fill_null(initial_sl)
+                        pre_trail_sl = dynamic_sl.shift(1).fill_null(initial_sl_entry)
                         hit_pre = df['high'] >= pre_trail_sl
                         hit_mask = hit_pre
                         
