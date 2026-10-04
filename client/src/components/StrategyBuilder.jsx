@@ -2683,9 +2683,37 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  const handleMultiDelete = async () => {
  const totalCount = selectedForCombined.length + selectedFoldersForCombined.length;
  if (!window.confirm(`Are you sure you want to delete ${totalCount} selected item(s)?`)) return;
+ 
+ let deleteStrategiesInFolders = false;
+ if (selectedFoldersForCombined.length > 0) {
+   deleteStrategiesInFolders = window.confirm("Do you want to delete all strategies inside the selected folders as well?\n\nIf Cancel, strategies inside will just be moved to the root.");
+ }
+
  try {
  setLoading(true);
- for (const stratId of selectedForCombined) {
+ 
+ const strategiesToDelete = new Set(selectedForCombined);
+
+ if (deleteStrategiesInFolders) {
+   const collectFolders = (parentId) => {
+     const childFolders = folders.filter(f => f.parent_id === parentId);
+     let allChildFolders = [...childFolders];
+     for (const child of childFolders) {
+       allChildFolders = allChildFolders.concat(collectFolders(child.id));
+     }
+     return allChildFolders;
+   };
+   
+   for (const folderId of selectedFoldersForCombined) {
+     const allFolderIdsToDelete = [folderId, ...collectFolders(folderId).map(f => f.id)];
+     const strats = savedStrategies
+       .filter(s => allFolderIdsToDelete.includes(s.folder_id))
+       .map(s => s.id);
+     strats.forEach(id => strategiesToDelete.add(id));
+   }
+ }
+
+ for (const stratId of strategiesToDelete) {
  await axios.delete(`${API_BASE_URL}/strategy/delete/${stratId}`);
  }
  for (const folderId of selectedFoldersForCombined) {
@@ -2703,13 +2731,40 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  };
 
  const handleDeleteFolder = async (folderId) => {
- if (!window.confirm("Are you sure you want to delete this folder? Strategies inside will be moved to the root.")) return;
+ const wantsToDeleteFolder = window.confirm("Are you sure you want to delete this folder?");
+ if (!wantsToDeleteFolder) return;
+ 
+ const deleteStrategies = window.confirm("Do you want to delete all strategies inside this folder as well?\n\nIf Cancel, strategies will just be moved to the root.");
+
  try {
+ setLoading(true);
+ if (deleteStrategies) {
+ const collectFolders = (parentId) => {
+ const childFolders = folders.filter(f => f.parent_id === parentId);
+ let allChildFolders = [...childFolders];
+ for (const child of childFolders) {
+ allChildFolders = allChildFolders.concat(collectFolders(child.id));
+ }
+ return allChildFolders;
+ };
+ 
+ const allFolderIdsToDelete = [folderId, ...collectFolders(folderId).map(f => f.id)];
+ const strategyIdsToDelete = savedStrategies
+ .filter(s => allFolderIdsToDelete.includes(s.folder_id))
+ .map(s => s.id);
+ 
+ for (const stratId of strategyIdsToDelete) {
+ await axios.delete(`${API_BASE_URL}/strategy/delete/${stratId}`);
+ }
+ }
+ 
  await axios.delete(`${API_BASE_URL}/folders/${folderId}`);
  fetchFolders();
  fetchSavedStrategies();
  } catch (err) {
  alert(err.response?.data?.message || "Failed to delete folder");
+ } finally {
+ setLoading(false);
  }
  };
 
