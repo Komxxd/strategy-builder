@@ -2680,6 +2680,28 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  }
  };
 
+ const handleMultiDelete = async () => {
+ const totalCount = selectedForCombined.length + selectedFoldersForCombined.length;
+ if (!window.confirm(`Are you sure you want to delete ${totalCount} selected item(s)?`)) return;
+ try {
+ setLoading(true);
+ for (const stratId of selectedForCombined) {
+ await axios.delete(`${API_BASE_URL}/strategy/delete/${stratId}`);
+ }
+ for (const folderId of selectedFoldersForCombined) {
+ await axios.delete(`${API_BASE_URL}/folders/${folderId}`);
+ }
+ fetchFolders();
+ fetchSavedStrategies();
+ setSelectedForCombined([]);
+ setSelectedFoldersForCombined([]);
+ } catch (err) {
+ alert("Error deleting items: " + err.message);
+ } finally {
+ setLoading(false);
+ }
+ };
+
  const handleDeleteFolder = async (folderId) => {
  if (!window.confirm("Are you sure you want to delete this folder? Strategies inside will be moved to the root.")) return;
  try {
@@ -4140,6 +4162,7 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  </Button>
  )}
  {(selectedForCombined.length + selectedFoldersForCombined.length) > 0 && (
+ <>
  <Button
  size="sm"
  variant="outline"
@@ -4151,6 +4174,18 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  >
  <FolderPlus className="h-3 w-3" /> Move ({selectedForCombined.length + selectedFoldersForCombined.length})
  </Button>
+ <Button
+ size="sm"
+ variant="outline"
+ className="h-8 gap-1 rounded-md text-[10px] font-medium border-red-200 hover:bg-red-50 text-red-700 animate-in zoom-in-95"
+ onClick={(e) => {
+ e.stopPropagation();
+ handleMultiDelete();
+ }}
+ >
+ <Trash2 className="h-3 w-3" /> Delete ({selectedForCombined.length + selectedFoldersForCombined.length})
+ </Button>
+ </>
  )}
  <Button
  variant="outline"
