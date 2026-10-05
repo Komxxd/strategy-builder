@@ -66,6 +66,7 @@ function App() {
 
  const [globalBacktestResults, setGlobalBacktestResults] = useState(null);
  const [globalBacktestStrategy, setGlobalBacktestStrategy] = useState(null);
+ const [workerStatus, setWorkerStatus] = useState(null);
 
  const handleAuthenticated = () => {
  setSuccess("Access unlocked! Welcome back.");
@@ -123,6 +124,17 @@ function App() {
  setIsApiConnected(res.apiConnected);
  setIsSocketConnected(res.socketConnected);
  }
+
+ import('./api').then(async ({ getWorkerNode }) => {
+   try {
+     const workerRes = await getWorkerNode();
+     if (workerRes.success && workerRes.hasWorker) {
+       setWorkerStatus(workerRes.status);
+     }
+   } catch (err) {
+     console.error("Failed to fetch worker status:", err);
+   }
+ });
  } catch (err) {
  console.error("Failed to sync initial status:", err);
  }
@@ -247,6 +259,18 @@ function App() {
               <CheckCircle2 className="h-3 w-3 sm:h-3.5 sm:w-3.5 shrink-0 text-emerald-500" />
               <span>Data: {new Date(instrumentsLastUpdated).toLocaleString([], {month: 'short', day: 'numeric', hour: '2-digit', minute:'2-digit'})}</span>
             </a>
+          )}
+          
+          {/* Worker Node Status Pill */}
+          {workerStatus && (
+            <div className={`flex items-center gap-1 sm:gap-1.5 px-1.5 py-1 sm:px-3 sm:py-1.5 rounded-full text-[10px] sm:text-xs font-bold border shrink-0 whitespace-nowrap ${workerStatus === 'running' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-slate-50 text-slate-500 border-slate-200'}`} title={`Worker Node Status: ${workerStatus}`}>
+              {workerStatus === 'running' ? (
+                <CheckCircle2 className="h-3 w-3 sm:h-3.5 sm:w-3.5 shrink-0" />
+              ) : (
+                <AlertCircle className="h-3 w-3 sm:h-3.5 sm:w-3.5 shrink-0" />
+              )}
+              <span>Worker: <span className="capitalize">{workerStatus}</span></span>
+            </div>
           )}
         </div>
           
