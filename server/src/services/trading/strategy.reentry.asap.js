@@ -140,12 +140,18 @@ async function handleReentryAsap({ leg, config, strategyId, addStrategyLog }) {
                                const slType = leg.leg.reentry_sl_enabled ? leg.leg.reentry_sl_type : (leg.leg.sl_type || "PERCENTAGE");
                                const slValue = leg.leg.reentry_sl_enabled ? leg.leg.reentry_sl_value : leg.leg.stop_loss;
                                
-                               const prices = computeStopLossExitPrices(leg.entryPrice, leg.leg.side, slType, slValue, getLimitOffsetAmt(leg.entryPrice, config), config.entry_limit_offset_type || 'POINTS');
+                               let slValueToUse = slValue;
+                               if (leg.leg.reentry_sl_multiplier_entry_candle && leg.leg.reentry_sl_multiplier_value) {
+                                   slValueToUse = slValue * parseFloat(leg.leg.reentry_sl_multiplier_value);
+                                   leg.sl_multiplier_applied = true;
+                               }
+
                                const slOrder = await placeStopLossWithRetry({
                                    baseConfig: config, legSide: leg.leg.side, entryPrice: leg.entryPrice, instrument: leg.instrument, lots: leg.leg.lots,
-                                   slType: slType, slValue: slValue, slLimitMargin: getLimitOffsetAmt(leg.entryPrice, config),
+                                   slType: slType, slValue: slValueToUse, slLimitMargin: getLimitOffsetAmt(leg.entryPrice, config),
                                    slLimitMarginType: config.entry_limit_offset_type || 'POINTS', connectionId: config.connectionId, strategyId: strategyId
                                });
+                               const prices = computeStopLossExitPrices(leg.entryPrice, leg.leg.side, slType, slValueToUse, getLimitOffsetAmt(leg.entryPrice, config), config.entry_limit_offset_type || 'POINTS');
                                if (slOrder?.orderid) {
                                    leg.slOrderId = slOrder.orderid;
                                    leg.slUniqueOrderId = slOrder.uniqueorderid;

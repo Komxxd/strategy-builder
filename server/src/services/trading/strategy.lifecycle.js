@@ -937,6 +937,15 @@ async function switchVirtualMode(strategyId, targetVirtual, userId) {
 
                                 if (config.variety === "STOPLOSS" && leg.leg.sl_type) {
                                     try {
+                                        let slValueToUse = leg.leg.sl_value || leg.leg.stop_loss;
+                                        if (leg.reentry_count > 0 && leg.leg.reentry_sl_multiplier_entry_candle && leg.leg.reentry_sl_multiplier_value) {
+                                            slValueToUse = slValueToUse * parseFloat(leg.leg.reentry_sl_multiplier_value);
+                                            leg.sl_multiplier_applied = true;
+                                        } else if (!(leg.reentry_count > 0) && leg.leg.sl_multiplier_entry_candle && leg.leg.sl_multiplier_value) {
+                                            slValueToUse = slValueToUse * parseFloat(leg.leg.sl_multiplier_value);
+                                            leg.sl_multiplier_applied = true;
+                                        }
+
                                         const slOrder = await placeStopLossWithRetry({
                                             baseConfig: config,
                                             legSide: entrySide,
@@ -944,7 +953,7 @@ async function switchVirtualMode(strategyId, targetVirtual, userId) {
                                             instrument,
                                             lots: leg.leg.lots,
                                             slType: leg.leg.sl_type,
-                                            slValue: leg.leg.sl_value,
+                                            slValue: slValueToUse,
                                             slLimitMargin: leg.leg.sl_limit_margin || 0,
                                             slLimitMarginType: leg.leg.sl_limit_margin_type || "POINTS",
                                             connectionId: config.connectionId,

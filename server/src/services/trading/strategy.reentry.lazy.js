@@ -134,12 +134,18 @@ async function handleLazyLeg({ leg, config, strategyId, addStrategyLog }) {
                             addStrategyLog(strategyId, `[LAZY LEG LIVE] ${leg.instrument.symbol} fill confirmed at ₹${fillPrice}`, "INFO");
 
                             if (config.variety === "STOPLOSS") {
-                                const prices = computeStopLossExitPrices(leg.entryPrice, leg.leg.side, leg.leg.sl_type || "PERCENTAGE", leg.leg.stop_loss || 0, getLimitOffsetAmt(leg.entryPrice, config), config.entry_limit_offset_type || 'POINTS');
+                                let slValueToUse = leg.leg.stop_loss || 0;
+                                if (leg.leg.sl_multiplier_entry_candle && leg.leg.sl_multiplier_value) {
+                                    slValueToUse = (leg.leg.stop_loss || 0) * parseFloat(leg.leg.sl_multiplier_value);
+                                    leg.sl_multiplier_applied = true;
+                                }
+
                                 const slOrder = await placeStopLossWithRetry({
                                     baseConfig: config, legSide: leg.leg.side, entryPrice: leg.entryPrice, instrument: leg.instrument, lots: leg.leg.lots,
-                                    slType: leg.leg.sl_type || "PERCENTAGE", slValue: leg.leg.stop_loss, slLimitMargin: getLimitOffsetAmt(leg.entryPrice, config),
+                                    slType: leg.leg.sl_type || "PERCENTAGE", slValue: slValueToUse, slLimitMargin: getLimitOffsetAmt(leg.entryPrice, config),
                                     slLimitMarginType: config.entry_limit_offset_type || 'POINTS', connectionId: config.connectionId, strategyId: strategyId
                                 });
+                                const prices = computeStopLossExitPrices(leg.entryPrice, leg.leg.side, leg.leg.sl_type || "PERCENTAGE", slValueToUse, getLimitOffsetAmt(leg.entryPrice, config), config.entry_limit_offset_type || 'POINTS');
                                 if (slOrder?.orderid) {
                                     leg.slOrderId = slOrder.orderid;
                                     leg.slUniqueOrderId = slOrder.uniqueorderid;

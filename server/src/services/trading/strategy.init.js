@@ -306,6 +306,11 @@ async function handleInitialEntry(strategyId, strategy) {
                                 if (config.variety === "STOPLOSS" && leg.leg.sl_enabled !== false) {
                                     const { placeStopLossWithRetry } = require("./strategy.execution");
                                     const { computeStopLossExitPrices, getLimitOffsetAmt } = require("./strategy.offset");
+                                    let slValueToUse = leg.leg.stop_loss;
+                                    if (leg.leg.sl_multiplier_entry_candle && leg.leg.sl_multiplier_value) {
+                                        slValueToUse = leg.leg.stop_loss * parseFloat(leg.leg.sl_multiplier_value);
+                                        leg.sl_multiplier_applied = true;
+                                    }
                                     const slOrder = await placeStopLossWithRetry({
                                         baseConfig: config,
                                         legSide: leg.leg.side,
@@ -313,13 +318,13 @@ async function handleInitialEntry(strategyId, strategy) {
                                         instrument: leg.instrument,
                                         lots: leg.leg.lots,
                                         slType: leg.leg.sl_type || "PERCENTAGE",
-                                        slValue: leg.leg.stop_loss,
+                                        slValue: slValueToUse,
                                         slLimitMargin: getLimitOffsetAmt(leg.entryPrice, config),
                                         slLimitMarginType: 'POINTS',
                                         connectionId: config.connectionId,
                                         strategyId: strategyId
                                     });
-                                    const prices = computeStopLossExitPrices(leg.entryPrice, leg.leg.side, leg.leg.sl_type || "PERCENTAGE", leg.leg.stop_loss, getLimitOffsetAmt(leg.entryPrice, config), 'POINTS');
+                                    const prices = computeStopLossExitPrices(leg.entryPrice, leg.leg.side, leg.leg.sl_type || "PERCENTAGE", slValueToUse, getLimitOffsetAmt(leg.entryPrice, config), 'POINTS');
                                     if (slOrder?.orderid) {
                                         leg.slOrderId = slOrder.orderid;
                                         leg.slUniqueOrderId = slOrder.uniqueorderid;
@@ -387,6 +392,11 @@ async function handleInitialEntry(strategyId, strategy) {
             }
 
             if (config.variety === "STOPLOSS" && leg.entryPrice && leg.leg.sl_enabled !== false) {
+                let slValueToUse = leg.leg.stop_loss;
+                if (leg.leg.sl_multiplier_entry_candle && leg.leg.sl_multiplier_value) {
+                    slValueToUse = leg.leg.stop_loss * parseFloat(leg.leg.sl_multiplier_value);
+                    leg.sl_multiplier_applied = true;
+                }
                 const slOrder = await placeStopLossWithRetry({
                     baseConfig: config,
                     legSide: leg.leg.side,
@@ -394,13 +404,13 @@ async function handleInitialEntry(strategyId, strategy) {
                     instrument: leg.instrument,
                     lots: leg.leg.lots,
                     slType: leg.leg.sl_type || "PERCENTAGE",
-                    slValue: leg.leg.stop_loss,
+                    slValue: slValueToUse,
                     slLimitMargin: getLimitOffsetAmt(leg.entryPrice, config),
                     slLimitMarginType: 'POINTS',
                     connectionId: config.connectionId,
                     strategyId: strategyId
                 });
-                const prices = computeStopLossExitPrices(leg.entryPrice, leg.leg.side, leg.leg.sl_type || "PERCENTAGE", leg.leg.stop_loss, getLimitOffsetAmt(leg.entryPrice, config), 'POINTS');
+                const prices = computeStopLossExitPrices(leg.entryPrice, leg.leg.side, leg.leg.sl_type || "PERCENTAGE", slValueToUse, getLimitOffsetAmt(leg.entryPrice, config), 'POINTS');
                 if (slOrder?.orderid) {
                     leg.slOrderId = slOrder.orderid;
                     leg.slUniqueOrderId = slOrder.uniqueorderid;
