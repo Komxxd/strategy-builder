@@ -327,10 +327,11 @@ class BacktestEngine:
                 
             if hit_mask.any():
                 hit_idx = hit_mask.arg_true()[0]
-                exit_price = df['close'][hit_idx] if tsl_on_close else initial_sl
-                return self._build_trade_res(entry_time, entry_price, df['time'][hit_idx], exit_price, 'SL', initial_sl, initial_sl=initial_sl), df[hit_idx:], 'SL'
+                hit_sl = initial_sl_entry if hit_idx == 0 else initial_sl_normal
+                exit_price = df['close'][hit_idx] if tsl_on_close else hit_sl
+                return self._build_trade_res(entry_time, entry_price, df['time'][hit_idx], exit_price, 'SL', hit_sl, initial_sl=initial_sl_entry, normal_sl=initial_sl_normal), df[hit_idx:], 'SL'
             else:
-                return self._build_trade_res(entry_time, entry_price, df[-1]['time'][0], df[-1]['close'][0], 'END_OF_DAY', initial_sl, initial_sl=initial_sl), df[-1:], 'END_OF_DAY'
+                return self._build_trade_res(entry_time, entry_price, df[-1]['time'][0], df[-1]['close'][0], 'END_OF_DAY', initial_sl_normal, initial_sl=initial_sl_entry, normal_sl=initial_sl_normal), df[-1:], 'END_OF_DAY'
                 
         else:
             tsl_type = config.get('reentry_tsl_type', 'PERCENTAGE') if is_reentry else config.get('tsl_type', 'PERCENTAGE')
@@ -390,20 +391,21 @@ class BacktestEngine:
                     else:
                         exit_price = pre_trail_sl[hit_idx] if hit_pre[hit_idx] else dynamic_sl[hit_idx]
                         
-                    return self._build_trade_res(entry_time, entry_price, df['time'][hit_idx], exit_price, 'TSL' if not (not tsl_on_close and hit_pre[hit_idx]) else 'SL', exit_price, tsl_series, initial_sl), df[hit_idx:], 'TSL' if not (not tsl_on_close and hit_pre[hit_idx]) else 'SL'
+                    return self._build_trade_res(entry_time, entry_price, df['time'][hit_idx], exit_price, 'TSL' if not (not tsl_on_close and hit_pre[hit_idx]) else 'SL', exit_price, tsl_series, initial_sl_entry, initial_sl_normal), df[hit_idx:], 'TSL' if not (not tsl_on_close and hit_pre[hit_idx]) else 'SL'
                 else:
                     tsl_series = dict(zip(df['time'].to_list(), dynamic_sl.to_list()))
-                    return self._build_trade_res(entry_time, entry_price, df[-1]['time'][0], df[-1]['close'][0], 'END_OF_DAY', dynamic_sl[-1], tsl_series, initial_sl), df[-1:], 'END_OF_DAY'
+                    return self._build_trade_res(entry_time, entry_price, df[-1]['time'][0], df[-1]['close'][0], 'END_OF_DAY', dynamic_sl[-1], tsl_series, initial_sl_entry, initial_sl_normal), df[-1:], 'END_OF_DAY'
             else:
                 return self.calculate_trade_vectorized(leg, df, {**config, 'tsl_enabled': False}, is_reentry)
                 
-    def _build_trade_res(self, entry_time, entry_price, exit_time, exit_price, reason, sl_price, tsl_series=None, initial_sl=None):
+    def _build_trade_res(self, entry_time, entry_price, exit_time, exit_price, reason, sl_price, tsl_series=None, initial_sl=None, normal_sl=None):
         return {
             'entryTime': entry_time, 'entryPrice': entry_price,
             'exitTime': exit_time, 'exitPrice': exit_price,
             'exitReason': reason, 'tradeSlPrice': sl_price,
             'tslSeries': tsl_series or {},
-            'initialSlPrice': initial_sl if initial_sl is not None else sl_price
+            'initialSlPrice': initial_sl if initial_sl is not None else sl_price,
+            'normalSlPrice': normal_sl
         }
 
     def calculate_leg_trades(self, leg, df, config, index_name, expiry, year, month, date_str, step, index_df, current_strike):
@@ -916,6 +918,18 @@ class BacktestEngine:
                     pnl_series.append(locked_pnl + (diff * leg.get('lots', 1)))
                     open_pnl_series.append(locked_pnl + (open_diff * leg.get('lots', 1)))
                     
+                    # Entry-candle SL multiplier: announce when SL reverts to normal on the next candle
+                    normal_sl = trade.get('normalSlPrice')
+                    entry_sl = trade.get('initialSlPrice')
+                    if normal_sl is not None and entry_sl is not None and normal_sl != entry_sl:
+                        if t == trade['entryTime']:
+                            trade['last_seen_sl'] = entry_sl
+                        elif not trade.get('sl_reverted_logged'):
+                            trade['sl_reverted_logged'] = True
+                            trade['last_seen_sl'] = normal_sl
+                            revert_action = f"SL reverted: ₹{normal_sl:.2f}"
+                            action = f"{action} | {revert_action}" if action else revert_action
+
                     # Track TSL updates
                     current_sl = trade.get('tslSeries', {}).get(t)
                     if current_sl is not None:
