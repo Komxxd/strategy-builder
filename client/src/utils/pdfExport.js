@@ -1,4 +1,5 @@
 import { jsPDF } from 'jspdf';
+import JSZip from 'jszip';
 
 // ─── Colors ────────────────────────────────────
 const COL = {
@@ -276,14 +277,9 @@ function renderLeg(doc, leg, legIndex, startY, pageW, { isLazy = false, lazyLeve
 }
 
 // ═══════════════════════════════════════════════
-//  Main Export Function
+//  PDF Builder (returns a jsPDF document)
 // ═══════════════════════════════════════════════
-export async function downloadElementAsPdf(element, title = 'Strategy_Configuration') {
-  // We read config from the StrategyConfigModal's props, passed via element.dataset
-  // But since the caller passes the element ref, we need the config.
-  // This function is called from StrategyConfigModal which has the config.
-  // We'll use window.__pdfExportConfig as a bridge.
-  const config = window.__pdfExportConfig;
+export function buildStrategyPdf(config, title = 'Strategy_Configuration') {
   if (!config) {
     throw new Error('No strategy configuration data available for PDF export');
   }
@@ -397,7 +393,77 @@ export async function downloadElementAsPdf(element, title = 'Strategy_Configurat
     doc.rect(15, 287, pageW - 30, 0.3, 'F');
   }
 
-  // ── Save ──────────────────────────────────
+  return doc;
+}
+
+const sanitizeFileName = (name) =>
+  String(name || 'untitled').replace(/[\\/:*?"<>|]/g, '_').trim() || 'untitled';
+
+function triggerBlobDownload(blob, fileName) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = fileName;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+// ═══════════════════════════════════════════════
+//  Single PDF download (legacy bridge-based API)
+// ═══════════════════════════════════════════════
+export async function downloadElementAsPdf(element, title = 'Strategy_Configuration') {
+  const doc = buildStrategyPdf(window.__pdfExportConfig, title);
   const sanitizedName = title.replace(/[^a-zA-Z0-9_-]/g, '_').toLowerCase();
   doc.save(`${sanitizedName}_config.pdf`);
+}
+
+// ═══════════════════════════════════════════════
+//  Bulk export: many strategies -> one ZIP of PDFs
+//  items: [{ name, config, path?: string[] }]
+//  `path` is the list of folder names the PDF is placed under in the ZIP.
+// ═══════════════════════════════════════════════
+export async function downloadStrategiesAsZip(items, zipName = 'strategies', onProgress) {
+  if (!items || items.length === 0) {
+    throw new Error('No strategies to export');
+  }
+
+  const zip = new JSZip();
+  const usedPaths = new Set();
+  const failed = [];
+
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
+    const title = item.name || item.config?.name || 'Strategy';
+    try {
+      const doc = buildStrategyPdf(item.config, title);
+      const folderPath = (item.path || []).map(sanitizeFileName).join('/');
+      const base = sanitizeFileName(title);
+
+      // Avoid collisions between same-named strategies
+      let candidate = `${folderPath ? folderPath + '/' : ''}${base}.pdf`;
+      let n = 2;
+      while (usedPaths.has(candidate.toLowerCase())) {
+        candidate = `${folderPath ? folderPath + '/' : ''}${base} (${n++}).pdf`;
+      }
+      usedPaths.add(candidate.toLowerCase());
+
+      zip.file(candidate, doc.output('arraybuffer'));
+    } catch (err) {
+      console.error(`Failed to generate PDF for "${title}":`, err);
+      failed.push(title);
+    }
+    if (onProgress) onProgress(i + 1, items.length);
+    // Yield to the UI thread so progress/spinners can repaint
+    await new Promise(r => setTimeout(r, 0));
+  }
+
+  if (failed.length === items.length) {
+    throw new Error('Failed to generate any PDFs');
+  }
+
+  const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
+  triggerBlobDownload(blob, `${sanitizeFileName(zipName)}.zip`);
+  return { total: items.length, failed };
 }

@@ -17,6 +17,7 @@ import { StrategyAlertModal } from'./StrategyAlertModal';
 import { StrategyConfigModal } from'./StrategyConfigModal';
 import { ExecutionSettingsModal } from'./ExecutionSettingsModal';
 import { fetchBacktestDates, runBacktest, runCombinedBacktest, getBacktestStatus, getSettings, updateSettings } from'../api';
+import { downloadStrategiesAsZip } from'../utils/pdfExport';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ||"http://localhost:5001/api";
 const SOCKET_URL = API_BASE_URL.replace(/\/api\/?$/,"");
@@ -2351,6 +2352,7 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  const [isBacktesting, setIsBacktesting] = useState(false);
  const [activeMenuId, setActiveMenuId] = useState(null);
  const [autoDownloadPdf, setAutoDownloadPdf] = useState(false);
+  const [bulkPdfProgress, setBulkPdfProgress] = useState(null); // null | { done, total }
 
  useEffect(() => {
    const handleClickOutside = () => {
@@ -2425,6 +2427,80 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
     setViewStrategyName(strategy.name || strategy.config?.name || 'Strategy');
     setAutoDownloadPdf(true);
     setConfigWindowOpen(true);
+  };
+
+  // Builds the list of strategies (with their ZIP folder path) for the given
+  // folders (recursively) and individually selected strategies.
+  const buildPdfExportItems = (folderIds = [], strategyIds = []) => {
+    const selectedFolderSet = new Set(folderIds);
+    const folderById = new Map(folders.map(f => [f.id, f]));
+
+    const hasSelectedAncestor = (folderId) => {
+      let cur = folderById.get(folderId);
+      while (cur && cur.parent_id) {
+        if (selectedFolderSet.has(cur.parent_id)) return true;
+        cur = folderById.get(cur.parent_id);
+      }
+      return false;
+    };
+    const rootFolders = folderIds
+      .filter(id => folderById.has(id) && !hasSelectedAncestor(id))
+      .map(id => folderById.get(id));
+
+    const items = [];
+    const seen = new Set();
+    const addStrategy = (s, path) => {
+      if (seen.has(s.id) || !s.config) return;
+      seen.add(s.id);
+      items.push({ name: s.name || s.config?.name || 'Strategy', config: s.config, path });
+    };
+
+    const walk = (folder, path) => {
+      savedStrategies.filter(s => s.folder_id === folder.id).forEach(s => addStrategy(s, path));
+      folders.filter(f => f.parent_id === folder.id).forEach(child => walk(child, [...path, child.name]));
+    };
+    rootFolders.forEach(root => walk(root, [root.name]));
+
+    // Individually selected strategies (skipped if already covered by a selected folder)
+    savedStrategies
+      .filter(s => strategyIds.includes(s.id))
+      .forEach(s => addStrategy(s, []));
+
+    return items;
+  };
+
+  const runBulkPdfDownload = async (items, zipName) => {
+    if (items.length === 0) {
+      alert('No strategies found to download.');
+      return;
+    }
+    if (bulkPdfProgress) return; // already running
+    try {
+      setBulkPdfProgress({ done: 0, total: items.length });
+      const { failed } = await downloadStrategiesAsZip(
+        items,
+        zipName,
+        (done, total) => setBulkPdfProgress({ done, total })
+      );
+      if (failed.length > 0) {
+        alert(`Downloaded, but ${failed.length} PDF(s) could not be generated:\n${failed.join('\n')}`);
+      }
+    } catch (err) {
+      console.error('Bulk PDF download failed:', err);
+      alert('Failed to generate PDFs: ' + err.message);
+    } finally {
+      setBulkPdfProgress(null);
+    }
+  };
+
+  const handleDownloadFolderPdfs = (folder) => {
+    const items = buildPdfExportItems([folder.id], []);
+    return runBulkPdfDownload(items, folder.name);
+  };
+
+  const handleBulkDownloadSelectedPdfs = () => {
+    const items = buildPdfExportItems(selectedFoldersForCombined, selectedForCombined);
+    return runBulkPdfDownload(items, 'strategies_pdf');
   };
 
  const handleUploadClick = () => {
@@ -4326,6 +4402,23 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  <Button
  size="sm"
  variant="outline"
+ className="h-8 gap-1 rounded-md text-[10px] font-medium border-indigo-200 hover:bg-indigo-50 text-indigo-700 animate-in zoom-in-95"
+ disabled={!!bulkPdfProgress}
+ onClick={(e) => {
+ e.stopPropagation();
+ handleBulkDownloadSelectedPdfs();
+ }}
+ title="Download selected strategies/folders as PDFs (ZIP)"
+ >
+ {bulkPdfProgress ? (
+ <><Loader2 className="h-3 w-3 animate-spin" /> {bulkPdfProgress.done}/{bulkPdfProgress.total}</>
+ ) : (
+ <><FileText className="h-3 w-3" /> PDFs ({selectedForCombined.length + selectedFoldersForCombined.length})</>
+ )}
+ </Button>
+ <Button
+ size="sm"
+ variant="outline"
  className="h-8 gap-1 rounded-md text-[10px] font-medium border-red-200 hover:bg-red-50 text-red-700 animate-in zoom-in-95"
  onClick={(e) => {
  e.stopPropagation();
@@ -4380,6 +4473,8 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
                       onDeleteFolder={handleDeleteFolder}
                       onRenameFolder={handleRenameFolder}
                       onDownloadFolder={handleDownloadFolder}
+                      onDownloadFolderPdfs={handleDownloadFolderPdfs}
+                      isBulkPdfRunning={!!bulkPdfProgress}
                       onCreateFolder={handleCreateFolder}
                       onReorderFolder={handleReorderFolder}
                       onChangeParentFolder={handleChangeParentFolder}

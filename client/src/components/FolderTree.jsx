@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Folder, FolderOpen, ChevronRight, ChevronDown, File, Trash2, Edit2, FolderPlus, Database, Download } from 'lucide-react';
+import { Folder, FolderOpen, ChevronRight, ChevronDown, File, Trash2, Edit2, FolderPlus, Database, Download, FileText } from 'lucide-react';
 import { Button } from './ui/button';
 
 const FolderNode = ({
@@ -11,6 +11,8 @@ const FolderNode = ({
   onDeleteFolder,
   onRenameFolder,
   onDownloadFolder,
+  onDownloadFolderPdfs,
+  isBulkPdfRunning,
   onCreateFolder,
   onReorderFolder,
   onChangeParentFolder,
@@ -248,6 +250,21 @@ const FolderNode = ({
           >
             <Download className="h-3 w-3" />
           </Button>
+          {totalStratCount > 0 && onDownloadFolderPdfs && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 w-6 p-0 hover:bg-indigo-100 hover:text-indigo-600 rounded text-slate-500 disabled:opacity-40"
+              disabled={isBulkPdfRunning}
+              onClick={(e) => {
+                e.stopPropagation();
+                onDownloadFolderPdfs(folder);
+              }}
+              title="Download All Strategies in Folder as PDFs (ZIP)"
+            >
+              <FileText className="h-3 w-3" />
+            </Button>
+          )}
           <Button
             variant="ghost"
             size="sm"
@@ -277,6 +294,8 @@ const FolderNode = ({
               onDeleteFolder={onDeleteFolder}
               onRenameFolder={onRenameFolder}
               onDownloadFolder={onDownloadFolder}
+              onDownloadFolderPdfs={onDownloadFolderPdfs}
+              isBulkPdfRunning={isBulkPdfRunning}
               onCreateFolder={onCreateFolder}
               onReorderFolder={onReorderFolder}
               onChangeParentFolder={onChangeParentFolder}
@@ -328,6 +347,8 @@ export const FolderTree = ({
   onDeleteFolder,
   onRenameFolder,
   onDownloadFolder,
+  onDownloadFolderPdfs,
+  isBulkPdfRunning,
   onCreateFolder,
   onReorderFolder,
   onChangeParentFolder,
@@ -374,6 +395,8 @@ export const FolderTree = ({
           onDeleteFolder={onDeleteFolder}
           onRenameFolder={onRenameFolder}
           onDownloadFolder={onDownloadFolder}
+          onDownloadFolderPdfs={onDownloadFolderPdfs}
+          isBulkPdfRunning={isBulkPdfRunning}
           onCreateFolder={onCreateFolder}
           onReorderFolder={onReorderFolder}
           onChangeParentFolder={onChangeParentFolder}
