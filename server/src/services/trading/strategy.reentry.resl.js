@@ -192,7 +192,7 @@ async function handleReentryReSL({ leg, config, strategyId, addStrategyLog, curr
                         if (slOrder?.orderid) {
                             leg.slOrderId = slOrder.orderid;
                             leg.slUniqueOrderId = slOrder.uniqueorderid;
-                        } else {
+                        } else if (!slOrder?.deferred) {
                             addStrategyLog(strategyId, `[FALLBACK] Initializing virtual SL monitoring for ${leg.instrument.symbol} (RE-SL Entry).`, "WARNING");
                         }
                         leg.slTriggerPrice = prices?.trigger;

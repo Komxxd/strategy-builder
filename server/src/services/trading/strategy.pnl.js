@@ -192,7 +192,7 @@ function evaluateLegLimits({ leg, config, strategyId, addStrategyLog, isMinuteCl
                 result.exitReason = "TRAILING_STOP_LOSS";
                 const isVirtual = config?.is_virtual === true || leg.is_virtual_leg === true;
                 const isPaperTrading = config?.is_paper_trading === true || isVirtual;
-                if (config.variety === "STOPLOSS" && !isPaperTrading && leg.slOrderId) {
+                if (config.variety === "STOPLOSS" && !isPaperTrading && leg.slOrderId && leg.slOrderId !== "DISABLED") {
                     result.requiresExchangeValidation = true;
                 }
                 return result;
@@ -201,7 +201,7 @@ function evaluateLegLimits({ leg, config, strategyId, addStrategyLog, isMinuteCl
                 result.exitReason = "TRAILING_STOP_LOSS";
                 const isVirtual = config?.is_virtual === true || leg.is_virtual_leg === true;
                 const isPaperTrading = config?.is_paper_trading === true || isVirtual;
-                if (config.variety === "STOPLOSS" && !isPaperTrading && leg.slOrderId) {
+                if (config.variety === "STOPLOSS" && !isPaperTrading && leg.slOrderId && leg.slOrderId !== "DISABLED") {
                     result.requiresExchangeValidation = true;
                 }
                 return result;
@@ -228,7 +228,7 @@ function evaluateLegLimits({ leg, config, strategyId, addStrategyLog, isMinuteCl
                 result.exitReason = "LEG_STOP_LOSS";
                 const isVirtual = config?.is_virtual === true || leg.is_virtual_leg === true;
             const isPaperTrading = config?.is_paper_trading === true || isVirtual;
-            if (config.variety === "STOPLOSS" && !isPaperTrading && leg.slOrderId) {
+            if (config.variety === "STOPLOSS" && !isPaperTrading && leg.slOrderId && leg.slOrderId !== "DISABLED") {
                     result.requiresExchangeValidation = true;
                 }
             }
