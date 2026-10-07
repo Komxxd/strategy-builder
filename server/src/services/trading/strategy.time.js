@@ -8,6 +8,24 @@ function getISTTime() {
     }).format(new Date());
 }
 
+function timeToSeconds(timeStr) {
+    if (!timeStr) return 0;
+    const parts = timeStr.split(':');
+    const h = parseInt(parts[0], 10) || 0;
+    const m = parseInt(parts[1], 10) || 0;
+    const s = parseInt(parts[2], 10) || 0;
+    return h * 3600 + m * 60 + s;
+}
+
+function isWithinSecondsOfExit(currentTimeStr, exitTimeStr, seconds = 5) {
+    if (!currentTimeStr || !exitTimeStr) return false;
+    const currentSecs = timeToSeconds(currentTimeStr);
+    const exitSecs = timeToSeconds(exitTimeStr);
+    const diff = exitSecs - currentSecs;
+    // Returns true if we are within `seconds` before exit time, or if we have already passed the exit time.
+    return diff <= seconds;
+}
+
 /**
  * Gets current formatted time for log window: "Mar 10, 2026 at 09:45:03 AM"
  */
@@ -85,5 +103,6 @@ module.exports = {
     getISTTime,
     getISTFullDate,
     getISTExchangeFormat,
-    getBrokerFillTime
+    getBrokerFillTime,
+    isWithinSecondsOfExit
 };

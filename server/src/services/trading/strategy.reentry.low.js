@@ -1,6 +1,6 @@
 const { placeOrder, waitForOrderFillPrice, placeStopLossWithRetry, modifyOrderLocallyOrViaWorker } = require("./strategy.execution");
 const { roundToTick, computeStopLossExitPrices, getLimitOffsetAmt } = require("./strategy.offset");
-const { getISTTime, getISTExchangeFormat } = require("./strategy.time");
+const { getISTTime, getISTExchangeFormat, isWithinSecondsOfExit } = require("./strategy.time");
 const { getAuthorizedInstance } = require("../../config/smartapi");
 
 /**
@@ -9,6 +9,11 @@ const { getAuthorizedInstance } = require("../../config/smartapi");
 async function handleReentryLow({ leg, config, strategyId, addStrategyLog, currentTick, isMtpPlacement = false }) {
     const isVirtual = config?.is_virtual === true || leg.is_virtual_leg === true;
     const isPaperTrading = config?.is_paper_trading === true || isVirtual;
+    
+    if (config?.exit_time && isWithinSecondsOfExit(getISTTime(), config.exit_time, 5)) {
+        addStrategyLog(strategyId, `Skipping Low re-entry: within 5s of exit time (${config.exit_time})`, "INFO");
+        return;
+    }
     // 1. Setup the basic details
     const side = leg.leg.side;
     const rtp = leg.re_low_trigger_price; 

@@ -1,10 +1,15 @@
 const { roundToTick, getLimitOffsetAmt, computeStopLossExitPrices } = require("./strategy.offset");
 const { placeOrder, waitForOrderFillPrice, placeStopLossWithRetry } = require("./strategy.execution");
-const { getISTTime, getISTExchangeFormat } = require("./strategy.time");
+const { getISTTime, getISTExchangeFormat, isWithinSecondsOfExit } = require("./strategy.time");
 
 async function handleReentryCost({ leg, config, strategyId, addStrategyLog, currentTick }) {
     const isVirtual = config?.is_virtual === true || leg.is_virtual_leg === true;
     const isPaperTrading = config?.is_paper_trading === true || isVirtual;
+    
+    if (config?.exit_time && isWithinSecondsOfExit(getISTTime(), config.exit_time, 5)) {
+        addStrategyLog(strategyId, `Skipping Cost re-entry: within 5s of exit time (${config.exit_time})`, "INFO");
+        return;
+    }
     const rtp = leg.recost_trigger_price;
     addStrategyLog(strategyId, `Momentum Hit for ${leg.instrument.symbol}: Price ₹${currentTick} crossed RTP ₹${rtp}. Re-entering...`, "INFO");
     leg.reentry_count = (leg.reentry_count || 0) + 1;

@@ -1,13 +1,19 @@
 const { getLtpSecure } = require("./strategy.state");
 const { findClosestPremiumInstrument, getLegStrikeSelection, findOptionInstrument, calculateSyntheticFuture, getATMStrike } = require("./strategy.instruments");
 const { calculateMomentumTarget } = require("./strategy.momentum");
-const { getISTTime, getISTExchangeFormat } = require("./strategy.time");
+const { getISTTime, getISTExchangeFormat, isWithinSecondsOfExit } = require("./strategy.time");
 const { computeStopLossExitPrices, getLimitOffsetAmt, resolveUniversalOrderParams } = require("./strategy.offset");
 const { placeOrder } = require("./strategy.execution");
 
 async function handleReentryAsap({ leg, config, strategyId, addStrategyLog }) {
     const isVirtual = config?.is_virtual === true || leg.is_virtual_leg === true;
     const isPaperTrading = config?.is_paper_trading === true || isVirtual;
+    
+    if (config?.exit_time && isWithinSecondsOfExit(getISTTime(), config.exit_time, 5)) {
+        addStrategyLog(strategyId, `Skipping ASAP re-entry: within 5s of exit time (${config.exit_time})`, "INFO");
+        return;
+    }
+
     try {
         let indexToken = "99926000", indexExchange = "NSE";
         if (config.index === "BANKNIFTY") indexToken = "99926009";
