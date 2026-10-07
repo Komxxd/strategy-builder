@@ -178,6 +178,7 @@ async function monitorReentryFill(leg, config, strategyId, addStrategyLog, order
     
     try {
         let fillPrice;
+        const fillMeta = {};
         if (!isPaperTrading && orderDetails?.ordertype === 'LIMIT') {
             const { chaseOrderFill } = require("./strategy.execution");
             fillPrice = await chaseOrderFill({
@@ -191,7 +192,8 @@ async function monitorReentryFill(leg, config, strategyId, addStrategyLog, order
                 strategyId,
                 baseLtp: orderDetails.targetPrice,
                 orderVariety: orderDetails.variety,
-                orderType: orderDetails.ordertype
+                orderType: orderDetails.ordertype,
+                fillMeta
             });
         } else {
             fillPrice = await waitForOrderFillPrice(
@@ -201,7 +203,8 @@ async function monitorReentryFill(leg, config, strategyId, addStrategyLog, order
                 leg.instrument,
                 28800000, 
                 1000,
-                orderDetails
+                orderDetails,
+                fillMeta
             );
         }
 
@@ -221,7 +224,11 @@ async function monitorReentryFill(leg, config, strategyId, addStrategyLog, order
 
                 28800000,
 
-                1000
+                1000,
+
+                null,
+
+                fillMeta
 
             );
 
@@ -234,7 +241,7 @@ async function monitorReentryFill(leg, config, strategyId, addStrategyLog, order
             
             leg.state = "ACTIVE";
             leg.entryPrice = fill;
-            leg.entryTime = getISTExchangeFormat();
+            leg.entryTime = fillMeta.time || getISTExchangeFormat();
             leg.original_traded_price = fill;
             leg.tslReferencePrice = fill;
             leg.reentry_count = (leg.reentry_count || 0) + 1;

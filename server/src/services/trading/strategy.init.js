@@ -278,6 +278,7 @@ async function handleInitialEntry(strategyId, strategy) {
                             const { waitForOrderFillPrice } = require("./strategy.execution");
                             const isVirtual = config?.is_virtual === true || leg.is_virtual_leg === true;
                             const isPaperTrading = config?.is_paper_trading === true || isVirtual;
+                            const fillMeta = {};
                             const fillPrice = await waitForOrderFillPrice(
                                 leg.uniqueOrderId,
                                 config.connectionId,
@@ -291,11 +292,12 @@ async function handleInitialEntry(strategyId, strategy) {
                                     price: parseFloat(leg.original_traded_price || config.price || 0),
                                     triggerprice: parseFloat(leg.mntmTargetPrice || config.triggerprice || 0),
                                     isInstantFill: true
-                                }
+                                },
+                                fillMeta
                             );
                             if (fillPrice) {
                                 leg.entryPrice = fillPrice;
-                                leg.entryTime = getISTExchangeFormat();
+                                leg.entryTime = fillMeta.time || getISTExchangeFormat();
                                 leg.original_traded_price = fillPrice;
                                 leg.base_otp = fillPrice;
                                 leg.peakPrice = fillPrice;
@@ -342,6 +344,7 @@ async function handleInitialEntry(strategyId, strategy) {
                 }
 
                 let fillPrice;
+                const fillMeta = {};
                 if (!config.is_paper_trading && config.ordertype === 'LIMIT' && !leg.simpleMntmEnabled) {
                     fillPrice = await chaseOrderFill({
                         orderId: leg.orderId,
@@ -352,7 +355,8 @@ async function handleInitialEntry(strategyId, strategy) {
                         lots: leg.leg.lots,
                         connectionId: config.connectionId,
                         strategyId,
-                        baseLtp: leg.initialLtp
+                        baseLtp: leg.initialLtp,
+                        fillMeta
                     });
                 } else {
                     const isVirtual = config?.is_virtual === true || leg.is_virtual_leg === true;
@@ -370,12 +374,13 @@ async function handleInitialEntry(strategyId, strategy) {
                             price: parseFloat(leg.original_traded_price || config.price || 0),
                             triggerprice: parseFloat(leg.mntmTargetPrice || config.triggerprice || 0),
                             isInstantFill: true
-                        }
+                        },
+                        fillMeta
                     );
                 }
                 if (fillPrice) {
                     leg.entryPrice = fillPrice;
-                    leg.entryTime = getISTExchangeFormat();
+                    leg.entryTime = fillMeta.time || getISTExchangeFormat();
                     leg.original_traded_price = fillPrice;
                     leg.base_otp = fillPrice;
                     leg.peakPrice = fillPrice;

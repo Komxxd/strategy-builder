@@ -60,8 +60,30 @@ function getISTExchangeFormat() {
     return `${day}-${month}-${year} ${hour}:${minute}:${second}`;
 }
 
+/**
+ * Extracts the broker/exchange fill timestamp from an Angel One order-details payload
+ * and normalises it to the same "DD-Mon-YYYY HH:mm:ss" format as getISTExchangeFormat().
+ * Priority: exchange update time → broker update time → fill time.
+ * Returns null if the broker didn't provide a usable timestamp.
+ */
+function getBrokerFillTime(orderData) {
+    if (!orderData) return null;
+    const candidates = [orderData.exchorderupdatetime, orderData.updatetime, orderData.filltime];
+    for (const value of candidates) {
+        const raw = (value ?? "").toString().trim();
+        if (!raw || !/\d/.test(raw)) continue;
+        // Time-only values (e.g. "15:24:56") — prefix today's IST date
+        if (/^\d{1,2}:\d{2}:\d{2}$/.test(raw)) {
+            return `${getISTExchangeFormat().split(" ")[0]} ${raw.padStart(8, "0")}`;
+        }
+        return raw;
+    }
+    return null;
+}
+
 module.exports = {
     getISTTime,
     getISTFullDate,
-    getISTExchangeFormat
+    getISTExchangeFormat,
+    getBrokerFillTime
 };

@@ -77,6 +77,7 @@ async function handleReentryAsap({ leg, config, strategyId, addStrategyLog }) {
                    const { waitForOrderFillPrice, placeStopLossWithRetry } = require("./strategy.execution");
                    try {
                        let fillPrice;
+                       const fillMeta = {};
                        if (!isPaperTrading && params.ordertype === 'LIMIT') {
                            const { chaseOrderFill } = require("./strategy.execution");
                            fillPrice = await chaseOrderFill({
@@ -90,7 +91,8 @@ async function handleReentryAsap({ leg, config, strategyId, addStrategyLog }) {
                                strategyId,
                                baseLtp: instLtp,
                                orderVariety: params.variety || "NORMAL",
-                               orderType: params.ordertype
+                               orderType: params.ordertype,
+                               fillMeta
                            });
                        } else {
                            fillPrice = await waitForOrderFillPrice(
@@ -100,7 +102,8 @@ async function handleReentryAsap({ leg, config, strategyId, addStrategyLog }) {
                                leg.instrument,
                                60000,
                                2000,
-                               { ...params, side: leg.leg.side, isInstantFill: true }
+                               { ...params, side: leg.leg.side, isInstantFill: true },
+                               fillMeta
                            );
                        }
 
@@ -120,7 +123,11 @@ async function handleReentryAsap({ leg, config, strategyId, addStrategyLog }) {
 
                                28800000,
 
-                               1000
+                               1000,
+
+                               null,
+
+                               fillMeta
 
                            );
 
@@ -129,7 +136,7 @@ async function handleReentryAsap({ leg, config, strategyId, addStrategyLog }) {
                        if (fillPrice) {
                            const fill = fillPrice;
                            leg.entryPrice = fillPrice;
-                           leg.entryTime = getISTExchangeFormat();
+                           leg.entryTime = fillMeta.time || getISTExchangeFormat();
                            leg.original_traded_price = fillPrice;
                            leg.peakPrice = fillPrice;
                            leg.tslReferencePrice = fillPrice;

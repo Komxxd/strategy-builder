@@ -706,13 +706,17 @@ async function switchVirtualMode(strategyId, targetVirtual, userId) {
                 const originalLeg = { ...leg };
 
                 if (leg.entryPrice) {
+                    // Broker fill time of the live exit order (null for paper / failed exits)
+                    let liveExitTime = null;
                     if (!config.is_paper_trading) {
                         try {
                             await placeExitOrder({ config, leg, instrument: leg.instrument, exitType: "SWITCHED_TO_VIRTUAL" });
+                            if (leg.exited) liveExitTime = leg.exitTime;
                         } catch (e) {
                             console.error(`[SwitchVirtual] Error exiting live leg ${leg.instrument?.symbol}: ${e.message}`);
                         }
                     }
+                    const legExitTime = liveExitTime || exitTime;
 
                     // 2. Book PnL for the current active leg up to currentLtp
                     const exitLtp = leg.currentLtp || leg.entryPrice;
@@ -724,12 +728,12 @@ async function switchVirtualMode(strategyId, targetVirtual, userId) {
                     leg.state = "COMPLETED";
                     leg.exited = true;
                     leg.exitType = "SWITCHED_TO_VIRTUAL";
-                    leg.exitTime = exitTime;
+                    leg.exitTime = legExitTime;
                     leg.exitSnapshot = {
                         slTriggerPrice: leg.slTriggerPrice,
                         initialSlTriggerPrice: leg.initialSlTriggerPrice,
                         exitLtp: exitLtp,
-                        exitTime: exitTime,
+                        exitTime: legExitTime,
                         peakPrice: leg.peakPrice || leg.max_peak_price
                     };
                     leg.bookedPnlPoints = (leg.bookedPnlPoints || 0) + pnlPoints;
@@ -895,6 +899,7 @@ async function switchVirtualMode(strategyId, targetVirtual, userId) {
                     let slUniqueOrderId = null;
                     let slTriggerPrice = existingSlTrigger;
                     let slLimitPrice = null;
+                    let liveEntryTime = null; // Broker fill time of the live entry order
 
                     if (!config.is_paper_trading) {
                         // LIVE strategy: place real entry order on broker
@@ -918,6 +923,7 @@ async function switchVirtualMode(strategyId, targetVirtual, userId) {
                             liveOrderId = orderData.orderid;
                             liveUniqueOrderId = orderData.uniqueorderid;
 
+                            const fillMeta = {};
                             const fillPrice = await chaseOrderFill({
                                 orderId: orderData.orderid,
                                 uniqueOrderId: orderData.uniqueorderid,
@@ -928,11 +934,13 @@ async function switchVirtualMode(strategyId, targetVirtual, userId) {
                                 connectionId: config.connectionId,
                                 strategyId,
                                 baseLtp: reEntryPrice,
-                                forceLive: true  // strategy.is_virtual is still true in-memory during this transition
+                                forceLive: true,  // strategy.is_virtual is still true in-memory during this transition
+                                fillMeta
                             });
 
                             if (fillPrice) {
                                 executionEntryPrice = fillPrice;
+                                liveEntryTime = fillMeta.time || null;
                                 addStrategyLog(strategyId, `Re-entered LIVE leg ${instrument.symbol} at ₹${fillPrice}`, "INFO");
 
                                 if (config.variety === "STOPLOSS" && leg.leg.sl_type) {
@@ -995,7 +1003,7 @@ async function switchVirtualMode(strategyId, targetVirtual, userId) {
                         entryPrice: executionEntryPrice,
                         currentLtp: reEntryPrice,
                         last_tick_price: reEntryPrice,
-                        entryTime: getISTExchangeFormat(),
+                        entryTime: liveEntryTime || getISTExchangeFormat(),
                         slOrderId: slOrderId,
                         slUniqueOrderId: slUniqueOrderId,
                         exitOrderId: null,

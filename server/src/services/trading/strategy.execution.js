@@ -20,7 +20,7 @@ const workerSocketService = require("../workerSocket.service");
 const sql = require("../../config/db");
 const sessionService = require("../session.service");
 const { getLtpSecure, getLtpWithRetry, addStrategyLog, activeStrategies } = require("./strategy.state");
-const { getISTTime, getISTExchangeFormat } = require("./strategy.time");
+const { getISTTime, getISTExchangeFormat, getBrokerFillTime } = require("./strategy.time");
 const { roundToTick, getLimitOffsetAmt, computeStopLossExitPrices, resolveUniversalOrderParams } = require("./strategy.offset");
 const { checkOrderFillOnce, chaseOrderFill } = require("./strategy.chase");
 
@@ -234,7 +234,11 @@ async function placeOrder(config, instrument, connectionId) {
 }
 
 
-async function waitForOrderFillPrice(uniqueOrderId, connectionId, isPaperTrading = false, instrument = null, timeoutMs = 60000, pollMs = 2000, paperConfig = null) {
+/**
+ * Polls until the order fills and returns the fill price (or null on timeout).
+ * @param {object} [fillMeta] - Optional out-param. On a live fill, populated with { price, time } where `time` is the broker fill timestamp.
+ */
+async function waitForOrderFillPrice(uniqueOrderId, connectionId, isPaperTrading = false, instrument = null, timeoutMs = 60000, pollMs = 2000, paperConfig = null, fillMeta = null) {
     if (isPaperTrading) {
         const { globalLtpMap } = require("./strategy.state");
         const start = Date.now();
@@ -288,6 +292,10 @@ async function waitForOrderFillPrice(uniqueOrderId, connectionId, isPaperTrading
                 const filledShares = Number(details.data.filledshares || details.data.filledShares || 0);
                 const orderStatus = (details.data.orderstatus || details.data.status || "").toString().toLowerCase();
                 if ((avgPrice > 0 && filledShares > 0) || orderStatus === "complete" || orderStatus === "filled") {
+                    if (fillMeta) {
+                        fillMeta.price = avgPrice > 0 ? avgPrice : null;
+                        fillMeta.time = getBrokerFillTime(details.data);
+                    }
                     return avgPrice > 0 ? avgPrice : null;
                 }
 
@@ -545,7 +553,7 @@ async function placeExitOrder({ config, leg, instrument, exitType }) {
                     leg.exitOrderId = leg.slOrderId;
                     leg.exitUniqueOrderId = leg.slUniqueOrderId;
                     leg.exitType = exitType;
-                    leg.exitTime = getISTExchangeFormat();
+                    leg.exitTime = slStatus.time || getISTExchangeFormat();
                     leg.currentLtp = slStatus.price || exitBaseLtp;
                     leg.exited = true;
                     leg.isExiting = false;
@@ -601,6 +609,7 @@ async function placeExitOrder({ config, leg, instrument, exitType }) {
         // --- Verified Exit with Chase (Live Only) ---
         // Same 45s chase as entry: modify order every 1s with progressive offset from base LTP.
         // If chase fills, mark leg as exited. If exhausted, throw for caller to handle.
+        const fillMeta = {};
         const fillPrice = await chaseOrderFill({
             orderId: orderData.orderid,
             uniqueOrderId: orderData.uniqueorderid,
@@ -612,12 +621,15 @@ async function placeExitOrder({ config, leg, instrument, exitType }) {
             strategyId,
             baseLtp: exitBaseLtp,
             orderVariety: useSlOrder ? "STOPLOSS" : "NORMAL",
-            orderType: "LIMIT"
+            orderType: "LIMIT",
+            fillMeta
         });
 
         if (fillPrice) {
             // FIX: Update leg with the actual execution price so PnL calculation is accurate
             leg.currentLtp = fillPrice;
+            // Use the broker's fill timestamp; fall back to the moment we confirmed the fill
+            leg.exitTime = fillMeta.time || getISTExchangeFormat();
             
             if (leg.entryPrice) {
                 const pnlPts = leg.leg.side === "BUY" ? (fillPrice - leg.entryPrice) : (leg.entryPrice - fillPrice);

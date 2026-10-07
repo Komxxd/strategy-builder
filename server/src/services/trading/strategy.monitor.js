@@ -21,7 +21,7 @@ const { handleReentryReSL } = require("./strategy.reentry.resl");
 const { handleReentryHigh, modifyReentryOrder } = require("./strategy.reentry.high");
 const { handleReentryLow, modifyReentryLowOrder } = require("./strategy.reentry.low");
 const { checkMomentumHit } = require("./strategy.momentum");
-const { getISTTime, getISTExchangeFormat } = require("./strategy.time");
+const { getISTTime, getISTExchangeFormat, getBrokerFillTime } = require("./strategy.time");
 const { roundToTick, computeStopLossExitPrices, getLimitOffsetAmt } = require("./strategy.offset");
 const { placeOrder, chaseOrderFill, placeStopLossExitOrder, cancelOrder, modifyOrderLocallyOrViaWorker, waitForOrderFillPrice, placeStopLossWithRetry } = require("./strategy.execution");
 const { placeExitOrder } = require("./strategy.execution");
@@ -123,10 +123,11 @@ async function monitorStrategyLoop(strategyId, strategy) {
                                 try {
                                     const isVirtual = config?.is_virtual === true || leg.is_virtual_leg === true;
                                     const isPaperTrading = config?.is_paper_trading === true || isVirtual;
-                                    const fill = await waitForOrderFillPrice(leg.uniqueOrderId, config.connectionId, isPaperTrading, leg.instrument, 28800000, 1000);
+                                    const fillMeta = {};
+                                    const fill = await waitForOrderFillPrice(leg.uniqueOrderId, config.connectionId, isPaperTrading, leg.instrument, 28800000, 1000, null, fillMeta);
                                     if (fill) {
                                         leg.entryPrice = fill;
-                                        leg.entryTime = getISTExchangeFormat();
+                                        leg.entryTime = fillMeta.time || getISTExchangeFormat();
                                         leg.original_traded_price = fill;
 
                                         // Deploy SL if enabled
@@ -490,6 +491,7 @@ async function monitorStrategyLoop(strategyId, strategy) {
                         setTimeout(async () => {
                             try {
                                 let fillPrice;
+                                const fillMeta = {};
                                 if (!isPaperTrading && ordertype === 'LIMIT') {
                                     const { chaseOrderFill } = require("./strategy.execution");
                                     fillPrice = await chaseOrderFill({
@@ -503,7 +505,8 @@ async function monitorStrategyLoop(strategyId, strategy) {
                                         strategyId,
                                         baseLtp: targetPrice,
                                         orderVariety: config.variety || "NORMAL",
-                                        orderType: ordertype
+                                        orderType: ordertype,
+                                        fillMeta
                                     });
                                 } else {
                                     fillPrice = await waitForOrderFillPrice(
@@ -513,7 +516,8 @@ async function monitorStrategyLoop(strategyId, strategy) {
                                         leg.instrument,
                                         28800000,
                                         1000,
-                                        { side, ordertype, price: parseFloat(finalPriceStr), triggerprice: parseFloat(triggerPriceStr) }
+                                        { side, ordertype, price: parseFloat(finalPriceStr), triggerprice: parseFloat(triggerPriceStr) },
+                                        fillMeta
                                     );
                                 }
 
@@ -533,7 +537,11 @@ async function monitorStrategyLoop(strategyId, strategy) {
 
                                         28800000,
 
-                                        1000
+                                        1000,
+
+                                        null,
+
+                                        fillMeta
 
                                     );
 
@@ -542,7 +550,7 @@ async function monitorStrategyLoop(strategyId, strategy) {
                                 if (fillPrice) {
                                     const fill = fillPrice;
                                     leg.entryPrice = fill;
-                                    leg.entryTime = getISTExchangeFormat();
+                                    leg.entryTime = fillMeta.time || getISTExchangeFormat();
                                     leg.original_traded_price = fill;
                                     leg.peakPrice = fill;
                                     leg.tslReferencePrice = fill;
@@ -920,7 +928,8 @@ async function monitorStrategyLoop(strategyId, strategy) {
                     // 1. Place the order to close the position at the exchange.
                     await placeExitOrder({ config, leg, instrument: leg.instrument, exitType: evalResult.exitReason });
                     // 2. Call the lifecycle handler to record the data and check for Re-Entry.
-                    await handleLegStopOut(leg, evalResult.exitReason, strategy);
+                    //    Forward the broker fill time recorded by placeExitOrder so it isn't replaced by server time.
+                    await handleLegStopOut(leg, evalResult.exitReason, strategy, leg.exited ? { exchangeFillTime: leg.exitTime } : null);
                 } catch (exitErr) {
                     if (exitErr.message?.startsWith("EXIT_CHASE_EXHAUSTED")) {
                         pauseStrategy(strategyId, `Exit Chase failed for ${leg.instrument?.symbol}: ${exitErr.message}`);
@@ -952,7 +961,7 @@ async function monitorStrategyLoop(strategyId, strategy) {
                         const orderStatus = (details?.data?.orderstatus || details?.data?.status || "").toString().toLowerCase();
                         if (orderStatus === "complete" || orderStatus === "filled") {
                             const exchangeFillPrice = Number(details.data.averageprice || details.data.averagePrice || 0) || null;
-                            const exchangeFillTime = details.data.exchorderupdatetime || details.data.filltime || null;
+                            const exchangeFillTime = getBrokerFillTime(details.data);
                             leg.exchangeSlProcessed = true;
                             await handleLegStopOut(leg, "EXCHANGE_STOP_LOSS", strategy, { exchangeFillPrice, exchangeFillTime });
                         }

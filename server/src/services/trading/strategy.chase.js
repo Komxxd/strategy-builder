@@ -4,10 +4,12 @@ const { roundToTick, getLimitOffsetAmt } = require("./strategy.offset");
 const workerSocketService = require("../workerSocket.service");
 const sql = require("../../config/db");
 const sessionService = require("../session.service");
+const { getBrokerFillTime } = require("./strategy.time");
 
 /**
  * Single, non-blocking check for order fill status on the broker.
- * Returns { filled, price, rejected, reason } without looping.
+ * Returns { filled, price, time, rejected, reason } without looping.
+ * `time` is the broker/exchange fill timestamp (null if unavailable).
  */
 async function checkOrderFillOnce(uniqueOrderId, connectionId, expectedQuantity = null) {
     try {
@@ -26,7 +28,7 @@ async function checkOrderFillOnce(uniqueOrderId, connectionId, expectedQuantity 
             }
 
             if (isFullyFilled) {
-                return { filled: true, price: avgPrice > 0 ? avgPrice : null, rejected: false, reason: "" };
+                return { filled: true, price: avgPrice > 0 ? avgPrice : null, time: getBrokerFillTime(details.data), rejected: false, reason: "" };
             }
             if (orderStatus === "rejected" || orderStatus === "cancelled") {
                 return { filled: false, price: null, rejected: true, reason: `Order ${orderStatus}: ${details.data.text || details.data.message || ""}` };
@@ -52,9 +54,10 @@ async function checkOrderFillOnce(uniqueOrderId, connectionId, expectedQuantity 
  *   ...up to 45 seconds total.
  *
  * @param {number} baseLtp - The LTP at the time the order was placed (used as base for progressive modifications)
+ * @param {object} [fillMeta] - Optional out-param. On fill, populated with { price, time } where `time` is the broker fill timestamp.
  * @returns {number|null} Fill price, or null if not filled after ${parseInt(config.chase_time_seconds) || 45}s
  */
-async function chaseOrderFill({ orderId, uniqueOrderId, instrument, config, legSide, lots, connectionId, strategyId, baseLtp, forceLive = false, orderVariety = "NORMAL", orderType = "LIMIT", isReentryChase = false }) {
+async function chaseOrderFill({ orderId, uniqueOrderId, instrument, config, legSide, lots, connectionId, strategyId, baseLtp, forceLive = false, orderVariety = "NORMAL", orderType = "LIMIT", isReentryChase = false, fillMeta = null }) {
     const { activeStrategies, addStrategyLog } = require("./strategy.state");
     const activeStrat = strategyId ? activeStrategies.get(strategyId) : null;
     const isVirtual = config?.is_virtual === true || activeStrat?.is_virtual === true;
@@ -86,13 +89,22 @@ async function chaseOrderFill({ orderId, uniqueOrderId, instrument, config, legS
 
     logChase(`STARTING CHASE for ${legSide} ${instrument.symbol} (${parseInt(config.chase_time_seconds) || 45}s). Base price: ₹${baseLtp || '?'}. Offset to use: ₹${offset.toFixed(2)} (User Raw: ${config.entry_limit_offset}${config.entry_limit_offset_type === 'PERCENTAGE' ? '%' : 'pts'})`);
 
+    // Records broker fill details into the optional fillMeta out-param and returns the fill price
+    const onFilled = (result) => {
+        if (fillMeta) {
+            fillMeta.price = result.price;
+            fillMeta.time = result.time || null;
+        }
+        return result.price;
+    };
+
     // Phase 1: Wait 1 second for the initial fill (order may fill at the original price)
     await new Promise(r => setTimeout(r, INITIAL_WAIT_MS));
 
     let check = await checkOrderFillOnce(uniqueOrderId, connectionId, expectedQuantity);
     if (check.filled) {
         logChase(`${instrument.symbol} filled at ₹${check.price} on first check (no chase needed).`);
-        return check.price;
+        return onFilled(check);
     }
     if (check.rejected) {
         logChase(`${instrument.symbol} rejected before chase started: ${check.reason}`, "ERROR");
@@ -145,7 +157,7 @@ async function chaseOrderFill({ orderId, uniqueOrderId, instrument, config, legS
                     const finalCheck = await checkOrderFillOnce(uniqueOrderId, connectionId, expectedQuantity);
                     if (finalCheck.filled) {
                         logChase(`✅ Filled at ₹${finalCheck.price} (detected during modify).`);
-                        return finalCheck.price;
+                        return onFilled(finalCheck);
                     }
                 }
                 if (errMsg.toLowerCase().includes("cancelled") || errMsg.toLowerCase().includes("rejected")) {
@@ -164,7 +176,7 @@ async function chaseOrderFill({ orderId, uniqueOrderId, instrument, config, legS
         if (check.filled) {
             const elapsed = ((Date.now() - start) / 1000).toFixed(1);
             logChase(`✅ SUCCESS: ${instrument.symbol} filled at ₹${check.price} after ${elapsed}s chase (${modifyCount} mods).`);
-            return check.price;
+            return onFilled(check);
         }
         if (check.rejected) {
             logChase(`Order rejected during chase: ${check.reason}`, "ERROR");
@@ -182,7 +194,7 @@ async function chaseOrderFill({ orderId, uniqueOrderId, instrument, config, legS
         logChase(`EXHAUSTED: Cancelled unfilled order ${orderId} after ${parseInt(config.chase_time_seconds) || 45}s.`, "CRITICAL");
     } catch (cancelErr) {
         const lastCheck = await checkOrderFillOnce(uniqueOrderId, connectionId, expectedQuantity);
-        if (lastCheck.filled) return lastCheck.price;
+        if (lastCheck.filled) return onFilled(lastCheck);
     }
 
     return null;

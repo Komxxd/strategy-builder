@@ -97,6 +97,7 @@ async function handleReentryCost({ leg, config, strategyId, addStrategyLog, curr
         setTimeout(async () => {
             try {
                 let fillPrice;
+                const fillMeta = {};
                 if (!isPaperTrading && ordertype === 'LIMIT') {
                     const { chaseOrderFill } = require("./strategy.execution");
                     fillPrice = await chaseOrderFill({
@@ -111,7 +112,8 @@ async function handleReentryCost({ leg, config, strategyId, addStrategyLog, curr
                         baseLtp: targetPrice,
                         orderVariety: variety,
                         orderType: ordertype,
-                        isReentryChase: true
+                        isReentryChase: true,
+                        fillMeta
                     });
                 } else {
                     fillPrice = await waitForOrderFillPrice(
@@ -126,7 +128,8 @@ async function handleReentryCost({ leg, config, strategyId, addStrategyLog, curr
                             ordertype: ordertype,
                             price: parseFloat(finalPriceStr || 0),
                             triggerprice: parseFloat(triggerPriceStr || 0)
-                        }
+                        },
+                        fillMeta
                     );
                 }
 
@@ -146,7 +149,11 @@ async function handleReentryCost({ leg, config, strategyId, addStrategyLog, curr
 
                         28800000,
 
-                        1000
+                        1000,
+
+                        null,
+
+                        fillMeta
 
                     );
 
@@ -155,7 +162,7 @@ async function handleReentryCost({ leg, config, strategyId, addStrategyLog, curr
                 if (fillPrice) {
                     const fill = fillPrice;
                     leg.entryPrice = fill;
-                    leg.entryTime = getISTExchangeFormat();
+                    leg.entryTime = fillMeta.time || getISTExchangeFormat();
                     leg.original_traded_price = leg.entryPrice;
                     leg.peakPrice = leg.entryPrice;
                     leg.tslReferencePrice = fill;
