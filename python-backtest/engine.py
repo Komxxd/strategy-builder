@@ -295,11 +295,13 @@ class BacktestEngine:
         initial_sl_normal = self.calculate_sl_price(leg, entry_price, is_reentry, is_entry_candle=False)
         initial_sl_entry = self.calculate_sl_price(leg, entry_price, is_reentry, is_entry_candle=True)
         initial_sl = initial_sl_normal
+        is_sl_override = is_reentry and config.get('reentry_sl_enabled', False)
+        is_tsl_override = is_sl_override and config.get('reentry_tsl_enabled', False)
         
-        tsl_enabled = config.get('reentry_tsl_enabled', False) if is_reentry else config.get('tsl_enabled', False)
-        tsl_on_close = config.get('reentry_tsl_on_close', False) if is_reentry else config.get('tsl_on_close', False)
-        tsl_on_close_high = config.get('reentry_tsl_on_close_high', False) if is_reentry else config.get('tsl_on_close_high', False)
-        tsl_on_close_low = config.get('reentry_tsl_on_close_low', False) if is_reentry else config.get('tsl_on_close_low', False)
+        tsl_enabled = config.get('reentry_tsl_enabled', False) if is_sl_override else config.get('tsl_enabled', False)
+        tsl_on_close = config.get('reentry_tsl_on_close', False) if is_tsl_override else config.get('tsl_on_close', False)
+        tsl_on_close_high = config.get('reentry_tsl_on_close_high', False) if is_tsl_override else config.get('tsl_on_close_high', False)
+        tsl_on_close_low = config.get('reentry_tsl_on_close_low', False) if is_tsl_override else config.get('tsl_on_close_low', False)
         
         # As requested: "on close checked marked, on close high checked marked - normal trailing logic... 
         # This should match the values and outputs of when we have no check marks"
@@ -334,9 +336,25 @@ class BacktestEngine:
                 return self._build_trade_res(entry_time, entry_price, df[-1]['time'][0], df[-1]['close'][0], 'END_OF_DAY', initial_sl_normal, initial_sl=initial_sl_entry, normal_sl=initial_sl_normal), df[-1:], 'END_OF_DAY'
                 
         else:
-            tsl_type = config.get('reentry_tsl_type', 'PERCENTAGE') if is_reentry else config.get('tsl_type', 'PERCENTAGE')
-            tsl_move = float(config.get('reentry_tsl_move') or config.get('tsl_move') or 0)
-            tsl_trail = float(config.get('reentry_tsl_trail') or config.get('tsl_trail') or 0)
+            tsl_type = config.get('reentry_tsl_type', 'PERCENTAGE') if is_tsl_override else config.get('tsl_type', 'PERCENTAGE')
+            
+            def safe_float(val):
+                if val is None or val == "":
+                    return 0.0
+                try:
+                    return float(val)
+                except (ValueError, TypeError):
+                    return 0.0
+            
+            # Use explicit values to avoid 'or' fallbacks when overrides might be legitimate zeros
+            tsl_move = safe_float(config.get('reentry_tsl_move')) if is_tsl_override else safe_float(config.get('tsl_move'))
+            tsl_trail = safe_float(config.get('reentry_tsl_trail')) if is_tsl_override else safe_float(config.get('tsl_trail'))
+            
+            # Fallback for empty/NaN override values (same as JS)
+            if is_tsl_override and tsl_move <= 0:
+                tsl_move = safe_float(config.get('tsl_move'))
+            if is_tsl_override and tsl_trail <= 0:
+                tsl_trail = safe_float(config.get('tsl_trail'))
             
             if tsl_move > 0 and tsl_trail > 0:
                 move_threshold = entry_price * (tsl_move / 100) if tsl_type == 'PERCENTAGE' else tsl_move
