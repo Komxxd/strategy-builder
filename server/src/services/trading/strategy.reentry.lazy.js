@@ -70,9 +70,22 @@ async function handleLazyLeg({ leg, config, strategyId, addStrategyLog }) {
             } else {
                 const offsetAmt = getLimitOffsetAmt(instLtp, config);
                 const params = resolveUniversalOrderParams({ targetPrice: instLtp, currentLtp: instLtp, side: leg.leg.side, offset: offsetAmt });
-                const orderRes = await placeOrder({ ...config, ...params, side: leg.leg.side, lots: leg.leg.lots }, targetInstrument, config.connectionId);
+                let orderRes = await placeOrder({ ...config, ...params, side: leg.leg.side, lots: leg.leg.lots }, targetInstrument, config.connectionId);
+                
+                if (!orderRes.uniqueorderid) {
+                    addStrategyLog(strategyId, `[ERROR] Angel One API returned a partial response (missing Unique Order ID) for ${targetInstrument.symbol}. Retrying Lazy entry...`, "ERROR");
+                    orderRes = await placeOrder({ ...config, ...params, side: leg.leg.side, lots: leg.leg.lots }, targetInstrument, config.connectionId);
+                }
+
                 leg.orderId = orderRes.orderid;
                 leg.uniqueOrderId = orderRes.uniqueorderid;
+                
+                if (leg.uniqueOrderId) {
+                    addStrategyLog(strategyId, `[Success] Angel one API returned a full response for ${targetInstrument.symbol}.`, "INFO");
+                } else {
+                    addStrategyLog(strategyId, `[CRITICAL] Retry failed: Angel One API returned a partial response again for ${targetInstrument.symbol}. Order tracking may fail.`, "ERROR");
+                }
+                
                 leg.state = "WAITING_FOR_FILL";
                 addStrategyLog(strategyId, `[LAZY LEG LIVE] ${targetInstrument.symbol} placed: ${params.ordertype} @ ${params.price}`, "INFO");
 

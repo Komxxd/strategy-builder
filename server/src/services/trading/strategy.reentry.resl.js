@@ -80,7 +80,7 @@ async function handleReentryReSL({ leg, config, strategyId, addStrategyLog, curr
     try {
 
         console.log(`[RE-SL] Firing Order for ${leg.instrument.symbol}. Target=${targetPrice}, LTP=${currentTick}, Var/Type=${variety}/${ordertype}`);
-        const reEntryOrder = await placeOrder(
+        let reEntryOrder = await placeOrder(
             {
                 ...config,
                 side: side,
@@ -93,9 +93,33 @@ async function handleReentryReSL({ leg, config, strategyId, addStrategyLog, curr
             leg.instrument,
             config.connectionId
         );
+        
+        if (!reEntryOrder.uniqueorderid) {
+            addStrategyLog(strategyId, `[ERROR] Angel One API returned a partial response (missing Unique Order ID) for ${leg.instrument.symbol}. Retrying Re-SL entry...`, "ERROR");
+            reEntryOrder = await placeOrder(
+                {
+                    ...config,
+                    side: side,
+                    variety: variety,
+                    ordertype: ordertype,
+                    price: finalPriceStr,
+                    triggerprice: triggerPriceStr,
+                    lots: leg.leg.lots
+                },
+                leg.instrument,
+                config.connectionId
+            );
+        }
 
         leg.orderId = reEntryOrder.orderid;
         leg.uniqueOrderId = reEntryOrder.uniqueorderid;
+        
+        if (leg.uniqueOrderId) {
+            addStrategyLog(strategyId, `[Success] Angel one API returned a full response for ${leg.instrument.symbol}.`, "INFO");
+        } else {
+            addStrategyLog(strategyId, `[CRITICAL] Retry failed: Angel One API returned a partial response again for ${leg.instrument.symbol}. Order tracking may fail.`, "ERROR");
+        }
+        
         leg.rtp = rtp;
 
         leg.state = "WAITING_FOR_FILL";
