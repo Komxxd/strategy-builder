@@ -117,14 +117,6 @@ async function handleReentryLow({ leg, config, strategyId, addStrategyLog, curre
         leg.orderId = reEntryOrder.orderid;
         leg.uniqueOrderId = reEntryOrder.uniqueorderid;
         
-        if (leg.uniqueOrderId) {
-            addStrategyLog(strategyId, `[Success] Angel one API returned a full response for ${leg.instrument.symbol}.`, "INFO");
-        } else {
-            addStrategyLog(strategyId, `[CRITICAL] Retry failed: Angel One API returned a partial response again for ${leg.instrument.symbol}. Order tracking may fail.`, "ERROR");
-        }
-        
-        leg.rtp = rtp; // Sync RTP for frontend display
-        
         // Move to WAITING_FOR_FILL state while order sits at broker
         leg.state = "WAITING_FOR_FILL";
         
@@ -133,6 +125,16 @@ async function handleReentryLow({ leg, config, strategyId, addStrategyLog, curre
         } else {
             addStrategyLog(strategyId, `[RE-LOW] Resting Limit placed for ${leg.instrument?.symbol} at ₹${finalPriceStr}.`, "INFO");
         }
+        
+        if (leg.uniqueOrderId) {
+            addStrategyLog(strategyId, `[Success] Angel one API returned a full response for ${leg.instrument.symbol}.`, "INFO");
+        } else {
+            addStrategyLog(strategyId, `[CRITICAL] Retry failed: Angel One API returned a partial response again for ${leg.instrument.symbol}.`, "ERROR");
+            leg.state = "ERROR";
+            return;
+        }
+        
+        leg.rtp = rtp; // Sync RTP for frontend display
 
         // Wait for fill in the background
         monitorReentryFill(leg, config, strategyId, addStrategyLog, {

@@ -81,15 +81,16 @@ async function handleReentryAsap({ leg, config, strategyId, addStrategyLog }) {
 
                 leg.orderId = orderRes.orderid;
                 leg.uniqueOrderId = orderRes.uniqueorderid;
+                leg.state = "WAITING_FOR_FILL";
+                addStrategyLog(strategyId, `[RE-ASAP LIVE] ${targetInstrument.symbol} re-entry #${leg.reentry_count} placed: ${params.ordertype} @ ${params.price}`, "INFO");
                 
                 if (leg.uniqueOrderId) {
                     addStrategyLog(strategyId, `[Success] Angel one API returned a full response for ${targetInstrument.symbol}.`, "INFO");
                 } else {
-                    addStrategyLog(strategyId, `[CRITICAL] Retry failed: Angel One API returned a partial response again for ${targetInstrument.symbol}. Order tracking may fail.`, "ERROR");
+                    addStrategyLog(strategyId, `[CRITICAL] Retry failed: Angel One API returned a partial response again for ${targetInstrument.symbol}.`, "ERROR");
+                    leg.state = "ERROR";
+                    return;
                 }
-                
-                leg.state = "WAITING_FOR_FILL";
-                addStrategyLog(strategyId, `[RE-ASAP LIVE] ${targetInstrument.symbol} re-entry #${leg.reentry_count} placed: ${params.ordertype} @ ${params.price}`, "INFO");
 
                 // Background tracker for Live Fill
                 setTimeout(async () => {

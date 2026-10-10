@@ -114,15 +114,18 @@ async function handleReentryCost({ leg, config, strategyId, addStrategyLog, curr
         leg.orderId = reEntryOrder.orderid;
         leg.uniqueOrderId = reEntryOrder.uniqueorderid;
         
+        leg.state = "WAITING_FOR_FILL";
+        addStrategyLog(strategyId, `[RE-COST] Resting Limit placed for ${leg.instrument?.symbol} at ₹${finalPriceStr}.`, "INFO");
+
         if (leg.uniqueOrderId) {
             addStrategyLog(strategyId, `[Success] Angel one API returned a full response for ${leg.instrument.symbol}.`, "INFO");
         } else {
-            addStrategyLog(strategyId, `[CRITICAL] Retry failed: Angel One API returned a partial response again for ${leg.instrument.symbol}. Order tracking may fail.`, "ERROR");
+            addStrategyLog(strategyId, `[CRITICAL] Retry failed: Angel One API returned a partial response again for ${leg.instrument.symbol}.`, "ERROR");
+            leg.state = "ERROR";
+            return;
         }
         
         leg.rtp = rtp;
-
-        leg.state = "WAITING_FOR_FILL";
         setTimeout(async () => {
             try {
                 let fillPrice;
