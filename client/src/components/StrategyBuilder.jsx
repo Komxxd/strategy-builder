@@ -2371,6 +2371,7 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  };
  delete exportData.id;
  delete exportData.user_id;
+ delete exportData.folder_id;
 
  const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
  const url = URL.createObjectURL(blob);
@@ -2401,6 +2402,7 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
         const stratData = { ...s.config, name: s.name || s.config?.name || 'Exported Strategy' };
         delete stratData.id;
         delete stratData.user_id;
+        delete stratData.folder_id;
         return { ...stratData, folder_id: s.folder_id };
       });
       
@@ -2560,8 +2562,12 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
      currentStrategyNames.push(finalStratName.trim().toLowerCase());
      strat.name = finalStratName;
 
+     const stratConfig = { ...strat };
+     delete stratConfig.id;
+     delete stratConfig.user_id;
+
      const finalConfig = {
-       ...strat,
+       ...stratConfig,
        variety: 'STOPLOSS',
        producttype: 'CARRYFORWARD',
        ordertype: 'LIMIT',
@@ -2575,6 +2581,7 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  } else {
    delete uploadedConfig.id;
    delete uploadedConfig.user_id;
+   delete uploadedConfig.folder_id;
 
    let baseName = uploadedConfig.name || "Imported Strategy";
    let finalName = baseName;
@@ -3021,6 +3028,9 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  ordertype:'LIMIT',
  duration:'DAY'
  };
+ delete finalConfig.folder_id;
+ delete finalConfig.id;
+ delete finalConfig.user_id;
  try {
  if (editingId) {
  await axios.put(`${API_BASE_URL}/strategy/update/${editingId}`, finalConfig);
@@ -3191,7 +3201,10 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  };
 
  const handleEdit = (strategy) => {
- const conf = strategy.config;
+ const conf = { ...strategy.config };
+ delete conf.folder_id;
+ delete conf.id;
+ delete conf.user_id;
  setConfig({
  ...conf,
  variety:'STOPLOSS',
