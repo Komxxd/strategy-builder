@@ -330,7 +330,12 @@ class BacktestEngine:
             if hit_mask.any():
                 hit_idx = hit_mask.arg_true()[0]
                 hit_sl = initial_sl_entry if hit_idx == 0 else initial_sl_normal
-                exit_price = df['close'][hit_idx] if tsl_on_close else hit_sl
+                if tsl_on_close:
+                    exit_price = df['close'][hit_idx]
+                else:
+                    open_price = df['open'][hit_idx]
+                    exit_price = max(hit_sl, open_price) if side == 'SELL' else min(hit_sl, open_price)
+                    exit_price = self.round_to_tick(exit_price)
                 return self._build_trade_res(entry_time, entry_price, df['time'][hit_idx], exit_price, 'SL', hit_sl, initial_sl=initial_sl_entry, normal_sl=initial_sl_normal), df[hit_idx:], 'SL'
             else:
                 return self._build_trade_res(entry_time, entry_price, df[-1]['time'][0], df[-1]['close'][0], 'END_OF_DAY', initial_sl_normal, initial_sl=initial_sl_entry, normal_sl=initial_sl_normal), df[-1:], 'END_OF_DAY'
@@ -407,7 +412,10 @@ class BacktestEngine:
                     if tsl_on_close:
                         exit_price = df['close'][hit_idx]
                     else:
-                        exit_price = pre_trail_sl[hit_idx] if hit_pre[hit_idx] else dynamic_sl[hit_idx]
+                        target_sl = pre_trail_sl[hit_idx] if hit_pre[hit_idx] else dynamic_sl[hit_idx]
+                        open_price = df['open'][hit_idx]
+                        exit_price = max(target_sl, open_price) if side == 'SELL' else min(target_sl, open_price)
+                        exit_price = self.round_to_tick(exit_price)
                         
                     return self._build_trade_res(entry_time, entry_price, df['time'][hit_idx], exit_price, 'TSL' if not (not tsl_on_close and hit_pre[hit_idx]) else 'SL', exit_price, tsl_series, initial_sl_entry, initial_sl_normal), df[hit_idx:], 'TSL' if not (not tsl_on_close and hit_pre[hit_idx]) else 'SL'
                 else:
