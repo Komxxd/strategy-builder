@@ -8,6 +8,31 @@ const connection = new IORedis(process.env.REDIS_URL || 'redis://127.0.0.1:6379'
     enableReadyCheck: false
 });
 
+// Dedicated Redis connection for Pub/Sub events
+const subConnection = new IORedis(process.env.REDIS_URL || 'redis://127.0.0.1:6379', {
+    maxRetriesPerRequest: null,
+    enableReadyCheck: false
+});
+
+// Map of active jobId -> AbortController
+const activeJobControllers = new Map();
+
+subConnection.subscribe('backtest:cancel', (err) => {
+    if (err) console.error('[Worker] Redis subscribe error:', err);
+    else console.log('[Worker] Subscribed to backtest:cancel channel ✅');
+});
+
+subConnection.on('message', (channel, cancelledJobId) => {
+    if (channel === 'backtest:cancel') {
+        const controller = activeJobControllers.get(cancelledJobId);
+        if (controller) {
+            console.log(`[Worker] Cancelling active job ${cancelledJobId}`);
+            controller.abort();
+            activeJobControllers.delete(cancelledJobId);
+        }
+    }
+});
+
 const worker = new Worker('backtest-jobs', async (job) => {
     const sanitizeBigInt = (obj) => {
         if (obj === null || obj === undefined) return obj;
@@ -22,15 +47,26 @@ const worker = new Worker('backtest-jobs', async (job) => {
         }
         return obj;
     };
+
+    const abortController = new AbortController();
+    activeJobControllers.set(job.id, abortController);
+
     try {
         console.log(`[Worker] Started job ${job.id} of type ${job.name}`);
+        
+        const isCancelled = await connection.get(`backtest:cancelled:${job.id}`);
+        if (isCancelled || abortController.signal.aborted) {
+            console.log(`[Worker] Job ${job.id} was cancelled before starting.`);
+            throw new Error('Backtest cancelled by user');
+        }
+
         const startCpu = process.cpuUsage();
         const startMem = process.memoryUsage();
 
         if (job.name === 'single') {
             const { strategyId, fromDate, toDate, userId } = job.data;
             const engine = new BacktestEngine(strategyId, fromDate, toDate, userId);
-            const results = await engine.run();
+            const results = await engine.run(abortController.signal, job.id);
             
             const endCpu = process.cpuUsage(startCpu);
             const endMem = process.memoryUsage();
@@ -41,8 +77,9 @@ const worker = new Worker('backtest-jobs', async (job) => {
             const { strategyIds, fromDate, toDate, userId } = job.data;
             
             const promises = strategyIds.map(async (strategyId) => {
+                if (abortController.signal.aborted) throw new Error('Backtest cancelled by user');
                 const engine = new BacktestEngine(strategyId, fromDate, toDate, userId);
-                const results = await engine.run();
+                const results = await engine.run(abortController.signal, `${job.id}_${strategyId}`);
                 results.strategyId = strategyId;
                 if (results.trades) {
                     results.trades.forEach(t => t.strategyId = strategyId);
@@ -131,8 +168,14 @@ const worker = new Worker('backtest-jobs', async (job) => {
             throw new Error(`Unknown job type: ${job.name}`);
         }
     } catch (error) {
-        console.error(`[Worker] Job ${job.id} failed:`, error);
+        if (error.message === 'Backtest cancelled by user') {
+            console.log(`[Worker] Job ${job.id} cancelled cleanly.`);
+        } else {
+            console.error(`[Worker] Job ${job.id} failed:`, error);
+        }
         throw error;
+    } finally {
+        activeJobControllers.delete(job.id);
     }
 }, { 
     connection,

@@ -20,17 +20,32 @@ class BacktestEngine {
         this.strategy = strategies[0];
     }
 
-    async run() {
+    async run(signal, jobId) {
         if (!this.strategy) await this.init();
 
         const MAX_RETRIES = 3;
         const TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 
         for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-            try {
-                const controller = new AbortController();
-                const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
+            if (signal?.aborted) {
+                throw new Error('Backtest cancelled by user');
+            }
 
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
+
+            const onAbort = () => {
+                controller.abort();
+                if (jobId) {
+                    fetch(`http://localhost:8000/cancel/${jobId}`, { method: 'POST' }).catch(() => {});
+                }
+            };
+
+            if (signal) {
+                signal.addEventListener('abort', onAbort, { once: true });
+            }
+
+            try {
                 const response = await fetch('http://localhost:8000/backtest', {
                     method: 'POST',
                     headers: {
@@ -39,12 +54,11 @@ class BacktestEngine {
                     body: JSON.stringify({
                         strategy: this.strategy,
                         fromDate: this.fromDate,
-                        toDate: this.toDate
+                        toDate: this.toDate,
+                        jobId: jobId || undefined
                     }),
                     signal: controller.signal
                 });
-
-                clearTimeout(timeout);
 
                 if (!response.ok) {
                     const errorText = await response.text();
@@ -55,6 +69,10 @@ class BacktestEngine {
                 const results = await response.json();
                 return results;
             } catch (error) {
+                if (signal?.aborted) {
+                    throw new Error('Backtest cancelled by user');
+                }
+
                 const isRetryable = error.cause?.code === 'UND_ERR_SOCKET' 
                     || error.cause?.code === 'ECONNREFUSED'
                     || error.cause?.code === 'ECONNRESET'
@@ -69,6 +87,11 @@ class BacktestEngine {
 
                 console.error('Failed to communicate with Python backtest server:', error);
                 throw error;
+            } finally {
+                clearTimeout(timeout);
+                if (signal) {
+                    signal.removeEventListener('abort', onAbort);
+                }
             }
         }
     }

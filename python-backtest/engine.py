@@ -49,10 +49,11 @@ def fetch_stitched_data(data_type, index_name, year, month, date, expiry=None, s
         return min_df
 
 class BacktestEngine:
-    def __init__(self, strategy, from_date, to_date):
+    def __init__(self, strategy, from_date, to_date, is_cancelled=None):
         self.strategy = strategy
         self.from_date = from_date
         self.to_date = to_date
+        self.is_cancelled = is_cancelled
         
         self.config = strategy.get('config', {})
         self.index_name = self.config.get('index')
@@ -1050,6 +1051,10 @@ class BacktestEngine:
         lotsize = 65 if self.index_name == 'NIFTY' else (20 if self.index_name == 'SENSEX' else 1)
         
         for date_str in date_range:
+            if self.is_cancelled and self.is_cancelled():
+                print(f"[Python Engine] Cancelled: Stopping execution at {date_str}.")
+                break
+
             year, month = date_str.split('-')[:2]
             expiry = self.find_closest_expiry(self.index_name, date_str)
             if not expiry: continue

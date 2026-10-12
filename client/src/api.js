@@ -135,6 +135,15 @@ export async function getBacktestStatus(jobId) {
     return res.json();
 }
 
+export async function cancelBacktest(jobId) {
+    const headers = await getHeaders();
+    const res = await fetch(`${API_BASE}/strategy/backtest/cancel/${jobId}`, {
+        method: "POST",
+        headers,
+    });
+    return res.json();
+}
+
 // Broker API functions
 export async function getBrokerCredentials() {
     const headers = await getHeaders();

@@ -28,8 +28,47 @@ async function addBacktestJob(data) {
     return job.id;
 }
 
+/**
+ * Cancels a backtest job if waiting, or dispatches a cancellation signal if active
+ * @param {string} jobId The job ID to cancel
+ */
+async function cancelBacktestJob(jobId) {
+    if (!jobId) return { success: false, message: "Job ID is required" };
+
+    try {
+        // Set cancelled flag in Redis for workers to check
+        await connection.set(`backtest:cancelled:${jobId}`, '1', 'EX', 3600);
+        // Publish cancellation event to alert workers in real-time
+        await connection.publish('backtest:cancel', jobId);
+
+        const job = await backtestQueue.getJob(jobId);
+        if (!job) {
+            return { success: true, message: "Cancellation signal published (job not found or already finished)" };
+        }
+
+        const state = await job.getState();
+        if (state === 'waiting' || state === 'delayed') {
+            await job.remove();
+            return { success: true, message: "Queued job removed from queue", state };
+        }
+
+        if (state === 'active') {
+            try {
+                await job.discard();
+            } catch (e) {}
+            return { success: true, message: "Cancellation signal sent to running job", state };
+        }
+
+        return { success: true, message: `Job is currently in ${state} state`, state };
+    } catch (error) {
+        console.error(`[BacktestQueue] Error cancelling job ${jobId}:`, error);
+        throw error;
+    }
+}
+
 module.exports = {
     backtestQueue,
     addBacktestJob,
+    cancelBacktestJob,
     connection // export connection if needed for graceful shutdown
 };

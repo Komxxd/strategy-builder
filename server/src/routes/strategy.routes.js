@@ -227,7 +227,7 @@ router.get("/status/:id", async (req, res) => {
     }
 });
 
-const { addBacktestJob, backtestQueue } = require('../queue/backtestQueue');
+const { addBacktestJob, backtestQueue, cancelBacktestJob } = require('../queue/backtestQueue');
 
 router.post("/backtest", async (req, res) => {
     try {
@@ -258,6 +258,16 @@ router.post("/backtest/combined", async (req, res) => {
     } catch (error) {
         console.error("Error queueing combined backtest:", error);
         res.status(500).json({ success: false, message: "Failed to queue combined backtest", details: error.message });
+    }
+});
+
+router.post("/backtest/cancel/:jobId", async (req, res) => {
+    try {
+        const result = await cancelBacktestJob(req.params.jobId);
+        res.json({ success: true, ...result });
+    } catch (error) {
+        console.error("Error cancelling backtest job:", error);
+        res.status(500).json({ success: false, message: "Failed to cancel backtest job", details: error.message });
     }
 });
 

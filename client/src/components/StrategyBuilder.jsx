@@ -16,8 +16,8 @@ import { StrategyLogs } from'./StrategyLogs';
 import { StrategyAlertModal } from'./StrategyAlertModal';
 import { StrategyConfigModal } from'./StrategyConfigModal';
 import { ExecutionSettingsModal } from'./ExecutionSettingsModal';
-import { fetchBacktestDates, runBacktest, runCombinedBacktest, getBacktestStatus, getSettings, updateSettings } from'../api';
-import { downloadStrategiesAsZip } from'../utils/pdfExport';
+import { fetchBacktestDates, runBacktest, runCombinedBacktest, getBacktestStatus, cancelBacktest, getSettings, updateSettings } from '../api';
+import { downloadStrategiesAsZip } from '../utils/pdfExport';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ||"http://localhost:5001/api";
 const SOCKET_URL = API_BASE_URL.replace(/\/api\/?$/,"");
@@ -2350,6 +2350,37 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  const [activeDateInput, setActiveDateInput] = useState('from');
  const [loadingDates, setLoadingDates] = useState(false);
  const [isBacktesting, setIsBacktesting] = useState(false);
+ const backtestPollIntervalRef = useRef(null);
+ const activeBacktestJobIdRef = useRef(null);
+ const isBacktestingActiveRef = useRef(false);
+
+ useEffect(() => {
+   return () => {
+     if (backtestPollIntervalRef.current) {
+       clearInterval(backtestPollIntervalRef.current);
+     }
+   };
+ }, []);
+
+ const handleCloseBacktestModal = async () => {
+   if (backtestPollIntervalRef.current) {
+     clearInterval(backtestPollIntervalRef.current);
+     backtestPollIntervalRef.current = null;
+   }
+   const jobIdToCancel = activeBacktestJobIdRef.current;
+   isBacktestingActiveRef.current = false;
+   activeBacktestJobIdRef.current = null;
+   setIsBacktesting(false);
+   setBacktestModalOpen(false);
+
+   if (jobIdToCancel) {
+     try {
+       await cancelBacktest(jobIdToCancel);
+     } catch (err) {
+       console.error("Error cancelling backtest:", err);
+     }
+   }
+ };
  const [activeMenuId, setActiveMenuId] = useState(null);
  const [autoDownloadPdf, setAutoDownloadPdf] = useState(false);
   const [bulkPdfProgress, setBulkPdfProgress] = useState(null); // null | { done, total }
@@ -4534,7 +4565,7 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  />
 
  {backtestModalOpen && selectedStrategyForBacktest && (
- <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-in fade-in duration-200" onClick={(e) => { if (e.target === e.currentTarget) setBacktestModalOpen(false); }}>
+ <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-in fade-in duration-200" onClick={(e) => { if (e.target === e.currentTarget) handleCloseBacktestModal(); }}>
  <Card className="w-full max-w-sm border-none bg-white overflow-hidden transform transition-all animate-in zoom-in-95 duration-200">
  <CardHeader className="bg-slate-50/80 border-b border-slate-100 py-3 px-4">
  <div className="flex items-center justify-between">
@@ -4542,7 +4573,7 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  <Database className="h-3.5 w-3.5 text-indigo-500" />
  Run Backtest
  </CardTitle>
- <Button variant="ghost" size="icon" className="h-6 w-6 rounded-full hover:bg-slate-200/50" onClick={() => setBacktestModalOpen(false)}>
+ <Button variant="ghost" size="icon" className="h-6 w-6 rounded-full hover:bg-slate-200/50" onClick={handleCloseBacktestModal}>
  <X className="h-3.5 w-3.5 text-slate-500" />
  </Button>
  </div>
@@ -4616,8 +4647,9 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  </div>
  </div>
 
+ <div className="flex gap-2">
  <Button
- className="w-full h-9 rounded-lg text-xs font-bold gap-2 bg-slate-900 hover:bg-slate-800 text-white transition-all active:scale-[0.98]"
+ className="flex-1 h-9 rounded-lg text-xs font-bold gap-2 bg-slate-900 hover:bg-slate-800 text-white transition-all active:scale-[0.98]"
  disabled={!dateRange.from || !dateRange.to || loadingDates || isBacktesting}
  onClick={async () => {
  const stratIdKey = Array.isArray(selectedStrategyForBacktest)
@@ -4626,6 +4658,13 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  localStorage.setItem(`backtest_dates_${stratIdKey}`, JSON.stringify(dateRange));
 
  setIsBacktesting(true);
+ isBacktestingActiveRef.current = true;
+ activeBacktestJobIdRef.current = null;
+ if (backtestPollIntervalRef.current) {
+   clearInterval(backtestPollIntervalRef.current);
+   backtestPollIntervalRef.current = null;
+ }
+
  try {
  let response;
  if (Array.isArray(selectedStrategyForBacktest)) {
@@ -4635,13 +4674,29 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  response = await runBacktest(selectedStrategyForBacktest.id, dateRange.from, dateRange.to);
  }
 
- if (response.success && response.jobId) {
- const pollInterval = setInterval(async () => {
+ // Check if user closed modal / clicked cross while network request was pending
+ if (!isBacktestingActiveRef.current) {
+   if (response?.jobId) {
+     cancelBacktest(response.jobId).catch(() => {});
+   }
+   return;
+ }
+
+ if (response?.success && response?.jobId) {
+ activeBacktestJobIdRef.current = response.jobId;
+ backtestPollIntervalRef.current = setInterval(async () => {
  try {
+ if (!isBacktestingActiveRef.current) {
+   if (backtestPollIntervalRef.current) clearInterval(backtestPollIntervalRef.current);
+   return;
+ }
  const statusRes = await getBacktestStatus(response.jobId);
  if (statusRes.success) {
  if (statusRes.status ==='completed') {
- clearInterval(pollInterval);
+ if (backtestPollIntervalRef.current) clearInterval(backtestPollIntervalRef.current);
+ backtestPollIntervalRef.current = null;
+ activeBacktestJobIdRef.current = null;
+ isBacktestingActiveRef.current = false;
  if (onBacktestComplete) {
  const strategyArg = Array.isArray(selectedStrategyForBacktest)
  ? { name:"Portfolio Simulation", id:"portfolio", isCombined: true, strategies: selectedStrategyForBacktest }
@@ -4651,32 +4706,47 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  setIsBacktesting(false);
  setBacktestModalOpen(false);
  } else if (statusRes.status ==='failed') {
- clearInterval(pollInterval);
- alert("Backtest failed:" + statusRes.message);
+ if (backtestPollIntervalRef.current) clearInterval(backtestPollIntervalRef.current);
+ backtestPollIntervalRef.current = null;
+ activeBacktestJobIdRef.current = null;
+ isBacktestingActiveRef.current = false;
+ if (statusRes.message !== 'Backtest cancelled by user') {
+   alert("Backtest failed:" + statusRes.message);
+ }
  setIsBacktesting(false);
  setBacktestModalOpen(false);
  }
  } else {
- clearInterval(pollInterval);
+ if (backtestPollIntervalRef.current) clearInterval(backtestPollIntervalRef.current);
+ backtestPollIntervalRef.current = null;
+ activeBacktestJobIdRef.current = null;
+ isBacktestingActiveRef.current = false;
  alert("Failed to get status:" + statusRes.message);
  setIsBacktesting(false);
  setBacktestModalOpen(false);
  }
  } catch (e) {
- clearInterval(pollInterval);
+ if (backtestPollIntervalRef.current) clearInterval(backtestPollIntervalRef.current);
+ backtestPollIntervalRef.current = null;
+ activeBacktestJobIdRef.current = null;
+ isBacktestingActiveRef.current = false;
  alert("Error checking status:" + e.message);
  setIsBacktesting(false);
  setBacktestModalOpen(false);
  }
  }, 2000);
  } else {
- alert("Backtest failed:" + response.message);
+ alert("Backtest failed:" + (response?.message || 'Unknown error'));
  setIsBacktesting(false);
+ isBacktestingActiveRef.current = false;
+ activeBacktestJobIdRef.current = null;
  setBacktestModalOpen(false);
  }
  } catch (e) {
  alert("Error during backtest:" + e.message);
  setIsBacktesting(false);
+ isBacktestingActiveRef.current = false;
+ activeBacktestJobIdRef.current = null;
  setBacktestModalOpen(false);
  }
  }}
@@ -4684,6 +4754,16 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  {isBacktesting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5 fill-current" />}
  {isBacktesting ?'Running Simulation...' :'Start Backtest'}
  </Button>
+ {isBacktesting && (
+ <Button
+ variant="outline"
+ className="h-9 px-3 rounded-lg text-xs font-semibold border-red-200 bg-red-50 text-red-600 hover:bg-red-100 hover:text-red-700"
+ onClick={handleCloseBacktestModal}
+ >
+ Cancel
+ </Button>
+ )}
+ </div>
  </CardContent>
  </Card>
  </div>
