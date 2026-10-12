@@ -3103,6 +3103,7 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
 
  const handleStop = async (id) => {
  if (!id) return;
+ if (!window.confirm("Are you sure you want to terminate this strategy?")) return;
  try {
  setRunningStrategies(prev => {
  const next = { ...prev };
