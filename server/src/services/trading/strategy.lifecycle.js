@@ -962,8 +962,10 @@ async function switchVirtualMode(strategyId, targetVirtual, userId) {
                                             lots: leg.leg.lots,
                                             slType: leg.leg.sl_type,
                                             slValue: slValueToUse,
-                                            slLimitMargin: leg.leg.sl_limit_margin || 0,
-                                            slLimitMarginType: leg.leg.sl_limit_margin_type || "POINTS",
+                                            slLimitMargin: leg.leg.sl_limit_margin !== undefined && leg.leg.sl_limit_margin !== null && leg.leg.sl_limit_margin !== ''
+                                                ? leg.leg.sl_limit_margin
+                                                : (config.entry_limit_offset || 0),
+                                            slLimitMarginType: leg.leg.sl_limit_margin_type || config.entry_limit_offset_type || "POINTS",
                                             connectionId: config.connectionId,
                                             strategyId,
                                             overrideSlTriggerPrice: existingSlTrigger

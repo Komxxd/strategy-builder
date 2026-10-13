@@ -757,16 +757,22 @@ async function monitorStrategyLoop(strategyId, strategy) {
                     
                     if (isSlEnabled && activeSlValue > 0 && leg.slOrderId !== "DISABLED") {
                         try {
+                            const activeSlType = isReentered && leg.leg.reentry_sl_enabled ? leg.leg.reentry_sl_type : (leg.leg.sl_type || "PERCENTAGE");
+                            const limitMargin = leg.leg.sl_limit_margin !== undefined && leg.leg.sl_limit_margin !== null && leg.leg.sl_limit_margin !== ''
+                                ? leg.leg.sl_limit_margin
+                                : (config.entry_limit_offset || 0);
+                            const limitMarginType = leg.leg.sl_limit_margin_type || config.entry_limit_offset_type || 'POINTS';
+
                             const slOrder = await placeStopLossWithRetry({
                                 baseConfig: config,
                                 legSide: leg.leg.side,
                                 entryPrice: leg.entryPrice,
                                 instrument: leg.instrument,
                                 lots: leg.leg.lots,
-                                slType: isReentered && leg.leg.reentry_sl_enabled ? leg.leg.reentry_sl_type : (leg.leg.sl_type || "PERCENTAGE"),
+                                slType: activeSlType,
                                 slValue: activeSlValue,
-                                slLimitMargin: leg.leg.sl_limit_margin,
-                                slLimitMarginType: leg.leg.sl_limit_margin_type,
+                                slLimitMargin: limitMargin,
+                                slLimitMarginType: limitMarginType,
                                 connectionId: config.connectionId,
                                 strategyId: strategyId,
                                 isDeferred: true
@@ -774,7 +780,14 @@ async function monitorStrategyLoop(strategyId, strategy) {
                             if (slOrder && slOrder.orderid) {
                                 leg.slOrderId = slOrder.orderid;
                                 leg.slUniqueOrderId = slOrder.uniqueorderid;
-                                addStrategyLog(strategyId, `[Deferred SL] Placed StopLoss for ${leg.instrument.symbol} after entry minute close.`, "INFO");
+                                const prices = computeStopLossExitPrices(leg.entryPrice, leg.leg.side, activeSlType, activeSlValue, limitMargin, limitMarginType);
+                                if (prices) {
+                                    leg.slTriggerPrice = prices.trigger;
+                                    leg.initialSlTriggerPrice = prices.trigger;
+                                    leg.slLimitPrice = prices.limit;
+                                }
+                                leg.exchangeSlProcessed = false;
+                                addStrategyLog(strategyId, `[Deferred SL] Placed StopLoss for ${leg.instrument.symbol} after entry minute close. Trigger: ₹${prices?.trigger || slOrder.triggerprice}, Limit: ₹${prices?.limit || slOrder.limitprice}`, "INFO");
                             } else {
                                 leg.slOrderId = "DISABLED";
                             }
