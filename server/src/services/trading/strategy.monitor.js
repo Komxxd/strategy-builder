@@ -31,6 +31,45 @@ const { handleLegStopOut, pauseStrategy } = require("./strategy.lifecycle");
 const { checkOverallPnlLimits, evaluateLegLimits } = require("./strategy.pnl");
 
 /**
+ * Helper to fetch order status from Angel One with two-tier fallback:
+ * 1. Primary: indOrderDetails using uniqueorderid (if available)
+ * 2. Fallback: getOrderBook matching numerical orderid
+ */
+async function getBrokerOrderStatus(api, slUniqueOrderId, slOrderId) {
+    let orderStatus = "";
+    let orderData = null;
+
+    if (slUniqueOrderId) {
+        try {
+            const details = await api.indOrderDetails(slUniqueOrderId);
+            if (details?.data) {
+                orderData = details.data;
+                orderStatus = (details.data.orderstatus || details.data.status || "").toString().toLowerCase();
+            }
+        } catch (e) {
+            console.warn(`[getBrokerOrderStatus] indOrderDetails failed for ${slUniqueOrderId}: ${e.message}`);
+        }
+    }
+
+    if (!orderStatus && slOrderId) {
+        try {
+            const book = await api.getOrderBook();
+            if (book?.status && Array.isArray(book.data)) {
+                const match = book.data.find(o => String(o.orderid) === String(slOrderId));
+                if (match) {
+                    orderData = match;
+                    orderStatus = (match.orderstatus || match.status || "").toString().toLowerCase();
+                }
+            }
+        } catch (e) {
+            console.warn(`[getBrokerOrderStatus] getOrderBook fallback failed for ${slOrderId}: ${e.message}`);
+        }
+    }
+
+    return { orderStatus, orderData };
+}
+
+/**
  * The main monitoring function for a single strategy.
  * This is called repeatedly by the Strategy Engine.
  */
@@ -865,8 +904,10 @@ async function monitorStrategyLoop(strategyId, strategy) {
                         // If it is dead, deploy a new SL order to restore protection.
                         try {
                             const api = await getAuthorizedInstance(config.connectionId);
-                            const details = await api.indOrderDetails(leg.slUniqueOrderId);
-                            const orderStatus = (details?.data?.orderstatus || details?.data?.status || "").toString().toLowerCase();
+                            const { orderStatus, orderData } = await getBrokerOrderStatus(api, leg.slUniqueOrderId, leg.slOrderId);
+                            if (!leg.slUniqueOrderId && orderData?.uniqueorderid) {
+                                leg.slUniqueOrderId = orderData.uniqueorderid;
+                            }
                             
                             if (orderStatus === "cancelled" || orderStatus === "rejected") {
                                 addStrategyLog(strategyId, `[TSL RECOVERY] Original SL order was ${orderStatus}. Placing a new SL order at ₹${newTrigger} to restore protection.`, "WARNING");
@@ -889,7 +930,7 @@ async function monitorStrategyLoop(strategyId, strategy) {
                                     addStrategyLog(strategyId, `[TSL RECOVERY] Successfully deployed replacement SL order ${newSlOrder.orderid}.`, "INFO");
                                 }
                             } else {
-                                addStrategyLog(strategyId, `[TSL] SL Modification failed, but order status is '${orderStatus}'. Keeping existing order.`, "WARNING");
+                                addStrategyLog(strategyId, `[TSL] SL Modification failed, but order status is '${orderStatus || "unknown"}'. Keeping existing order.`, "WARNING");
                             }
                         } catch (statusErr) {
                             console.error(`[TSL RECOVERY] Failed to check status of ${leg.slOrderId}:`, statusErr.message);
@@ -908,26 +949,31 @@ async function monitorStrategyLoop(strategyId, strategy) {
                 if (evalResult.requiresExchangeValidation) {
                     try {
                         const api = await getAuthorizedInstance(config.connectionId);
-                        const details = await api.indOrderDetails(leg.slUniqueOrderId);
-                        const orderStatus = (details?.data?.orderstatus || details?.data?.status || "").toString().toLowerCase();
+                        const { orderStatus, orderData } = await getBrokerOrderStatus(api, leg.slUniqueOrderId, leg.slOrderId);
                         
+                        if (!leg.slUniqueOrderId && orderData?.uniqueorderid) {
+                            leg.slUniqueOrderId = orderData.uniqueorderid;
+                        }
+
                         const isCancelledOrRejected = ["cancelled", "rejected"].includes(orderStatus);
                         const isPending = ["open", "trigger pending", "pending"].includes(orderStatus);
                         const isExecuted = ["complete", "filled"].includes(orderStatus);
 
                         if (isCancelledOrRejected) {
                             addStrategyLog(strategyId, `[FALLBACK] Internal Monitor detected SL breach. Exchange SL order was ${orderStatus}. Forcing manual Market Exit to protect position!`, "CRITICAL");
-                            // Fall through to manual exit
-                        } else if (isPending || isExecuted) {
-                            // Order is pending, open, complete, or filled. Let the exchange/Phase 6 handle it securely.
+                            // Fall through to manual exit below
+                        } else if (isExecuted) {
+                            const exchangeFillPrice = Number(orderData?.averageprice || orderData?.averagePrice || 0) || leg.slTriggerPrice;
+                            const exchangeFillTime = getBrokerFillTime(orderData) || getISTExchangeFormat();
+                            leg.exchangeSlProcessed = true;
+                            addStrategyLog(strategyId, `[EXCHANGE_STOP_LOSS] Verified SL executed on exchange for ${leg.instrument?.symbol} at ₹${exchangeFillPrice}.`, "INFO");
+                            await handleLegStopOut(leg, "EXCHANGE_STOP_LOSS", strategy, { exchangeFillPrice, exchangeFillTime });
+                            continue;
+                        } else if (isPending) {
+                            // Order is pending or open (triggered) on the exchange. Let exchange/Phase 6 handle it.
                             continue;
                         } else {
-                            addStrategyLog(strategyId, `[FALLBACK] Unknown SL status '${orderStatus}'. Assuming SL hit internally. No exit order fired.`, "WARNING");
-                            leg.exchangeSlProcessed = true;
-                            await handleLegStopOut(leg, evalResult.exitReason, strategy, { 
-                                exchangeFillPrice: leg.slTriggerPrice, 
-                                exchangeFillTime: getISTExchangeFormat()
-                            });
+                            addStrategyLog(strategyId, `[FALLBACK] Could not verify broker SL order status for ${leg.instrument?.symbol} (${leg.slOrderId || 'no ID'}). Retrying on next check...`, "WARNING");
                             continue;
                         }
                     } catch (e) {
@@ -963,18 +1009,20 @@ async function monitorStrategyLoop(strategyId, strategy) {
         if (config.variety === "STOPLOSS" && !isPaperTrade) {
             for (const leg of strategy.legs) {
                 // We only check legs that are active and have an order ID.
-                if (leg.exited || leg.state === "WAITING_FOR_RECOST" || !leg.slUniqueOrderId || leg.exchangeSlProcessed) continue;
+                if (leg.exited || leg.state === "WAITING_FOR_RECOST" || (!leg.slUniqueOrderId && !leg.slOrderId) || leg.exchangeSlProcessed) continue;
 
                 // Optimization: Only ping the broker API if the current price is very near the SL (within 2%).
                 const isNearTrigger = leg.leg.side === "BUY" ? (leg.currentLtp <= leg.slTriggerPrice * 1.02) : (leg.currentLtp >= leg.slTriggerPrice * 0.98);
                 if (isNearTrigger) {
                     try {
                         const api = await getAuthorizedInstance(config.connectionId);
-                        const details = await api.indOrderDetails(leg.slUniqueOrderId);
-                        const orderStatus = (details?.data?.orderstatus || details?.data?.status || "").toString().toLowerCase();
+                        const { orderStatus, orderData } = await getBrokerOrderStatus(api, leg.slUniqueOrderId, leg.slOrderId);
+                        if (!leg.slUniqueOrderId && orderData?.uniqueorderid) {
+                            leg.slUniqueOrderId = orderData.uniqueorderid;
+                        }
                         if (orderStatus === "complete" || orderStatus === "filled") {
-                            const exchangeFillPrice = Number(details.data.averageprice || details.data.averagePrice || 0) || null;
-                            const exchangeFillTime = getBrokerFillTime(details.data);
+                            const exchangeFillPrice = Number(orderData?.averageprice || orderData?.averagePrice || 0) || null;
+                            const exchangeFillTime = getBrokerFillTime(orderData);
                             leg.exchangeSlProcessed = true;
                             await handleLegStopOut(leg, "EXCHANGE_STOP_LOSS", strategy, { exchangeFillPrice, exchangeFillTime });
                         }
