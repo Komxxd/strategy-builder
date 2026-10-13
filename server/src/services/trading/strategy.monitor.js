@@ -956,8 +956,9 @@ async function monitorStrategyLoop(strategyId, strategy) {
                         }
 
                         const isCancelledOrRejected = ["cancelled", "rejected"].includes(orderStatus);
-                        const isPending = ["open", "trigger pending", "pending"].includes(orderStatus);
                         const isExecuted = ["complete", "filled"].includes(orderStatus);
+                        const isTriggerPending = ["trigger pending", "pending"].includes(orderStatus);
+                        const isOpen = orderStatus === "open";
 
                         if (isCancelledOrRejected) {
                             addStrategyLog(strategyId, `[FALLBACK] Internal Monitor detected SL breach. Exchange SL order was ${orderStatus}. Forcing manual Market Exit to protect position!`, "CRITICAL");
@@ -969,9 +970,87 @@ async function monitorStrategyLoop(strategyId, strategy) {
                             addStrategyLog(strategyId, `[EXCHANGE_STOP_LOSS] Verified SL executed on exchange for ${leg.instrument?.symbol} at ₹${exchangeFillPrice}.`, "INFO");
                             await handleLegStopOut(leg, "EXCHANGE_STOP_LOSS", strategy, { exchangeFillPrice, exchangeFillTime });
                             continue;
-                        } else if (isPending) {
-                            // Order is pending or open (triggered) on the exchange. Let exchange/Phase 6 handle it.
-                            continue;
+                        } else if (isOpen || isTriggerPending) {
+                            const limitPrice = Number(orderData?.price || leg.slLimitPrice || leg.slTriggerPrice || 0);
+                            const currentLtp = Number(leg.currentLtp || 0);
+                            const isBuyLeg = leg.leg.side === "BUY"; // Long position, exit is SELL
+
+                            // Distance by which market price has moved WORSE than our exit limit price
+                            const distancePastLimit = isBuyLeg
+                                ? (limitPrice - currentLtp)
+                                : (currentLtp - limitPrice);
+
+                            const isPastLimit = distancePastLimit > 0;
+                            // Consider "far past SL" if slippage is >= 0.5 pts or >= 0.5% of limit price
+                            const isFarPastLimit = distancePastLimit >= Math.max(0.5, Number((limitPrice * 0.005).toFixed(2)));
+
+                            // If order is triggered ("open") and market price has moved past limit:
+                            // A resting limit order CANNOT execute on the exchange book when market price is worse than its limit!
+                            if (isOpen && (isFarPastLimit || (isPastLimit && (leg.slOpenUnfilledCount || 0) >= 1))) {
+                                addStrategyLog(strategyId, `[SL RESCUE] SL order ${leg.slOrderId} was triggered but is resting unfilled at ₹${limitPrice} while market price moved to ₹${currentLtp} (past limit by ₹${distancePastLimit.toFixed(2)}). Cancelling stuck order and firing immediate market exit!`, "CRITICAL");
+
+                                let cancelConfirmedFilled = false;
+                                if (leg.slOrderId) {
+                                    try {
+                                        try {
+                                            await cancelOrder(config, "STOPLOSS", leg.slOrderId);
+                                        } catch (cErr1) {
+                                            const msg1 = (cErr1.message || "").toLowerCase();
+                                            if (msg1.includes("filled") || msg1.includes("complete")) {
+                                                cancelConfirmedFilled = true;
+                                            } else {
+                                                await cancelOrder(config, "NORMAL", leg.slOrderId);
+                                            }
+                                        }
+                                        if (!cancelConfirmedFilled) {
+                                            addStrategyLog(strategyId, `[SL RESCUE] Successfully cancelled stuck SL order ${leg.slOrderId}.`, "INFO");
+                                        }
+                                    } catch (cErr2) {
+                                        const msg2 = (cErr2.message || "").toLowerCase();
+                                        if (msg2.includes("filled") || msg2.includes("complete")) {
+                                            cancelConfirmedFilled = true;
+                                        } else {
+                                            console.warn(`[SL RESCUE] Cancellation failed for ${leg.slOrderId}: ${cErr2.message}. Proceeding to exit.`);
+                                        }
+                                    }
+                                }
+
+                                if (cancelConfirmedFilled) {
+                                    const exchangeFillPrice = Number(orderData?.averageprice || orderData?.averagePrice || 0) || limitPrice || leg.slTriggerPrice;
+                                    const exchangeFillTime = getBrokerFillTime(orderData) || getISTExchangeFormat();
+                                    leg.exchangeSlProcessed = true;
+                                    addStrategyLog(strategyId, `[EXCHANGE_STOP_LOSS] SL order ${leg.slOrderId} was confirmed filled on exchange at ₹${exchangeFillPrice}.`, "INFO");
+                                    await handleLegStopOut(leg, "EXCHANGE_STOP_LOSS", strategy, { exchangeFillPrice, exchangeFillTime });
+                                    continue;
+                                }
+
+                                // Clear order IDs so placeExitOrder places a clean fresh market/limit exit order with chase
+                                leg.slOrderId = null;
+                                leg.slUniqueOrderId = null;
+                                // Fall through to manual exit below (lines 986+)
+                            } else if (isTriggerPending && distancePastLimit >= Math.max(2.0, Number((limitPrice * 0.02).toFixed(2)))) {
+                                // Extreme edge case: Order still shows 'trigger pending' despite market being >= 2% past trigger
+                                addStrategyLog(strategyId, `[SL RESCUE] SL order ${leg.slOrderId} remained 'trigger pending' despite market price at ₹${currentLtp} (₹${distancePastLimit.toFixed(2)} past trigger). Cancelling to execute market exit!`, "CRITICAL");
+                                if (leg.slOrderId) {
+                                    try {
+                                        await cancelOrder(config, "STOPLOSS", leg.slOrderId);
+                                    } catch (e) {
+                                        try { await cancelOrder(config, "NORMAL", leg.slOrderId); } catch (e2) {}
+                                    }
+                                }
+                                leg.slOrderId = null;
+                                leg.slUniqueOrderId = null;
+                                // Fall through to manual exit below
+                            } else {
+                                // Order is either still waiting for trigger, or open within acceptable matchable range.
+                                if (isOpen && isPastLimit) {
+                                    leg.slOpenUnfilledCount = (leg.slOpenUnfilledCount || 0) + 1;
+                                } else {
+                                    leg.slOpenUnfilledCount = 0;
+                                }
+                                // Let the exchange/Phase 6 handle it.
+                                continue;
+                            }
                         } else {
                             addStrategyLog(strategyId, `[FALLBACK] Could not verify broker SL order status for ${leg.instrument?.symbol} (${leg.slOrderId || 'no ID'}). Retrying on next check...`, "WARNING");
                             continue;
