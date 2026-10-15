@@ -2,7 +2,7 @@ import React, { useState } from'react';
 import { ChevronDown, ChevronRight, Download, ChevronsUpDown } from'lucide-react';
 import * as XLSX from'xlsx';
 
-export const TradesSummaryTable = ({ trades = [], filteredDailySummary = {}, strategy, availableStrategies = [], selectedStrategies }) => {
+export const TradesSummaryTable = ({ trades = [], filteredDailySummary = {}, strategy, availableStrategies = [], selectedStrategies, getEffectiveMultiplier }) => {
  // Helper: check if a trade belongs to one of the selected strategies
  const isTradeSelected = (trade) => {
  if (!selectedStrategies || selectedStrategies.size === 0) return true;
@@ -111,6 +111,12 @@ export const TradesSummaryTable = ({ trades = [], filteredDailySummary = {}, str
  const strike = typeMatch[0] ||'-';
  const optType = typeMatch[1] ||'-';
 
+ const sId = !strategy?.isCombined ? (strategy?.id || 'single') : (t.leg_id ? t.leg_id.split('_')[0] : 'single');
+ const daySummaryObj = typeof filteredDailySummary[date] === 'object' ? filteredDailySummary[date] : null;
+ const tradeMulti = getEffectiveMultiplier ? getEffectiveMultiplier(sId, daySummaryObj?.dte) : 1;
+ const displayQty = Math.round((t.qty || 0) * tradeMulti);
+ const displayPnL = (t.pnl || 0) * tradeMulti;
+
  exportData.push({
 'Row Index':`${index + 1}.${idx + 1}`,
 'Row Type':'Trade',
@@ -122,10 +128,10 @@ export const TradesSummaryTable = ({ trades = [], filteredDailySummary = {}, str
 'Option Type': optType,
 'Strike': strike,
 'Buy/Sell': t.side,
-'Qty': t.qty,
+'Qty': displayQty,
 'Entry Price': t.entry_price ? Number(t.entry_price.toFixed(2)) : 0,
 'Exit Price': t.exit_price ? Number(t.exit_price.toFixed(2)) : 0,
-'PnL': Math.round(t.pnl || 0),
+'PnL': Math.round(displayPnL),
 'Exit Reason': t.exit_reason ||'-'
  });
  });
@@ -238,6 +244,12 @@ export const TradesSummaryTable = ({ trades = [], filteredDailySummary = {}, str
  const strike = typeMatch[0] ||'-';
  const optType = typeMatch[1] ||'-';
 
+ const sId = !strategy?.isCombined ? (strategy?.id || 'single') : (t.leg_id ? t.leg_id.split('_')[0] : 'single');
+ const daySummaryObj = typeof filteredDailySummary[date] === 'object' ? filteredDailySummary[date] : null;
+ const tradeMulti = getEffectiveMultiplier ? getEffectiveMultiplier(sId, daySummaryObj?.dte) : 1;
+ const displayQty = Math.round((t.qty || 0) * tradeMulti);
+ const displayPnL = (t.pnl || 0) * tradeMulti;
+
  return (
  <tr key={`${date}-${idx}`} className="bg-slate-50/50 hover:bg-slate-100 transition-colors">
  <td className="px-4 py-1.5 text-slate-300 text-right text-[9px] font-bold">{globalIndex + 1}.{idx + 1}</td>
@@ -249,13 +261,13 @@ export const TradesSummaryTable = ({ trades = [], filteredDailySummary = {}, str
  <td className={`px-3 py-1.5 font-bold ${optType ==='CE' ?'text-emerald-600' : (optType ==='PE' ?'text-rose-600' :'text-slate-500')}`}>{optType}</td>
  <td className="px-3 py-1.5 text-slate-700 font-bold">{strike}</td>
  <td className={`px-3 py-1.5 font-bold ${t.side ==='BUY' ?'text-indigo-600' :'text-amber-600'}`}>{t.side}</td>
- <td className="px-3 py-1.5 text-slate-700 text-right font-medium">{t.qty}</td>
+ <td className="px-3 py-1.5 text-slate-700 text-right font-medium">{displayQty}</td>
  <td className="px-3 py-1.5 text-slate-700 text-right">₹{t.entry_price?.toFixed(2) ||'0.00'}</td>
  <td className="px-3 py-1.5 text-slate-700 text-right">
  {t.exit_price ?`₹${t.exit_price.toFixed(2)}` :'-'}
  </td>
- <td className={`px-4 py-1.5 font-bold text-right ${(t.pnl || 0) >= 0 ?'text-emerald-600' :'text-rose-600'}`}>
- {(t.pnl || 0) > 0 ?'+' :''}₹{Math.round(t.pnl || 0).toLocaleString()}
+ <td className={`px-4 py-1.5 font-bold text-right ${displayPnL >= 0 ?'text-emerald-600' :'text-rose-600'}`}>
+ {displayPnL > 0 ?'+' :''}₹{Math.round(displayPnL).toLocaleString()}
  </td>
  <td className="px-3 py-1.5 text-slate-500 font-medium text-[10px] uppercase tracking-wider">{t.exit_reason ||'-'}</td>
  </tr>

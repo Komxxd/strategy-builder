@@ -56,6 +56,16 @@ class BacktestEngine:
         self.is_cancelled = is_cancelled
         
         self.config = strategy.get('config', {})
+        # Backtest should always use quantity as 1 by default, regardless of outside settings
+        self.config['quantity_multiplier'] = 1
+        legs = self.config.get('legs', [])
+        if legs:
+            valid_lots = [int(l.get('lots', 1)) for l in legs if int(l.get('lots', 1) or 0) > 0]
+            min_lots = min(valid_lots) if valid_lots else 1
+            for l in legs:
+                current_lots = int(l.get('lots', 1) or 1)
+                l['lots'] = max(1, round(current_lots / min_lots)) if min_lots > 0 else 1
+
         self.index_name = self.config.get('index')
         
         entry_time = self.config.get('entry_time', '09:15:00')

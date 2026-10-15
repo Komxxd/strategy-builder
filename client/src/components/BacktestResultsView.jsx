@@ -1172,7 +1172,7 @@ export const BacktestResultsView = ({ results, strategy }) => {
  </div>
  </div>
  )}
- <TradesSummaryTable trades={trades} filteredDailySummary={filteredDailySummary} strategy={strategy} availableStrategies={availableStrategies} selectedStrategies={selectedStrategies} />
+ <TradesSummaryTable trades={trades} filteredDailySummary={filteredDailySummary} strategy={strategy} availableStrategies={availableStrategies} selectedStrategies={selectedStrategies} getEffectiveMultiplier={getEffectiveMultiplier} />
  </div>
  ) : (
  <>
@@ -1185,7 +1185,8 @@ export const BacktestResultsView = ({ results, strategy }) => {
  {(() => {
  const activeSummary = typeof filteredDailySummary[activeTab] ==='object' ? filteredDailySummary[activeTab] : { pnl: 0, trade_value: 0, pnl_percent: 0 };
  const config = strategy?.config || {};
- const multiplier = parseFloat(config.quantity_multiplier) || 1;
+ const sId = strategy?.id ||'single';
+ const multiplier = getEffectiveMultiplier(sId, activeSummary?.dte);
 
  let overallSlStr = null;
  if (config.overall_sl_enabled && parseFloat(config.overall_sl_value) > 0) {

@@ -4698,9 +4698,33 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  activeBacktestJobIdRef.current = null;
  isBacktestingActiveRef.current = false;
  if (onBacktestComplete) {
- const strategyArg = Array.isArray(selectedStrategyForBacktest)
+ const rawStrategyArg = Array.isArray(selectedStrategyForBacktest)
  ? { name:"Portfolio Simulation", id:"portfolio", isCombined: true, strategies: selectedStrategyForBacktest }
  : selectedStrategyForBacktest;
+
+ const strategyArg = JSON.parse(JSON.stringify(rawStrategyArg));
+ const normalizeStratConfig = (strat) => {
+   if (strat?.config) {
+     strat.config.quantity_multiplier = 1;
+     if (Array.isArray(strat.config.legs) && strat.config.legs.length > 0) {
+       const validLots = strat.config.legs
+         .map(l => parseInt(l.lots) || 1)
+         .filter(lots => lots > 0);
+       const minLots = validLots.length > 0 ? Math.min(...validLots) : 1;
+       strat.config.legs.forEach(l => {
+         const currentLots = parseInt(l.lots) || 1;
+         l.lots = minLots > 0 ? Math.max(1, Math.round(currentLots / minLots)) : 1;
+       });
+     }
+   }
+ };
+
+ if (strategyArg.isCombined && Array.isArray(strategyArg.strategies)) {
+   strategyArg.strategies.forEach(normalizeStratConfig);
+ } else {
+   normalizeStratConfig(strategyArg);
+ }
+
  onBacktestComplete(statusRes.data, strategyArg);
  }
  setIsBacktesting(false);

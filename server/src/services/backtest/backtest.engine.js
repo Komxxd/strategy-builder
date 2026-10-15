@@ -17,7 +17,23 @@ class BacktestEngine {
         if (!strategies || strategies.length === 0) {
             throw new Error(`Strategy not found for id ${this.strategyId}`);
         }
-        this.strategy = strategies[0];
+        // Deep clone so DB/in-memory strategies are not mutated
+        const strat = JSON.parse(JSON.stringify(strategies[0]));
+        if (strat && strat.config) {
+            // For backtest, default quantity to 1 regardless of outside settings
+            strat.config.quantity_multiplier = 1;
+            if (Array.isArray(strat.config.legs) && strat.config.legs.length > 0) {
+                const validLots = strat.config.legs
+                    .map(l => parseInt(l.lots) || 1)
+                    .filter(lots => lots > 0);
+                const minLots = validLots.length > 0 ? Math.min(...validLots) : 1;
+                strat.config.legs.forEach(l => {
+                    const currentLots = parseInt(l.lots) || 1;
+                    l.lots = minLots > 0 ? Math.max(1, Math.round(currentLots / minLots)) : 1;
+                });
+            }
+        }
+        this.strategy = strat;
     }
 
     async run(signal, jobId) {
