@@ -2554,6 +2554,7 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
 
  if (uploadedConfig.type === 'folder_export') {
    const folderIdMap = {};
+   const newFolderIdsInOrder = [];
    const oldRootFolder = uploadedConfig.folders.find(f => f.id === uploadedConfig.root_folder_id);
    
    let baseName = oldRootFolder.name || "Imported Folder";
@@ -2569,6 +2570,7 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
      const res = await axios.post(`${API_BASE_URL}/folders`, { name: nameToUse, parent_id: newParentId });
      const newFolderId = res.data.data.id;
      folderIdMap[oldFolder.id] = newFolderId;
+     newFolderIdsInOrder.push(newFolderId);
      
      const children = uploadedConfig.folders.filter(f => f.parent_id === oldFolder.id);
      for (const child of children) {
@@ -2578,6 +2580,7 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
    
    await importFolder(oldRootFolder, null);
    
+   const newStrategyIdsInOrder = [];
    let currentStrategyNames = savedStrategies.map(s => s.name.trim().toLowerCase());
    for (const strat of uploadedConfig.strategies) {
      const newFolderId = folderIdMap[strat.folder_id];
@@ -2605,8 +2608,30 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
        duration: 'DAY',
        folder_id: newFolderId
      };
-     await axios.post(`${API_BASE_URL}/strategy/save`, finalConfig);
+     const saveRes = await axios.post(`${API_BASE_URL}/strategy/save`, finalConfig);
+     if (saveRes.data?.strategy?.id) {
+       newStrategyIdsInOrder.push(saveRes.data.strategy.id);
+     }
    }
+   // Preserve the original export order by appending new IDs to custom order arrays
+   try {
+     const settings = await getSettings();
+     const existingFolderOrder = settings?.data?.custom_folder_order || [];
+     const existingStrategyOrder = settings?.data?.custom_strategy_order || [];
+
+     const updatedFolderOrder = [...existingFolderOrder, ...newFolderIdsInOrder];
+     const updatedStrategyOrder = [...existingStrategyOrder, ...newStrategyIdsInOrder];
+
+     localStorage.setItem('custom_folder_order', JSON.stringify(updatedFolderOrder));
+     localStorage.setItem('custom_strategy_order', JSON.stringify(updatedStrategyOrder));
+     await updateSettings({
+       custom_folder_order: updatedFolderOrder,
+       custom_strategy_order: updatedStrategyOrder
+     });
+   } catch (orderErr) {
+     console.error("Failed to save import order:", orderErr);
+   }
+
    await fetchFolders();
    await fetchSavedStrategies();
  } else {
