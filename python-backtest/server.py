@@ -3,11 +3,25 @@ from pydantic import BaseModel
 from typing import Any, Dict, Optional
 import uvicorn
 import traceback
-from engine import BacktestEngine, fetch_stitched_data
+import resource
+import sys
+from engine import BacktestEngine, fetch_stitched_data, get_month_expiries
 
 app = FastAPI(title="Strategy Builder Backtest Engine")
 
 cancelled_jobs = set()
+
+def check_memory_and_clear_cache(threshold_mb=600):
+    """Clears LRU cache only if process memory exceeds threshold_mb to prevent OOM."""
+    try:
+        usage = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        max_mb = usage / (1024 * 1024) if sys.platform == 'darwin' else usage / 1024
+        if max_mb > threshold_mb:
+            print(f"[Python] Memory usage ({max_mb:.1f} MB) exceeded threshold ({threshold_mb} MB). Clearing cache.")
+            fetch_stitched_data.cache_clear()
+            get_month_expiries.cache_clear()
+    except Exception:
+        pass
 
 class BacktestRequest(BaseModel):
     strategy: Dict[str, Any]
@@ -20,6 +34,12 @@ def cancel_job(job_id: str):
     cancelled_jobs.add(job_id)
     print(f"[Python] Job {job_id} marked as cancelled.")
     return {"success": True, "message": f"Job {job_id} cancelled"}
+
+@app.post("/cache/clear")
+def clear_cache():
+    fetch_stitched_data.cache_clear()
+    get_month_expiries.cache_clear()
+    return {"success": True, "message": "Backtest data cache cleared"}
 
 @app.post("/backtest")
 def run_backtest(req: BacktestRequest):
@@ -45,10 +65,8 @@ def run_backtest(req: BacktestRequest):
     finally:
         if job_id:
             cancelled_jobs.discard(job_id)
-        # Clear cached parquet DataFrames to prevent OOM on long backtests.
-        # The cache helps within a single backtest (reusing data across legs),
-        # but accumulating across requests fills RAM on small droplets.
-        fetch_stitched_data.cache_clear()
+        # Protect memory by clearing only if memory usage exceeds threshold
+        check_memory_and_clear_cache(threshold_mb=600)
 
 if __name__ == "__main__":
     uvicorn.run("server:app", host="0.0.0.0", port=8000, reload=True)

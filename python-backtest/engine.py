@@ -13,6 +13,21 @@ MARKET_DATA_1S_DIR = os.path.join(os.path.dirname(__file__), '../market-data-1-s
 
 import functools
 
+CORE_COLUMNS = ['datetime', 'open', 'high', 'low', 'close']
+
+@functools.lru_cache(maxsize=512)
+def get_month_expiries(index_name, year, month):
+    month_dir = os.path.join(MARKET_DATA_DIR, 'options', index_name, year, month)
+    if not os.path.exists(month_dir):
+        return []
+    try:
+        dirs = os.listdir(month_dir)
+        expiries = [d.split('=')[1] for d in dirs if d.startswith('expiry=')]
+        expiries.sort()
+        return expiries
+    except Exception:
+        return []
+
 @functools.lru_cache(maxsize=8192)
 def fetch_stitched_data(data_type, index_name, year, month, date, expiry=None, strike=None, option_type=None, requires_1s_data=False):
     if data_type == 'index':
@@ -26,7 +41,7 @@ def fetch_stitched_data(data_type, index_name, year, month, date, expiry=None, s
         return None
         
     try:
-        min_df = pl.read_parquet(min_path)
+        min_df = pl.read_parquet(min_path, columns=CORE_COLUMNS)
     except Exception:
         return None
         
@@ -34,10 +49,8 @@ def fetch_stitched_data(data_type, index_name, year, month, date, expiry=None, s
         return min_df
         
     try:
-        sec_df = pl.read_parquet(sec_path)
-        
-        time_col = min_df.columns[1] if data_type == 'index' else min_df.columns[13]
-        min_df_filtered = min_df.filter(~pl.col(time_col).cast(pl.Utf8).str.contains("09:15:00"))
+        sec_df = pl.read_parquet(sec_path, columns=CORE_COLUMNS)
+        min_df_filtered = min_df.filter(~pl.col('datetime').cast(pl.Utf8).str.contains("09:15:00"))
         
         if sec_df.schema != min_df_filtered.schema:
             for col_name in sec_df.columns:
@@ -231,17 +244,9 @@ class BacktestEngine:
 
     def find_closest_expiry(self, index_name, date_str):
         year, month = date_str.split('-')[:2]
-        month_dir = os.path.join(MARKET_DATA_DIR, 'options', index_name, year, month)
-        if not os.path.exists(month_dir): return None
-        
-        try:
-            dirs = os.listdir(month_dir)
-            expiries = [d.split('=')[1] for d in dirs if d.startswith('expiry=')]
-            expiries = [e for e in expiries if e >= date_str]
-            expiries.sort()
-            return expiries[0] if expiries else None
-        except Exception:
-            return None
+        expiries = get_month_expiries(index_name, year, month)
+        future_expiries = [e for e in expiries if e >= date_str]
+        return future_expiries[0] if future_expiries else None
 
 
 
@@ -942,12 +947,11 @@ class BacktestEngine:
                             rtp_mtp_str += f" | MTP: ₹{trade['reentry_mtp']:.2f}"
                         action = f"{prefix} ({side}): {trade['entryPrice']:.2f}{sl_str}{rtp_mtp_str}"
                     
-                    row = df.filter(pl.col('time') == t)
                     if t == trade['exitTime']:
                         price = trade['exitPrice']
                     else:
-                        price = row['close'][0] if row.height > 0 else trade['entryPrice']
-                    open_price = row['open'][0] if row.height > 0 else trade['entryPrice']
+                        price = time_df['close'][time_idx]
+                    open_price = time_df['open'][time_idx]
                     
                     diff = (trade['entryPrice'] - price) if leg.get('side') == 'SELL' else (price - trade['entryPrice'])
                     open_diff = (trade['entryPrice'] - open_price) if leg.get('side') == 'SELL' else (open_price - trade['entryPrice'])
