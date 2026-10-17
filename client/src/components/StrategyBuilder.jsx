@@ -4783,9 +4783,9 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  setIsBacktesting(true);
  isBacktestingActiveRef.current = true;
  activeBacktestJobIdRef.current = null;
- if (backtestPollIntervalRef.current) {
-   clearInterval(backtestPollIntervalRef.current);
-   backtestPollIntervalRef.current = null;
+ if (backtestPollTimerRef.current) {
+   clearTimeout(backtestPollTimerRef.current);
+   backtestPollTimerRef.current = null;
  }
 
  try {
