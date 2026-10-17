@@ -1,3 +1,4 @@
+require("./httpAgent");
 const smartapi = require("smartapi-javascript");
 const sessionService = require("../services/session.service");
 

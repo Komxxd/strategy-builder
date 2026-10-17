@@ -53,6 +53,9 @@ async function provisionWorkerNode(userId, env = 'dev') {
             WHERE user_id = ${userId}
         `;
 
+        const workerSocketService = require('./workerSocket.service');
+        workerSocketService.setAssignedWorkerForUser(userId, workerNode.id);
+
         console.log(`[Provision] Successfully linked Worker Node ${workerNode.id} to user ${userId}.`);
         
         return workerNode;

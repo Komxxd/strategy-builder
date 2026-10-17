@@ -1,6 +1,44 @@
 require("dotenv").config();
+const https = require("https");
+const axios = require("axios");
+
+// Shared persistent HTTPS keep-alive agent for worker droplet
+const sharedHttpsAgent = new https.Agent({
+    keepAlive: true,
+    maxSockets: 25,
+    maxFreeSockets: 10,
+    timeout: 60000,
+    keepAliveMsecs: 30000,
+    minVersion: 'TLSv1.2',
+    maxVersion: 'TLSv1.3'
+});
+
+const originalAxiosCreate = axios.create;
+axios.create = function (defaultConfig = {}) {
+    defaultConfig.httpsAgent = sharedHttpsAgent;
+    return originalAxiosCreate.call(this, defaultConfig);
+};
+axios.defaults.httpsAgent = sharedHttpsAgent;
+
 const { io } = require("socket.io-client");
 const { SmartAPI, WebSocketV2 } = require("smartapi-javascript");
+
+// Persistent SmartAPI instance cache to avoid constructing a new instance & TLS handshake on every trade
+let cachedSmartApi = null;
+let cachedApiKey = null;
+let cachedToken = null;
+
+function getSmartApiInstance(apiKey, jwtToken) {
+    if (!cachedSmartApi || cachedApiKey !== apiKey) {
+        cachedSmartApi = new SmartAPI({ api_key: apiKey });
+        cachedApiKey = apiKey;
+    }
+    if (cachedToken !== jwtToken) {
+        cachedSmartApi.setAccessToken(jwtToken);
+        cachedToken = jwtToken;
+    }
+    return cachedSmartApi;
+}
 
 // Environment variables passed via Cloud-Init
 const MASTER_SERVER_URL = process.env.MASTER_SERVER_URL;
@@ -168,19 +206,11 @@ socket.on("execute_trade", async (tradePayload) => {
         }
 
         // --- HANDLE LIVE TRADING ---
-        // Initialize Angel One SmartAPI
-        const smart_api = new SmartAPI({
-            api_key: api_key
-        });
-
         if (!jwtToken) {
             throw new Error("Missing JWT session token from Master. Cannot authenticate with Angel One.");
         }
 
-        console.log("Setting JWT Session for client:", client_code);
-        smart_api.setAccessToken(jwtToken);
-
-        console.log("Session generated successfully. Placing order...");
+        const smart_api = getSmartApiInstance(api_key, jwtToken);
 
         // Place the Order
         const orderResponse = await smart_api.placeOrder({
@@ -235,9 +265,8 @@ socket.on("modify_trade", async (tradePayload) => {
             return;
         }
 
-        const smart_api = new SmartAPI({ api_key });
         if (!jwtToken) throw new Error("Missing JWT session token from Master.");
-        smart_api.setAccessToken(jwtToken);
+        const smart_api = getSmartApiInstance(api_key, jwtToken);
 
         const response = await smart_api.modifyOrder({
             ...order_details,
@@ -282,9 +311,8 @@ socket.on("cancel_trade", async (tradePayload) => {
             return;
         }
 
-        const smart_api = new SmartAPI({ api_key });
         if (!jwtToken) throw new Error("Missing JWT session token from Master.");
-        smart_api.setAccessToken(jwtToken);
+        const smart_api = getSmartApiInstance(api_key, jwtToken);
 
         const response = await smart_api.cancelOrder({
             variety: order_details.variety || "NORMAL",

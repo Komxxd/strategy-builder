@@ -23,6 +23,7 @@ const { getLtpSecure, getLtpWithRetry, addStrategyLog, activeStrategies } = requ
 const { getISTTime, getISTExchangeFormat, getBrokerFillTime } = require("./strategy.time");
 const { roundToTick, getLimitOffsetAmt, computeStopLossExitPrices, resolveUniversalOrderParams } = require("./strategy.offset");
 const { checkOrderFillOnce, chaseOrderFill } = require("./strategy.chase");
+const orderDispatcher = require("./order.dispatcher");
 
 // Exchange-mandated maximum lot limits per index
 const LOT_LIMITS = {
@@ -67,9 +68,8 @@ async function cancelOrder(config, variety, orderId) {
     }
 
     if (connId) {
-        const creds = await sql`SELECT assigned_worker_id FROM public.user_broker_credentials WHERE user_id = ${connId}`;
-        if (creds.length > 0 && creds[0].assigned_worker_id) {
-            const workerId = creds[0].assigned_worker_id;
+        const workerId = await workerSocketService.getAssignedWorkerForUser(connId);
+        if (workerId) {
             console.log(`[${new Date().toISOString()}] Routing cancel order via Worker Node: ${workerId}`);
             
             const session = sessionService.getSession(connId);
@@ -81,12 +81,17 @@ async function cancelOrder(config, variety, orderId) {
                 order_details: { variety, orderid: orderId }
             };
             
-            return await workerSocketService.cancelTradeOnWorker(workerId, tradePayload);
+            return await orderDispatcher.dispatchTrade(workerId, connId, () =>
+                workerSocketService.cancelTradeOnWorker(workerId, tradePayload)
+            );
         }
     }
 
-    const api = await getAuthorizedInstance(connId);
-    return await api.cancelOrder({ variety, orderid: orderId });
+    const channelKey = `local_${connId}`;
+    return await orderDispatcher.dispatchTrade(channelKey, connId, async () => {
+        const api = await getAuthorizedInstance(connId);
+        return await api.cancelOrder({ variety, orderid: orderId });
+    });
 }
 
 /**
@@ -104,9 +109,8 @@ async function modifyOrderLocallyOrViaWorker(config, modifyParams) {
     }
 
     if (connId) {
-        const creds = await sql`SELECT assigned_worker_id FROM public.user_broker_credentials WHERE user_id = ${connId}`;
-        if (creds.length > 0 && creds[0].assigned_worker_id) {
-            const workerId = creds[0].assigned_worker_id;
+        const workerId = await workerSocketService.getAssignedWorkerForUser(connId);
+        if (workerId) {
             console.log(`[${new Date().toISOString()}] Routing modify order via Worker Node: ${workerId}`);
             
             const session = sessionService.getSession(connId);
@@ -118,12 +122,17 @@ async function modifyOrderLocallyOrViaWorker(config, modifyParams) {
                 order_details: modifyParams
             };
             
-            return await workerSocketService.modifyTradeOnWorker(workerId, tradePayload);
+            return await orderDispatcher.dispatchTrade(workerId, connId, () =>
+                workerSocketService.modifyTradeOnWorker(workerId, tradePayload)
+            );
         }
     }
 
-    const api = await getAuthorizedInstance(connId);
-    return await api.modifyOrder(modifyParams);
+    const channelKey = `local_${connId}`;
+    return await orderDispatcher.dispatchTrade(channelKey, connId, async () => {
+        const api = await getAuthorizedInstance(connId);
+        return await api.modifyOrder(modifyParams);
+    });
 }
 
 /**
@@ -181,9 +190,8 @@ async function placeOrder(config, instrument, connectionId) {
 
         // CHECK 1: DOES THIS USER HAVE A WORKER NODE ASSIGNED?
         if (connId) {
-            const creds = await sql`SELECT assigned_worker_id FROM public.user_broker_credentials WHERE user_id = ${connId}`;
-            if (creds.length > 0 && creds[0].assigned_worker_id) {
-                const workerId = creds[0].assigned_worker_id;
+            const workerId = await workerSocketService.getAssignedWorkerForUser(connId);
+            if (workerId) {
                 console.log(`[${new Date().toISOString()}] Routing order via Worker Node: ${workerId}`);
                 
                 // Fetch credentials needed by the worker (as the worker logs in independently)
@@ -196,8 +204,11 @@ async function placeOrder(config, instrument, connectionId) {
                     order_details: orderParams
                 };
                 
-                // Send trade to the worker over WebSocket
-                const response = await workerSocketService.executeTradeOnWorker(workerId, tradePayload);
+                // Send trade to the worker over WebSocket through the paced Token Dispatcher
+                const response = await orderDispatcher.dispatchTrade(workerId, connId, () =>
+                    workerSocketService.executeTradeOnWorker(workerId, tradePayload),
+                    { symbol: instrument.symbol, side: orderParams.transactiontype }
+                );
                 console.log(`[${new Date().toISOString()}] Worker Order placed successfully:`, response.orderid);
                 return response;
             }
@@ -206,8 +217,12 @@ async function placeOrder(config, instrument, connectionId) {
         // FALLBACK: Execute locally from the Master Server
 
         // --- CASE B: LIVE TRADING (Local Fallback) ---
-        const api = await getAuthorizedInstance(connId);
-        const response = await api.placeOrder(orderParams);
+        const channelKey = `local_${connId}`;
+        const response = await orderDispatcher.dispatchTrade(channelKey, connId, async () => {
+            const api = await getAuthorizedInstance(connId);
+            return await api.placeOrder(orderParams);
+        }, { symbol: instrument.symbol, side: orderParams.transactiontype });
+
         if (response.status && response.data) {
             console.log(`[${new Date().toISOString()}] Local Order placed successfully:`, response.data.orderid);
             return response.data; // contains orderid and uniqueorderid

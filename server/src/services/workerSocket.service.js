@@ -8,6 +8,47 @@ const crypto = require('crypto');
 let workerIo;
 const connectedWorkers = new Map(); // workerId -> socket
 const pendingTrades = new Map(); // trade_id -> { resolve, reject, timeout }
+const userWorkerCache = new Map(); // userId -> workerId (In-memory hot cache)
+
+async function preloadWorkerAssignments() {
+    try {
+        const rows = await sql`SELECT user_id, assigned_worker_id FROM public.user_broker_credentials WHERE assigned_worker_id IS NOT NULL`;
+        for (const row of rows) {
+            if (row.user_id && row.assigned_worker_id) {
+                userWorkerCache.set(row.user_id, row.assigned_worker_id);
+            }
+        }
+        console.log(`[WorkerSocket] Preloaded ${userWorkerCache.size} worker assignments into RAM.`);
+    } catch (e) {
+        console.warn("[WorkerSocket] Could not preload worker assignments:", e.message);
+    }
+}
+
+/**
+ * High-speed in-memory lookup for assigned worker.
+ * Prevents executing a SQL query on the critical path of every trade order.
+ */
+async function getAssignedWorkerForUser(userId) {
+    if (!userId) return null;
+    if (userWorkerCache.has(userId)) {
+        return userWorkerCache.get(userId);
+    }
+    try {
+        const creds = await sql`SELECT assigned_worker_id FROM public.user_broker_credentials WHERE user_id = ${userId}`;
+        const workerId = (creds.length > 0 && creds[0].assigned_worker_id) ? creds[0].assigned_worker_id : null;
+        userWorkerCache.set(userId, workerId);
+        return workerId;
+    } catch (err) {
+        console.error(`[WorkerSocket] Failed to fetch assigned worker for user ${userId}:`, err.message);
+        return null;
+    }
+}
+
+function setAssignedWorkerForUser(userId, workerId) {
+    if (userId) {
+        userWorkerCache.set(userId, workerId);
+    }
+}
 
 /**
  * Initializes the /workers namespace on the Socket.io server
@@ -15,6 +56,7 @@ const pendingTrades = new Map(); // trade_id -> { resolve, reject, timeout }
  */
 function initWorkerSocket(io) {
     workerIo = io.of('/workers');
+    preloadWorkerAssignments();
 
     // Middleware to authenticate workers
     workerIo.use(async (socket, next) => {
@@ -51,6 +93,9 @@ function initWorkerSocket(io) {
     workerIo.on('connection', (socket) => {
         console.log(`[WorkerSocket] Worker ${socket.workerId} connected (User: ${socket.userId})`);
         connectedWorkers.set(socket.workerId, socket);
+        if (socket.userId && socket.workerId) {
+            userWorkerCache.set(socket.userId, socket.workerId);
+        }
 
         // Mark worker as ACTIVE in database
         sql`UPDATE public.worker_nodes SET status = 'ACTIVE' WHERE id = ${socket.workerId}`.catch(console.error);
@@ -292,5 +337,7 @@ module.exports = {
     subscribeWorkerTicks,
     hasWorkerConnected,
     isWorkerAngelOneConnected,
-    connectWorkerAngelSocket
+    connectWorkerAngelSocket,
+    getAssignedWorkerForUser,
+    setAssignedWorkerForUser
 };
