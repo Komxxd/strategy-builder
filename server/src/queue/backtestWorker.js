@@ -188,12 +188,36 @@ const worker = new Worker('backtest-jobs', async (job) => {
     maxStalledCount: 2          // Allow 2 stall checks before failing (default: 1)
 });
 
-worker.on('completed', (job) => {
+worker.on('completed', async (job) => {
     console.log(`[Worker] Job ${job.id} completed successfully.`);
+    try {
+        const payload = JSON.stringify({
+            jobId: job.id,
+            status: 'completed',
+            userId: job.data?.userId,
+            data: job.returnvalue
+        });
+        await connection.publish('backtest:completed', payload);
+    } catch (e) {
+        console.error(`[Worker] Error publishing completion event for job ${job.id}:`, e);
+    }
 });
 
-worker.on('failed', (job, err) => {
-    console.error(`[Worker] Job ${job.id} failed with error:`, err);
+worker.on('failed', async (job, err) => {
+    console.error(`[Worker] Job ${job?.id} failed with error:`, err);
+    if (job) {
+        try {
+            const payload = JSON.stringify({
+                jobId: job.id,
+                status: 'failed',
+                userId: job.data?.userId,
+                message: err.message
+            });
+            await connection.publish('backtest:completed', payload);
+        } catch (e) {
+            console.error(`[Worker] Error publishing failure event for job ${job.id}:`, e);
+        }
+    }
 });
 
 module.exports = worker;

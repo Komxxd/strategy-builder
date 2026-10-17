@@ -2350,24 +2350,76 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  const [activeDateInput, setActiveDateInput] = useState('from');
  const [loadingDates, setLoadingDates] = useState(false);
  const [isBacktesting, setIsBacktesting] = useState(false);
- const backtestPollIntervalRef = useRef(null);
+ const backtestPollTimerRef = useRef(null);
  const activeBacktestJobIdRef = useRef(null);
  const isBacktestingActiveRef = useRef(false);
+ const socketRef = useRef(null);
 
  useEffect(() => {
    return () => {
-     if (backtestPollIntervalRef.current) {
-       clearInterval(backtestPollIntervalRef.current);
+     if (backtestPollTimerRef.current) {
+       clearTimeout(backtestPollTimerRef.current);
      }
    };
  }, []);
 
+ const finishBacktest = (resultData, stratArg) => {
+   if (backtestPollTimerRef.current) {
+     clearTimeout(backtestPollTimerRef.current);
+     backtestPollTimerRef.current = null;
+   }
+   const currentJobId = activeBacktestJobIdRef.current;
+   if (socketRef.current && currentJobId) {
+     socketRef.current.off(`backtest_status:${currentJobId}`);
+     socketRef.current.off('backtest_status');
+   }
+   activeBacktestJobIdRef.current = null;
+   isBacktestingActiveRef.current = false;
+   setIsBacktesting(false);
+   setBacktestModalOpen(false);
+
+   if (onBacktestComplete && resultData) {
+     const rawStrategyArg = stratArg || (Array.isArray(selectedStrategyForBacktest)
+       ? { name: "Portfolio Simulation", id: "portfolio", isCombined: true, strategies: selectedStrategyForBacktest }
+       : selectedStrategyForBacktest);
+
+     const strategyArg = JSON.parse(JSON.stringify(rawStrategyArg));
+     const normalizeStratConfig = (strat) => {
+       if (strat?.config) {
+         strat.config.quantity_multiplier = 1;
+         if (Array.isArray(strat.config.legs) && strat.config.legs.length > 0) {
+           const validLots = strat.config.legs
+             .map(l => parseInt(l.lots) || 1)
+             .filter(lots => lots > 0);
+           const minLots = validLots.length > 0 ? Math.min(...validLots) : 1;
+           strat.config.legs.forEach(l => {
+             const currentLots = parseInt(l.lots) || 1;
+             l.lots = minLots > 0 ? Math.max(1, Math.round(currentLots / minLots)) : 1;
+           });
+         }
+       }
+     };
+
+     if (strategyArg.isCombined && Array.isArray(strategyArg.strategies)) {
+       strategyArg.strategies.forEach(normalizeStratConfig);
+     } else {
+       normalizeStratConfig(strategyArg);
+     }
+
+     onBacktestComplete(resultData, strategyArg);
+   }
+ };
+
  const handleCloseBacktestModal = async () => {
-   if (backtestPollIntervalRef.current) {
-     clearInterval(backtestPollIntervalRef.current);
-     backtestPollIntervalRef.current = null;
+   if (backtestPollTimerRef.current) {
+     clearTimeout(backtestPollTimerRef.current);
+     backtestPollTimerRef.current = null;
    }
    const jobIdToCancel = activeBacktestJobIdRef.current;
+   if (socketRef.current && jobIdToCancel) {
+     socketRef.current.off(`backtest_status:${jobIdToCancel}`);
+     socketRef.current.off('backtest_status');
+   }
    isBacktestingActiveRef.current = false;
    activeBacktestJobIdRef.current = null;
    setIsBacktesting(false);
@@ -3419,6 +3471,7 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  reconnection: true,
  auth: { userId }
  });
+ socketRef.current = socket;
 
  socket.on('ltp_update', (data) => {
  setRunningStrategies(prev => {
@@ -3505,6 +3558,7 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
 
  return () => {
  if (socket) socket.disconnect();
+ socketRef.current = null;
  };
  }, []);
 
@@ -4752,82 +4806,65 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  }
 
  if (response?.success && response?.jobId) {
- activeBacktestJobIdRef.current = response.jobId;
- backtestPollIntervalRef.current = setInterval(async () => {
- try {
- if (!isBacktestingActiveRef.current) {
-   if (backtestPollIntervalRef.current) clearInterval(backtestPollIntervalRef.current);
-   return;
- }
- const statusRes = await getBacktestStatus(response.jobId);
- if (statusRes.success) {
- if (statusRes.status ==='completed') {
- if (backtestPollIntervalRef.current) clearInterval(backtestPollIntervalRef.current);
- backtestPollIntervalRef.current = null;
- activeBacktestJobIdRef.current = null;
- isBacktestingActiveRef.current = false;
- if (onBacktestComplete) {
- const rawStrategyArg = Array.isArray(selectedStrategyForBacktest)
- ? { name:"Portfolio Simulation", id:"portfolio", isCombined: true, strategies: selectedStrategyForBacktest }
- : selectedStrategyForBacktest;
+  const jobId = response.jobId;
+  activeBacktestJobIdRef.current = jobId;
 
- const strategyArg = JSON.parse(JSON.stringify(rawStrategyArg));
- const normalizeStratConfig = (strat) => {
-   if (strat?.config) {
-     strat.config.quantity_multiplier = 1;
-     if (Array.isArray(strat.config.legs) && strat.config.legs.length > 0) {
-       const validLots = strat.config.legs
-         .map(l => parseInt(l.lots) || 1)
-         .filter(lots => lots > 0);
-       const minLots = validLots.length > 0 ? Math.min(...validLots) : 1;
-       strat.config.legs.forEach(l => {
-         const currentLots = parseInt(l.lots) || 1;
-         l.lots = minLots > 0 ? Math.max(1, Math.round(currentLots / minLots)) : 1;
-       });
-     }
-   }
- };
+  // 1. Real-time WebSocket completion push (0ms wait)
+  if (socketRef.current) {
+    const handleSocketEvent = async (eventData) => {
+      if (!isBacktestingActiveRef.current || activeBacktestJobIdRef.current !== jobId) return;
+      if (eventData.jobId !== jobId) return;
 
- if (strategyArg.isCombined && Array.isArray(strategyArg.strategies)) {
-   strategyArg.strategies.forEach(normalizeStratConfig);
- } else {
-   normalizeStratConfig(strategyArg);
- }
+      if (eventData.status === 'completed') {
+        const finalData = eventData.data || (await getBacktestStatus(jobId)).data;
+        finishBacktest(finalData);
+      } else if (eventData.status === 'failed') {
+        handleCloseBacktestModal();
+        if (eventData.message !== 'Backtest cancelled by user') {
+          alert("Backtest failed: " + eventData.message);
+        }
+      }
+    };
 
- onBacktestComplete(statusRes.data, strategyArg);
- }
- setIsBacktesting(false);
- setBacktestModalOpen(false);
- } else if (statusRes.status ==='failed') {
- if (backtestPollIntervalRef.current) clearInterval(backtestPollIntervalRef.current);
- backtestPollIntervalRef.current = null;
- activeBacktestJobIdRef.current = null;
- isBacktestingActiveRef.current = false;
- if (statusRes.message !== 'Backtest cancelled by user') {
-   alert("Backtest failed:" + statusRes.message);
- }
- setIsBacktesting(false);
- setBacktestModalOpen(false);
- }
- } else {
- if (backtestPollIntervalRef.current) clearInterval(backtestPollIntervalRef.current);
- backtestPollIntervalRef.current = null;
- activeBacktestJobIdRef.current = null;
- isBacktestingActiveRef.current = false;
- alert("Failed to get status:" + statusRes.message);
- setIsBacktesting(false);
- setBacktestModalOpen(false);
- }
- } catch (e) {
- if (backtestPollIntervalRef.current) clearInterval(backtestPollIntervalRef.current);
- backtestPollIntervalRef.current = null;
- activeBacktestJobIdRef.current = null;
- isBacktestingActiveRef.current = false;
- alert("Error checking status:" + e.message);
- setIsBacktesting(false);
- setBacktestModalOpen(false);
- }
- }, 2000);
+    socketRef.current.once(`backtest_status:${jobId}`, handleSocketEvent);
+    socketRef.current.on('backtest_status', handleSocketEvent);
+  }
+
+  // 2. Adaptive fast-polling fallback (starts at 100ms instead of 2000ms)
+  let delay = 100;
+  const poll = async () => {
+    try {
+      if (!isBacktestingActiveRef.current || activeBacktestJobIdRef.current !== jobId) {
+        return;
+      }
+      const statusRes = await getBacktestStatus(jobId);
+      if (statusRes.success) {
+        if (statusRes.status === 'completed') {
+          finishBacktest(statusRes.data);
+          return;
+        } else if (statusRes.status === 'failed') {
+          handleCloseBacktestModal();
+          if (statusRes.message !== 'Backtest cancelled by user') {
+            alert("Backtest failed: " + statusRes.message);
+          }
+          return;
+        }
+      } else {
+        handleCloseBacktestModal();
+        alert("Failed to get status: " + statusRes.message);
+        return;
+      }
+    } catch (e) {
+      console.warn("[Backtest] Polling check failed:", e.message);
+    }
+
+    if (isBacktestingActiveRef.current && activeBacktestJobIdRef.current === jobId) {
+      delay = Math.min(Math.round(delay * 1.5), 1000);
+      backtestPollTimerRef.current = setTimeout(poll, delay);
+    }
+  };
+
+  backtestPollTimerRef.current = setTimeout(poll, delay);
  } else {
  alert("Backtest failed:" + (response?.message || 'Unknown error'));
  setIsBacktesting(false);

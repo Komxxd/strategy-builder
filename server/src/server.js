@@ -27,6 +27,32 @@ const io = new Server(server, {
 
 marketSocketService.setIo(io);
 
+// Forward background backtest completions from Redis Pub/Sub directly to frontend via Socket.io
+const IORedis = require('ioredis');
+const backtestSub = new IORedis(process.env.REDIS_URL || 'redis://127.0.0.1:6379', {
+    maxRetriesPerRequest: null,
+    enableReadyCheck: false
+});
+
+backtestSub.subscribe('backtest:completed', (err) => {
+    if (err) console.error('[Server] Redis subscribe error for backtest:completed:', err);
+    else console.log('[Server] Subscribed to backtest:completed channel ✅');
+});
+
+backtestSub.on('message', (channel, message) => {
+    if (channel === 'backtest:completed') {
+        try {
+            const eventData = JSON.parse(message);
+            if (eventData.userId) {
+                io.to(`user:${eventData.userId}`).emit('backtest_status', eventData);
+            }
+            io.emit(`backtest_status:${eventData.jobId}`, eventData);
+        } catch (e) {
+            console.error('[Server] Failed to broadcast backtest event:', e);
+        }
+    }
+});
+
 // Initialize the Worker Nodes WebSocket Namespace
 const workerSocketService = require("./services/workerSocket.service");
 workerSocketService.initWorkerSocket(io);
@@ -184,6 +210,10 @@ async function gracefulShutdown(signal) {
     } catch (err) {
         console.error("[Server] Error disconnecting WebSocket:", err.message);
     }
+
+    try {
+        backtestSub.disconnect();
+    } catch (err) {}
 
     console.log("[Server] Graceful shutdown complete. Exiting.");
     process.exit(0);
