@@ -2614,26 +2614,70 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
      }
    }
    // Preserve the original export order by appending new IDs to custom order arrays
+   let updatedFolderOrder = newFolderIdsInOrder;
+   let updatedStrategyOrder = newStrategyIdsInOrder;
    try {
      const settings = await getSettings();
      const existingFolderOrder = settings?.data?.custom_folder_order || [];
      const existingStrategyOrder = settings?.data?.custom_strategy_order || [];
 
-     const updatedFolderOrder = [...existingFolderOrder, ...newFolderIdsInOrder];
-     const updatedStrategyOrder = [...existingStrategyOrder, ...newStrategyIdsInOrder];
+     updatedFolderOrder = [...existingFolderOrder, ...newFolderIdsInOrder];
+     updatedStrategyOrder = [...existingStrategyOrder, ...newStrategyIdsInOrder];
+   } catch (e) {
+     const existingFolderOrder = JSON.parse(localStorage.getItem('custom_folder_order') || '[]');
+     const existingStrategyOrder = JSON.parse(localStorage.getItem('custom_strategy_order') || '[]');
+     updatedFolderOrder = [...existingFolderOrder, ...newFolderIdsInOrder];
+     updatedStrategyOrder = [...existingStrategyOrder, ...newStrategyIdsInOrder];
+   }
 
-     localStorage.setItem('custom_folder_order', JSON.stringify(updatedFolderOrder));
-     localStorage.setItem('custom_strategy_order', JSON.stringify(updatedStrategyOrder));
+   // Persist the order
+   localStorage.setItem('custom_folder_order', JSON.stringify(updatedFolderOrder));
+   localStorage.setItem('custom_strategy_order', JSON.stringify(updatedStrategyOrder));
+   try {
      await updateSettings({
        custom_folder_order: updatedFolderOrder,
        custom_strategy_order: updatedStrategyOrder
      });
    } catch (orderErr) {
-     console.error("Failed to save import order:", orderErr);
+     console.error("Failed to save import order to server:", orderErr);
    }
 
-   await fetchFolders();
-   await fetchSavedStrategies();
+   // Refetch and apply the known order directly (avoids read-after-write race)
+   try {
+     const folderRes = await axios.get(`${API_BASE_URL}/folders`);
+     let fetchedFolders = folderRes.data?.data || [];
+     if (updatedFolderOrder.length > 0) {
+       fetchedFolders.sort((a, b) => {
+         const indexA = updatedFolderOrder.indexOf(a.id);
+         const indexB = updatedFolderOrder.indexOf(b.id);
+         if (indexA === -1 && indexB === -1) return 0;
+         if (indexA === -1) return 1;
+         if (indexB === -1) return -1;
+         return indexA - indexB;
+       });
+     }
+     setFolders(fetchedFolders);
+   } catch (err) {
+     console.error("Error refetching folders after import:", err);
+   }
+
+   try {
+     const stratRes = await axios.get(`${API_BASE_URL}/strategy/user`);
+     let fetchedData = stratRes.data?.data || [];
+     if (updatedStrategyOrder.length > 0) {
+       fetchedData.sort((a, b) => {
+         const indexA = updatedStrategyOrder.indexOf(a.id);
+         const indexB = updatedStrategyOrder.indexOf(b.id);
+         if (indexA === -1 && indexB === -1) return 0;
+         if (indexA === -1) return 1;
+         if (indexB === -1) return -1;
+         return indexA - indexB;
+       });
+     }
+     setSavedStrategies(fetchedData);
+   } catch (err) {
+     console.error("Error refetching strategies after import:", err);
+   }
  } else {
    delete uploadedConfig.id;
    delete uploadedConfig.user_id;
