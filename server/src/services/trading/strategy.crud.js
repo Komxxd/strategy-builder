@@ -111,7 +111,7 @@ async function deleteStrategy(strategyId, userId) {
 
 async function getUserStrategies(userId) {
     const data = await withDbRetry(() =>
-        sql`SELECT * FROM strategies WHERE user_id = ${userId} ORDER BY created_at DESC`
+        sql`SELECT * FROM strategies WHERE user_id = ${userId} ORDER BY created_at ASC`
     );
     return data.map(s => {
         if (s.config && typeof s.config === 'object') {

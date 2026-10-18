@@ -44,12 +44,15 @@ async function updateSettings(userId, settings) {
         if (settings.custom_folder_order !== undefined) {
             updates.custom_folder_order = sql.json(settings.custom_folder_order);
         }
-        updates.updated_at = sql`NOW()`;
+
+        if (Object.keys(updates).length === 0) {
+            return (await getSettings(userId));
+        }
 
         const [data] = await withDbRetry(() =>
             sql`
             UPDATE user_settings 
-            SET ${sql(updates)}
+            SET ${sql(updates)}, updated_at = NOW()
             WHERE user_id = ${userId}
             RETURNING *
             `

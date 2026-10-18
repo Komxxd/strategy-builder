@@ -91,7 +91,7 @@ async function getUserFolders(userId) {
     const data = await withDbRetry(() => sql`
         SELECT * FROM strategy_folders
         WHERE user_id = ${userId}
-        ORDER BY name ASC
+        ORDER BY created_at ASC
     `);
 
     return data.map(f => ({

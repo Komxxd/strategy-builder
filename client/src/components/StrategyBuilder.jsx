@@ -2670,8 +2670,12 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
    let updatedStrategyOrder = newStrategyIdsInOrder;
    try {
      const settings = await getSettings();
-     const existingFolderOrder = settings?.data?.custom_folder_order || [];
-     const existingStrategyOrder = settings?.data?.custom_strategy_order || [];
+     const existingFolderOrder = (settings?.success && Array.isArray(settings?.data?.custom_folder_order))
+       ? settings.data.custom_folder_order
+       : JSON.parse(localStorage.getItem('custom_folder_order') || '[]');
+     const existingStrategyOrder = (settings?.success && Array.isArray(settings?.data?.custom_strategy_order))
+       ? settings.data.custom_strategy_order
+       : JSON.parse(localStorage.getItem('custom_strategy_order') || '[]');
 
      updatedFolderOrder = [...existingFolderOrder, ...newFolderIdsInOrder];
      updatedStrategyOrder = [...existingStrategyOrder, ...newStrategyIdsInOrder];
@@ -2850,9 +2854,14 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  let savedOrder = [];
  try {
     const settings = await getSettings();
-    savedOrder = settings?.data?.custom_strategy_order || [];
+    if (settings?.success && Array.isArray(settings?.data?.custom_strategy_order) && settings.data.custom_strategy_order.length > 0) {
+      savedOrder = settings.data.custom_strategy_order;
+      localStorage.setItem('custom_strategy_order', JSON.stringify(savedOrder));
+    } else {
+      savedOrder = JSON.parse(localStorage.getItem('custom_strategy_order') || '[]');
+    }
  } catch(e) {
-    savedOrder = JSON.parse(localStorage.getItem('custom_strategy_order') ||'[]');
+    savedOrder = JSON.parse(localStorage.getItem('custom_strategy_order') || '[]');
  }
  if (savedOrder.length > 0) {
  fetchedData.sort((a, b) => {
@@ -2879,7 +2888,12 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  let savedOrder = [];
  try {
     const settings = await getSettings();
-    savedOrder = settings?.data?.custom_folder_order || [];
+    if (settings?.success && Array.isArray(settings?.data?.custom_folder_order) && settings.data.custom_folder_order.length > 0) {
+      savedOrder = settings.data.custom_folder_order;
+      localStorage.setItem('custom_folder_order', JSON.stringify(savedOrder));
+    } else {
+      savedOrder = JSON.parse(localStorage.getItem('custom_folder_order') || '[]');
+    }
  } catch(e) {
     savedOrder = JSON.parse(localStorage.getItem('custom_folder_order') || '[]');
  }
