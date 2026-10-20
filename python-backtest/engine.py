@@ -285,25 +285,78 @@ class BacktestEngine:
         
         if mntm_enabled:
             base_price = df['open'][0]
+            m_type = config.get('simple_mntm_type', 'NORMAL')
             m_mode = config.get('simple_mntm_mode', 'SIMPLE_PLUS_PCT')
             m_val = float(config.get('simple_mntm_value') or 0)
-            mtp = base_price
-            if "PLUS_PCT" in m_mode: mtp += (base_price * m_val / 100)
-            elif "PLUS_PTS" in m_mode: mtp += m_val
-            elif "MINUS_PCT" in m_mode: mtp -= (base_price * m_val / 100)
-            elif "MINUS_PTS" in m_mode: mtp -= m_val
-            mtp = self.round_to_tick(mtp)
-            
-            if 'PLUS_' in m_mode: hit_mask = df['high'] >= mtp
-            else: hit_mask = df['low'] <= mtp
-                
-            if hit_mask.any():
-                hit_idx = hit_mask.arg_true()[0]
-                entry_time = df['time'][hit_idx]
-                entry_price = mtp
-                df = df[hit_idx:]
+
+            if m_type == 'HIGH':
+                cum_high = df.select(pl.col('high')).to_series().cum_max()
+                cum_high = cum_high.map_elements(lambda x: max(x, base_price), return_dtype=pl.Float64)
+
+                if 'PCT' in m_mode:
+                    rtp_series = cum_high * (1 - m_val / 100)
+                    initial_rtp = base_price * (1 - m_val / 100)
+                else:
+                    rtp_series = cum_high - m_val
+                    initial_rtp = base_price - m_val
+
+                rtp_series = rtp_series.map_elements(lambda x: self.round_to_tick(x), return_dtype=pl.Float64)
+                initial_rtp = self.round_to_tick(initial_rtp)
+                check_rtp_series = rtp_series.shift(1).fill_null(initial_rtp)
+
+                check_series = df.select(pl.col('low')).to_series()
+                rtp_hit_mask = check_series <= check_rtp_series
+
+                if rtp_hit_mask.any():
+                    hit_idx = rtp_hit_mask.arg_true()[0]
+                    entry_time = df['time'][hit_idx]
+                    entry_price = check_rtp_series[hit_idx]
+                    df = df[hit_idx:]
+                else:
+                    return None, df, 'MNTM_NOT_HIT'
+            elif m_type == 'LOW':
+                cum_low = df.select(pl.col('low')).to_series().cum_min()
+                cum_low = cum_low.map_elements(lambda x: min(x, base_price), return_dtype=pl.Float64)
+
+                if 'PCT' in m_mode:
+                    rtp_series = cum_low * (1 + m_val / 100)
+                    initial_rtp = base_price * (1 + m_val / 100)
+                else:
+                    rtp_series = cum_low + m_val
+                    initial_rtp = base_price + m_val
+
+                rtp_series = rtp_series.map_elements(lambda x: self.round_to_tick(x), return_dtype=pl.Float64)
+                initial_rtp = self.round_to_tick(initial_rtp)
+                check_rtp_series = rtp_series.shift(1).fill_null(initial_rtp)
+
+                check_series = df.select(pl.col('high')).to_series()
+                rtp_hit_mask = check_series >= check_rtp_series
+
+                if rtp_hit_mask.any():
+                    hit_idx = rtp_hit_mask.arg_true()[0]
+                    entry_time = df['time'][hit_idx]
+                    entry_price = check_rtp_series[hit_idx]
+                    df = df[hit_idx:]
+                else:
+                    return None, df, 'MNTM_NOT_HIT'
             else:
-                return None, df, 'MNTM_NOT_HIT'
+                mtp = base_price
+                if "PLUS_PCT" in m_mode: mtp += (base_price * m_val / 100)
+                elif "PLUS_PTS" in m_mode: mtp += m_val
+                elif "MINUS_PCT" in m_mode: mtp -= (base_price * m_val / 100)
+                elif "MINUS_PTS" in m_mode: mtp -= m_val
+                mtp = self.round_to_tick(mtp)
+
+                if 'PLUS_' in m_mode or m_mode.startswith('PLUS'): hit_mask = df['high'] >= mtp
+                else: hit_mask = df['low'] <= mtp
+
+                if hit_mask.any():
+                    hit_idx = hit_mask.arg_true()[0]
+                    entry_time = df['time'][hit_idx]
+                    entry_price = mtp
+                    df = df[hit_idx:]
+                else:
+                    return None, df, 'MNTM_NOT_HIT'
         else:
             entry_time = df['time'][0]
             entry_price = override_entry_price if override_entry_price is not None else df['open'][0]
@@ -520,24 +573,67 @@ class BacktestEngine:
                                 # Lazy Leg Momentum Wait
                                 if lazy_config.get('simple_mntm_enabled'):
                                     base_otp = df['open'][0]
+                                    m_type = lazy_config.get('simple_mntm_type', 'NORMAL')
                                     mntm_mode = lazy_config.get('simple_mntm_mode', 'PLUS_PCT')
                                     mntm_val = float(lazy_config.get('simple_mntm_value', 0))
-                                    mtp = base_otp
-                                    if mntm_mode == 'PLUS_PCT': mtp += (mtp * mntm_val / 100)
-                                    elif mntm_mode == 'PLUS_PTS': mtp += mntm_val
-                                    elif mntm_mode == 'MINUS_PCT': mtp -= (mtp * mntm_val / 100)
-                                    elif mntm_mode == 'MINUS_PTS': mtp -= mntm_val
-                                    mtp = self.round_to_tick(mtp)
-                                    
-                                    wait_dir = 'DOWN' if base_otp > mtp else 'UP'
-                                    cross_mask = df['low'] <= mtp if wait_dir == 'DOWN' else df['high'] >= mtp
-                                    if cross_mask.any():
-                                        cross_idx = cross_mask.arg_true()[0]
-                                        df = df[cross_idx:]
-                                        re_entry_time = df['time'][0]
-                                        pending_override_entry_price = mtp
+
+                                    if m_type == 'HIGH':
+                                        cum_high = df.select(pl.col('high')).to_series().cum_max()
+                                        cum_high = cum_high.map_elements(lambda x: max(x, base_otp), return_dtype=pl.Float64)
+                                        if 'PCT' in mntm_mode:
+                                            rtp_series = cum_high * (1 - mntm_val / 100)
+                                            initial_rtp = base_otp * (1 - mntm_val / 100)
+                                        else:
+                                            rtp_series = cum_high - mntm_val
+                                            initial_rtp = base_otp - mntm_val
+                                        rtp_series = rtp_series.map_elements(lambda x: self.round_to_tick(x), return_dtype=pl.Float64)
+                                        initial_rtp = self.round_to_tick(initial_rtp)
+                                        check_rtp_series = rtp_series.shift(1).fill_null(initial_rtp)
+                                        cross_mask = df.select(pl.col('low')).to_series() <= check_rtp_series
+                                        if cross_mask.any():
+                                            cross_idx = cross_mask.arg_true()[0]
+                                            df = df[cross_idx:]
+                                            re_entry_time = df['time'][0]
+                                            pending_override_entry_price = check_rtp_series[cross_idx]
+                                        else:
+                                            df = df[0:0]
+                                    elif m_type == 'LOW':
+                                        cum_low = df.select(pl.col('low')).to_series().cum_min()
+                                        cum_low = cum_low.map_elements(lambda x: min(x, base_otp), return_dtype=pl.Float64)
+                                        if 'PCT' in mntm_mode:
+                                            rtp_series = cum_low * (1 + mntm_val / 100)
+                                            initial_rtp = base_otp * (1 + mntm_val / 100)
+                                        else:
+                                            rtp_series = cum_low + mntm_val
+                                            initial_rtp = base_otp + mntm_val
+                                        rtp_series = rtp_series.map_elements(lambda x: self.round_to_tick(x), return_dtype=pl.Float64)
+                                        initial_rtp = self.round_to_tick(initial_rtp)
+                                        check_rtp_series = rtp_series.shift(1).fill_null(initial_rtp)
+                                        cross_mask = df.select(pl.col('high')).to_series() >= check_rtp_series
+                                        if cross_mask.any():
+                                            cross_idx = cross_mask.arg_true()[0]
+                                            df = df[cross_idx:]
+                                            re_entry_time = df['time'][0]
+                                            pending_override_entry_price = check_rtp_series[cross_idx]
+                                        else:
+                                            df = df[0:0]
                                     else:
-                                        df = df[0:0]
+                                        mtp = base_otp
+                                        if 'PLUS_PCT' in mntm_mode or mntm_mode == 'PLUS_PCT': mtp += (mtp * mntm_val / 100)
+                                        elif 'PLUS_PTS' in mntm_mode or mntm_mode == 'PLUS_PTS': mtp += mntm_val
+                                        elif 'MINUS_PCT' in mntm_mode or mntm_mode == 'MINUS_PCT': mtp -= (mtp * mntm_val / 100)
+                                        elif 'MINUS_PTS' in mntm_mode or mntm_mode == 'MINUS_PTS': mtp -= mntm_val
+                                        mtp = self.round_to_tick(mtp)
+
+                                        wait_dir = 'DOWN' if base_otp > mtp else 'UP'
+                                        cross_mask = df['low'] <= mtp if wait_dir == 'DOWN' else df['high'] >= mtp
+                                        if cross_mask.any():
+                                            cross_idx = cross_mask.arg_true()[0]
+                                            df = df[cross_idx:]
+                                            re_entry_time = df['time'][0]
+                                            pending_override_entry_price = mtp
+                                        else:
+                                            df = df[0:0]
                                 
                                 if df.height > 0:
                                     pending_reentry_method = 'LAZY'

@@ -51,7 +51,17 @@ async function handleReentryAsap({ leg, config, strategyId, addStrategyLog }) {
             leg.mntmTargetPrice = roundedMntmTarget;
             leg.base_otp = instLtp;
             leg.state = "WAITING_FOR_SIMPLE_MNTM";
-            addStrategyLog(strategyId, `[RE-ASAP] ${targetInstrument.symbol} re-entry #${leg.reentry_count} waiting for Momentum @ ₹${leg.mntmTargetPrice}`, "INFO");
+            const mntmType = leg.leg.simple_mntm_type || "NORMAL";
+            if (mntmType === "HIGH") {
+                leg.max_peak_price = instLtp;
+                leg.re_high_trigger_price = roundedMntmTarget;
+                leg.rtp = roundedMntmTarget;
+            } else if (mntmType === "LOW") {
+                leg.max_low_price = instLtp;
+                leg.re_low_trigger_price = roundedMntmTarget;
+                leg.rtp = roundedMntmTarget;
+            }
+            addStrategyLog(strategyId, `[RE-ASAP] ${targetInstrument.symbol} re-entry #${leg.reentry_count} waiting for Momentum (${mntmType}) @ ₹${leg.mntmTargetPrice}`, "INFO");
         } else {
             if (isPaperTrading) {
                 leg.entryPrice = instLtp;

@@ -82,7 +82,7 @@ async function monitorStrategyLoop(strategyId, strategy) {
 
     try {
         // We filter out legs that are already finished, UNLESS they are in a "WAITING" state for re-entry.
-        const activeLegs = strategy.legs.filter(leg => !(leg.exited && !["WAITING_FOR_RECOST", "WAITING_FOR_MNTM", "WAITING_FOR_RE_ASAP", "WAITING_FOR_LAZY", "WAITING_FOR_RESL_MNTM", "WAITING_FOR_RE_HIGH", "WAITING_FOR_RE_LOW", "WAITING_FOR_INTERNAL_FALLBACK"].includes(leg.state)));
+        const activeLegs = strategy.legs.filter(leg => !(leg.exited && !["WAITING_FOR_RECOST", "WAITING_FOR_MNTM", "WAITING_FOR_RE_ASAP", "WAITING_FOR_LAZY", "WAITING_FOR_RESL_MNTM", "WAITING_FOR_RE_HIGH", "WAITING_FOR_RE_LOW", "WAITING_FOR_SIMPLE_MNTM", "WAITING_FOR_FILL", "WAITING_FOR_INTERNAL_FALLBACK"].includes(leg.state)));
         if (activeLegs.length === 0) return;
 
         const ltpMap = globalLtpMap;
@@ -378,46 +378,225 @@ async function monitorStrategyLoop(strategyId, strategy) {
                     }
                 }
 
-                // 1. Simple Momentum Entry (Paper Only)
-                if (leg.state === "WAITING_FOR_SIMPLE_MNTM" && leg.last_tick_price !== null) {
+                // 1. Simple Momentum Entry (Paper & Live)
+                if (leg.state === "WAITING_FOR_SIMPLE_MNTM") {
                     if (isReentryBlockedThisMinute) continue;
 
-                    const target = leg.mntmTargetPrice;
-                    const mntmHit = checkMomentumHit(leg, leg.currentLtp, leg.last_tick_price);
+                    const mntmType = leg.leg.simple_mntm_type || "NORMAL";
+                    let mntmHit = false;
+                    let target = leg.mntmTargetPrice;
+
+                    if (mntmType === "HIGH") {
+                        let isNewPeak = false;
+                        if (!leg.max_peak_price || tickPrice > leg.max_peak_price) {
+                            leg.max_peak_price = tickPrice;
+                            isNewPeak = true;
+                        }
+
+                        const mode = leg.leg.simple_mntm_mode || 'HIGH_MINUS_PTS';
+                        const val = parseFloat(leg.leg.simple_mntm_value || 0);
+                        const peak = leg.max_peak_price;
+                        let rtp = peak;
+
+                        if (mode.includes('PCT')) rtp = peak - (peak * val / 100);
+                        else rtp = peak - val;
+
+                        rtp = roundToTick(rtp);
+                        leg.re_high_trigger_price = rtp;
+                        leg.mntmTargetPrice = rtp;
+                        leg.rtp = rtp;
+                        target = rtp;
+
+                        if (isNewPeak) {
+                            addStrategyLog(strategyId, `[SIMPLE MNTM HIGH] PEAK: ₹${peak} | Target: ₹${target} for ${leg.instrument?.symbol}`, "INFO");
+                        }
+
+                        if (tickPrice <= target) {
+                            mntmHit = true;
+                        }
+                    } else if (mntmType === "LOW") {
+                        let isNewLow = false;
+                        if (!leg.max_low_price || tickPrice < leg.max_low_price) {
+                            leg.max_low_price = tickPrice;
+                            isNewLow = true;
+                        }
+
+                        const mode = leg.leg.simple_mntm_mode || 'LOW_PLUS_PTS';
+                        const val = parseFloat(leg.leg.simple_mntm_value || 0);
+                        const low = leg.max_low_price;
+                        let rtp = low;
+
+                        if (mode.includes('PCT')) rtp = low + (low * val / 100);
+                        else rtp = low + val;
+
+                        rtp = roundToTick(rtp);
+                        leg.re_low_trigger_price = rtp;
+                        leg.mntmTargetPrice = rtp;
+                        leg.rtp = rtp;
+                        target = rtp;
+
+                        if (isNewLow) {
+                            addStrategyLog(strategyId, `[SIMPLE MNTM LOW] LOW: ₹${low} | Target: ₹${target} for ${leg.instrument?.symbol}`, "INFO");
+                        }
+
+                        if (tickPrice >= target) {
+                            mntmHit = true;
+                        }
+                    } else {
+                        // NORMAL mode
+                        if (leg.last_tick_price !== null) {
+                            mntmHit = checkMomentumHit(leg, leg.currentLtp, leg.last_tick_price);
+                        }
+                    }
 
                     if (mntmHit) {
-                        leg.entryPrice = target;
-                        leg.entryTime = getISTExchangeFormat();
-                        leg.original_traded_price = target;
-                        leg.state = "ACTIVE";
-                        leg.peakPrice = target;
-                        leg.tslReferencePrice = target;
-                        addStrategyLog(strategyId, `Simple Momentum Target Reached: ₹${target} for ${leg.instrument.symbol}. Entry triggered.`, "INFO");
+                        const isVirtual = config?.is_virtual === true || leg.is_virtual_leg === true;
+                        const isPaperTrading = config?.is_paper_trading === true || isVirtual;
 
-                        if (config.variety === "STOPLOSS" && leg.entryPrice && leg.leg.sl_enabled !== false) {
-                            let slValueToUse = leg.leg.stop_loss;
-                            const isReentered = leg.reentry_count > 0;
-                            if (isReentered && leg.leg.reentry_sl_multiplier_entry_candle && leg.leg.reentry_sl_multiplier_value) {
-                                slValueToUse = leg.leg.stop_loss * parseFloat(leg.leg.reentry_sl_multiplier_value);
-                                leg.sl_multiplier_applied = true;
-                            } else if (!isReentered && leg.leg.sl_multiplier_entry_candle && leg.leg.sl_multiplier_value) {
-                                slValueToUse = leg.leg.stop_loss * parseFloat(leg.leg.sl_multiplier_value);
-                                leg.sl_multiplier_applied = true;
+                        if (isPaperTrading) {
+                            leg.entryPrice = target;
+                            leg.entryTime = getISTExchangeFormat();
+                            leg.original_traded_price = target;
+                            leg.state = "ACTIVE";
+                            leg.peakPrice = target;
+                            leg.tslReferencePrice = target;
+                            if (mntmType === "HIGH") leg.final_peak_reached = leg.max_peak_price;
+                            else if (mntmType === "LOW") leg.final_low_reached = leg.max_low_price;
+                            addStrategyLog(strategyId, `Simple Momentum (${mntmType}) Target Reached: ₹${target} for ${leg.instrument.symbol}. Entry triggered.`, "INFO");
+
+                            if (config.variety === "STOPLOSS" && leg.entryPrice && leg.leg.sl_enabled !== false) {
+                                let slValueToUse = leg.leg.stop_loss;
+                                const isReentered = leg.reentry_count > 0;
+                                if (isReentered && leg.leg.reentry_sl_multiplier_entry_candle && leg.leg.reentry_sl_multiplier_value) {
+                                    slValueToUse = leg.leg.stop_loss * parseFloat(leg.leg.reentry_sl_multiplier_value);
+                                    leg.sl_multiplier_applied = true;
+                                } else if (!isReentered && leg.leg.sl_multiplier_entry_candle && leg.leg.sl_multiplier_value) {
+                                    slValueToUse = leg.leg.stop_loss * parseFloat(leg.leg.sl_multiplier_value);
+                                    leg.sl_multiplier_applied = true;
+                                }
+
+                                const slOrder = await placeStopLossWithRetry({
+                                    baseConfig: config, legSide: leg.leg.side, entryPrice: leg.entryPrice, instrument: leg.instrument, lots: leg.leg.lots,
+                                    slType: leg.leg.sl_type || "PERCENTAGE", slValue: slValueToUse, slLimitMargin: getLimitOffsetAmt(leg.entryPrice, config),
+                                    slLimitMarginType: config.entry_limit_offset_type || 'POINTS', connectionId: config.connectionId, strategyId: strategyId
+                                });
+                                const prices = computeStopLossExitPrices(leg.entryPrice, leg.leg.side, leg.leg.sl_type || "PERCENTAGE", slValueToUse, getLimitOffsetAmt(leg.entryPrice, config), config.entry_limit_offset_type || 'POINTS');
+                                if (slOrder?.orderid) {
+                                    leg.slOrderId = slOrder.orderid;
+                                    leg.slUniqueOrderId = slOrder.uniqueorderid;
+                                }
+                                leg.slTriggerPrice = prices?.trigger || null;
+                                leg.initialSlTriggerPrice = prices?.trigger || null;
+                                leg.slLimitPrice = prices?.limit || null;
+                            }
+                        } else {
+                            // Live order placement for Simple Momentum
+                            const offsetAmt = getLimitOffsetAmt(target, config);
+                            let finalPrice = target.toString();
+                            if (config.ordertype === 'LIMIT') {
+                                if (leg.leg.side === "BUY") finalPrice = roundToTick(target + offsetAmt).toString();
+                                else finalPrice = roundToTick(target - offsetAmt).toString();
+                            } else {
+                                finalPrice = "0";
                             }
 
-                            const slOrder = await placeStopLossWithRetry({
-                                baseConfig: config, legSide: leg.leg.side, entryPrice: leg.entryPrice, instrument: leg.instrument, lots: leg.leg.lots,
-                                slType: leg.leg.sl_type || "PERCENTAGE", slValue: slValueToUse, slLimitMargin: getLimitOffsetAmt(leg.entryPrice, config),
-                                slLimitMarginType: config.entry_limit_offset_type || 'POINTS', connectionId: config.connectionId, strategyId: strategyId
-                            });
-                            const prices = computeStopLossExitPrices(leg.entryPrice, leg.leg.side, leg.leg.sl_type || "PERCENTAGE", slValueToUse, getLimitOffsetAmt(leg.entryPrice, config), config.entry_limit_offset_type || 'POINTS');
-                            if (slOrder?.orderid) {
-                                leg.slOrderId = slOrder.orderid;
-                                leg.slUniqueOrderId = slOrder.uniqueorderid;
+                            let variety = config.variety === "STOPLOSS" ? "NORMAL" : (config.variety || "NORMAL");
+                            let ordertype = config.ordertype || "LIMIT";
+
+                            addStrategyLog(strategyId, `[LIVE] Simple Momentum (${mntmType}) Target Reached: ₹${target}. Placing ${leg.leg.side} order for ${leg.instrument.symbol}...`, "INFO");
+
+                            try {
+                                let orderData = await placeOrder({
+                                    ...config,
+                                    side: leg.leg.side,
+                                    variety: variety,
+                                    ordertype: ordertype,
+                                    price: finalPrice,
+                                    lots: leg.leg.lots
+                                }, leg.instrument, config.connectionId);
+
+                                if (orderData?.uniqueorderid) {
+                                    leg.orderId = orderData.orderid;
+                                    leg.uniqueOrderId = orderData.uniqueorderid;
+                                    leg.state = "WAITING_FOR_FILL";
+                                    if (mntmType === "HIGH") leg.final_peak_reached = leg.max_peak_price;
+                                    else if (mntmType === "LOW") leg.final_low_reached = leg.max_low_price;
+
+                                    setTimeout(async () => {
+                                        try {
+                                            const fillMeta = {};
+                                            const fillPrice = await waitForOrderFillPrice(
+                                                leg.uniqueOrderId,
+                                                config.connectionId,
+                                                false,
+                                                leg.instrument,
+                                                28800000,
+                                                1000,
+                                                {
+                                                    side: leg.leg.side,
+                                                    ordertype: ordertype,
+                                                    price: parseFloat(finalPrice),
+                                                    targetPrice: target,
+                                                    isInstantFill: true
+                                                },
+                                                fillMeta
+                                            );
+
+                                            if (fillPrice) {
+                                                leg.entryPrice = fillPrice;
+                                                leg.entryTime = fillMeta.time || getISTExchangeFormat();
+                                                leg.original_traded_price = fillPrice;
+                                                leg.base_otp = fillPrice;
+                                                leg.peakPrice = fillPrice;
+                                                leg.tslReferencePrice = fillPrice;
+                                                leg.state = "ACTIVE";
+                                                addStrategyLog(strategyId, `${leg.instrument.symbol} order filled at ₹${fillPrice}.`, "INFO");
+
+                                                if (config.variety === "STOPLOSS" && leg.leg.sl_enabled !== false) {
+                                                    let slValueToUse = leg.leg.stop_loss;
+                                                    if (leg.leg.sl_multiplier_entry_candle && leg.leg.sl_multiplier_value) {
+                                                        slValueToUse = leg.leg.stop_loss * parseFloat(leg.leg.sl_multiplier_value);
+                                                        leg.sl_multiplier_applied = true;
+                                                    }
+                                                    const slOrder = await placeStopLossWithRetry({
+                                                        baseConfig: config,
+                                                        legSide: leg.leg.side,
+                                                        entryPrice: leg.entryPrice,
+                                                        instrument: leg.instrument,
+                                                        lots: leg.leg.lots,
+                                                        slType: leg.leg.sl_type || "PERCENTAGE",
+                                                        slValue: slValueToUse,
+                                                        slLimitMargin: getLimitOffsetAmt(leg.entryPrice, config),
+                                                        slLimitMarginType: config.entry_limit_offset_type || 'POINTS',
+                                                        connectionId: config.connectionId,
+                                                        strategyId: strategyId
+                                                    });
+
+                                                    if (slOrder?.orderid) {
+                                                        const prices = computeStopLossExitPrices(
+                                                            leg.entryPrice,
+                                                            leg.leg.side,
+                                                            leg.leg.sl_type || "PERCENTAGE",
+                                                            slValueToUse,
+                                                            getLimitOffsetAmt(leg.entryPrice, config),
+                                                            config.entry_limit_offset_type || 'POINTS'
+                                                        );
+                                                        leg.slOrderId = slOrder.orderid;
+                                                        leg.slUniqueOrderId = slOrder.uniqueorderid;
+                                                        leg.slTriggerPrice = prices?.trigger;
+                                                        leg.initialSlTriggerPrice = prices?.trigger;
+                                                        leg.slLimitPrice = prices?.limit;
+                                                    }
+                                                }
+                                            }
+                                        } catch (err) {
+                                            console.error("[SIMPLE MNTM FILL ERROR]", err.message);
+                                        }
+                                    }, 500);
+                                }
+                            } catch (err) {
+                                addStrategyLog(strategyId, `[ERROR] Failed to place order for ${leg.instrument.symbol}: ${err.message}`, "ERROR");
                             }
-                            leg.slTriggerPrice = prices?.trigger || null;
-                            leg.initialSlTriggerPrice = prices?.trigger || null;
-                            leg.slLimitPrice = prices?.limit || null;
                         }
                     }
                 }

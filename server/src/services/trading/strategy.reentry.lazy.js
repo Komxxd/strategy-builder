@@ -51,7 +51,17 @@ async function handleLazyLeg({ leg, config, strategyId, addStrategyLog }) {
             leg.mntmTargetPrice = roundedMntmTarget;
             leg.baseOtp = instLtp;
             leg.state = "WAITING_FOR_SIMPLE_MNTM";
-            addStrategyLog(strategyId, `[LAZY LEG] ${targetInstrument.symbol} waiting for Momentum @ ₹${leg.mntmTargetPrice}`, "INFO");
+            const mntmType = leg.leg.simple_mntm_type || "NORMAL";
+            if (mntmType === "HIGH") {
+                leg.max_peak_price = instLtp;
+                leg.re_high_trigger_price = roundedMntmTarget;
+                leg.rtp = roundedMntmTarget;
+            } else if (mntmType === "LOW") {
+                leg.max_low_price = instLtp;
+                leg.re_low_trigger_price = roundedMntmTarget;
+                leg.rtp = roundedMntmTarget;
+            }
+            addStrategyLog(strategyId, `[LAZY LEG] ${targetInstrument.symbol} waiting for Momentum (${mntmType}) @ ₹${leg.mntmTargetPrice}`, "INFO");
         } else {
             if (isPaperTrading) {
                 leg.entryPrice = instLtp;

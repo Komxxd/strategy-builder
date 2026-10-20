@@ -50,6 +50,7 @@ const DEFAULT_LEG = {
  sl_enabled: true,
  stop_loss: 10,
  simple_mntm_enabled: false,
+ simple_mntm_type:'NORMAL',
  simple_mntm_mode:'SIMPLE_PLUS_PCT',
  simple_mntm_value: 0,
  recost_enabled: false,
@@ -623,32 +624,78 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
 
  {leg.simple_mntm_enabled && (
  <div className="flex flex-wrap items-center gap-2 animate-in fade-in slide-in-from-top-1">
- <div className="flex-1 min-w-[100px] sm:min-w-[120px]">
+ <div className="flex-1 min-w-[85px] sm:min-w-[95px]">
  <Select
- value={leg.simple_mntm_mode ||'SIMPLE_PLUS_PCT'}
+ value={leg.simple_mntm_type || 'NORMAL'}
+ onValueChange={(v) => {
+ let nextMode = leg.simple_mntm_mode;
+ if (v === 'HIGH') {
+ if (!nextMode || !nextMode.includes('MINUS')) nextMode = 'HIGH_MINUS_PTS';
+ else if (nextMode === 'SIMPLE_MINUS_PCT') nextMode = 'HIGH_MINUS_PCT';
+ else if (nextMode === 'SIMPLE_MINUS_PTS') nextMode = 'HIGH_MINUS_PTS';
+ } else if (v === 'LOW') {
+ if (!nextMode || !nextMode.includes('PLUS')) nextMode = 'LOW_PLUS_PTS';
+ else if (nextMode === 'SIMPLE_PLUS_PCT') nextMode = 'LOW_PLUS_PCT';
+ else if (nextMode === 'SIMPLE_PLUS_PTS') nextMode = 'LOW_PLUS_PTS';
+ } else {
+ if (!nextMode || nextMode.startsWith('HIGH_') || nextMode.startsWith('LOW_')) {
+ nextMode = 'SIMPLE_PLUS_PCT';
+ }
+ }
+ onChange({ ...leg, simple_mntm_type: v, simple_mntm_mode: nextMode });
+ }}
+ >
+ <SelectTrigger className="h-9 w-full rounded-lg text-[11px] bg-background border-input">
+ <SelectValue placeholder="Type" />
+ </SelectTrigger>
+ <SelectContent>
+ <SelectItem value="NORMAL">Normal</SelectItem>
+ <SelectItem value="HIGH">High</SelectItem>
+ <SelectItem value="LOW">Low</SelectItem>
+ </SelectContent>
+ </Select>
+ </div>
+
+ <div className="flex-1 min-w-[100px] sm:min-w-[115px]">
+ <Select
+ value={leg.simple_mntm_mode || (leg.simple_mntm_type === 'HIGH' ? 'HIGH_MINUS_PTS' : (leg.simple_mntm_type === 'LOW' ? 'LOW_PLUS_PTS' : 'SIMPLE_PLUS_PCT'))}
  onValueChange={(v) => onChange({ ...leg, simple_mntm_mode: v })}
  >
  <SelectTrigger className="h-9 w-full rounded-lg text-[11px] bg-background border-input">
  <SelectValue placeholder="Mode" />
  </SelectTrigger>
  <SelectContent>
+ {leg.simple_mntm_type === 'HIGH' ? (
+ <>
+ <SelectItem value="HIGH_MINUS_PCT">- Percentage (%)</SelectItem>
+ <SelectItem value="HIGH_MINUS_PTS">- Points (Pts)</SelectItem>
+ </>
+ ) : leg.simple_mntm_type === 'LOW' ? (
+ <>
+ <SelectItem value="LOW_PLUS_PCT">+ Percentage (%)</SelectItem>
+ <SelectItem value="LOW_PLUS_PTS">+ Points (Pts)</SelectItem>
+ </>
+ ) : (
+ <>
  <SelectItem value="SIMPLE_PLUS_PCT">+ Percentage (%)</SelectItem>
  <SelectItem value="SIMPLE_PLUS_PTS">+ Points (Pts)</SelectItem>
  <SelectItem value="SIMPLE_MINUS_PCT">- Percentage (%)</SelectItem>
  <SelectItem value="SIMPLE_MINUS_PTS">- Points (Pts)</SelectItem>
+ </>
+ )}
  </SelectContent>
  </Select>
  </div>
 
- <div className="flex-1 min-w-[60px] sm:flex-none sm:w-[80px]">
+ <div className="flex-1 min-w-[60px] sm:flex-none sm:w-[75px]">
  <Input
  className="h-9 w-full rounded-lg text-[11px] transition-all focus:ring-emerald-500"
  type="number"
  placeholder="Value"
- value={leg.simple_mntm_value === 0 ?'' : (leg.simple_mntm_value !== undefined ? leg.simple_mntm_value :'')}
+ value={leg.simple_mntm_value === 0 ? '' : (leg.simple_mntm_value !== undefined ? leg.simple_mntm_value : '')}
  onChange={(e) => {
  const val = e.target.value;
- onChange({ ...leg, simple_mntm_value: val ==='' ? 0 : parseFloat(val) });
+ onChange({ ...leg, simple_mntm_value: val === '' ? 0 : parseFloat(val) });
  }}
  />
  </div>
@@ -2841,7 +2888,7 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  chase_time_seconds: 45,
  quantity_multiplier: 1,
  legs: [
- { strike_criteria:'STRIKE_TYPE', option_type:'CE', strike:'ATM', premium: 0, side:'BUY', lots: 1, sl_type:'PERCENTAGE', stop_loss: 10, simple_mntm_enabled: false, simple_mntm_mode:'SIMPLE_PLUS_PCT', simple_mntm_value: 0, recost_enabled: false, recost_mode:'RECOST_PLUS_PCT', recost_value: 0, max_reentry: 1, no_reentry_on_sl_candle: false, reentry_sl_enabled: false, reentry_sl_type:'PERCENTAGE', reentry_sl_value: 10, reentry_tsl_enabled: false, reentry_tsl_type:'PERCENTAGE', reentry_tsl_move: 0, reentry_tsl_trail: 0, re_asap_enabled: false, re_asap_max_entries: 1, lazy_leg_enabled: false, lazy_leg: null, tsl_enabled: false, tsl_type:'PERCENTAGE', tsl_move: 0 }
+ { strike_criteria:'STRIKE_TYPE', option_type:'CE', strike:'ATM', premium: 0, side:'BUY', lots: 1, sl_type:'PERCENTAGE', stop_loss: 10, simple_mntm_enabled: false, simple_mntm_type:'NORMAL', simple_mntm_mode:'SIMPLE_PLUS_PCT', simple_mntm_value: 0, recost_enabled: false, recost_mode:'RECOST_PLUS_PCT', recost_value: 0, max_reentry: 1, no_reentry_on_sl_candle: false, reentry_sl_enabled: false, reentry_sl_type:'PERCENTAGE', reentry_sl_value: 10, reentry_tsl_enabled: false, reentry_tsl_type:'PERCENTAGE', reentry_tsl_move: 0, reentry_tsl_trail: 0, re_asap_enabled: false, re_asap_max_entries: 1, lazy_leg_enabled: false, lazy_leg: null, tsl_enabled: false, tsl_type:'PERCENTAGE', tsl_move: 0 }
  ]
  });
 
@@ -4295,7 +4342,7 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  </>
  )}
  {/* Removed peakPrice display as per user request */}
- {l.rtp != null && !["WAITING_FOR_RE_HIGH","WAITING_FOR_RE_LOW"].includes(l.state) && (
+ {l.rtp != null && !["WAITING_FOR_RE_HIGH","WAITING_FOR_RE_LOW","WAITING_FOR_SIMPLE_MNTM"].includes(l.state) && (
  <>
  <span className="text-muted-foreground text-[10px] font-mono">|</span>
  <span className="text-orange-500 font-medium text-[10px] font-mono">RTP: {l.rtp.toFixed(2)}</span>
@@ -4319,7 +4366,36 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  <span className="text-purple-500 font-medium text-[10px] font-mono">MTP: {l.mtp.toFixed(2)}</span>
  </>
  )}
- {l.mntmTargetPrice != null && ["WAITING_FOR_SIMPLE_MNTM", "WAITING_FOR_FILL", "WAITING_FOR_INTERNAL_FALLBACK"].includes(l.state) && (
+ {l.state === "WAITING_FOR_SIMPLE_MNTM" && l.leg?.simple_mntm_type === "HIGH" && (
+ <>
+ <span className="px-2 py-0.5 ml-2 bg-emerald-100 text-emerald-700 font-medium rounded text-[10px] font-mono whitespace-nowrap uppercase">Waiting (Peak Basis)</span>
+ <span className="text-muted-foreground text-[10px] font-mono ml-1">|</span>
+ <span className="text-indigo-600 font-bold text-[10px] font-mono ml-1 uppercase">Peak: ₹{(l.max_peak_price || 0).toFixed(2)}</span>
+ <span className="text-muted-foreground text-[10px] font-mono ml-1">|</span>
+ <span className="text-orange-600 font-bold text-[10px] font-mono ml-1 uppercase">Target: ₹{(l.mntmTargetPrice || 0).toFixed(2)}</span>
+ </>
+ )}
+ {l.state === "WAITING_FOR_SIMPLE_MNTM" && l.leg?.simple_mntm_type === "LOW" && (
+ <>
+ <span className="px-2 py-0.5 ml-2 bg-pink-100 text-pink-700 font-medium rounded text-[10px] font-mono whitespace-nowrap uppercase">Waiting (Low Basis)</span>
+ <span className="text-muted-foreground text-[10px] font-mono ml-1">|</span>
+ <span className="text-indigo-600 font-bold text-[10px] font-mono ml-1 uppercase">Low: ₹{(l.max_low_price || 0).toFixed(2)}</span>
+ <span className="text-muted-foreground text-[10px] font-mono ml-1">|</span>
+ <span className="text-orange-600 font-bold text-[10px] font-mono ml-1 uppercase">Target: ₹{(l.mntmTargetPrice || 0).toFixed(2)}</span>
+ </>
+ )}
+ {l.state === "WAITING_FOR_SIMPLE_MNTM" && (!l.leg?.simple_mntm_type || l.leg?.simple_mntm_type === "NORMAL") && (
+ <>
+ <span className="px-2 py-0.5 ml-2 bg-blue-100 text-blue-700 font-medium rounded text-[10px] font-mono whitespace-nowrap uppercase">Waiting Momentum</span>
+ {l.mntmTargetPrice != null && (
+ <>
+ <span className="text-muted-foreground text-[10px] font-mono ml-1">|</span>
+ <span className="text-blue-500 font-medium animate-pulse text-[10px] font-mono">Wait Target: ₹{l.mntmTargetPrice.toFixed(2)}</span>
+ </>
+ )}
+ </>
+ )}
+ {l.mntmTargetPrice != null && ["WAITING_FOR_FILL", "WAITING_FOR_INTERNAL_FALLBACK"].includes(l.state) && (
  <>
  <span className="text-muted-foreground text-[10px] font-mono">|</span>
  <span className="text-blue-500 font-medium animate-pulse text-[10px] font-mono">Wait Target: ₹{l.mntmTargetPrice.toFixed(2)}</span>
@@ -4392,6 +4468,7 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  disabled={l.isExiting}
  >
  {l.isExiting ?"Exiting..." :
+ (l.state ==="WAITING_FOR_SIMPLE_MNTM") ?"Cancel Momentum" :
  (l.state ==="WAITING_FOR_RECOST" || l.state ==="WAITING_FOR_MNTM") ?"Cancel Re-Cost" :
  (l.state ==="WAITING_FOR_RE_ASAP" || l.state ==="WAITING_FOR_RESL_MNTM" || l.state ==="WAITING_FOR_RE_HIGH" || l.state ==="WAITING_FOR_RE_LOW") ?"Cancel Re-Entry" :
  (l.state ==="WAITING_FOR_LAZY") ?"Cancel Lazy Leg" :

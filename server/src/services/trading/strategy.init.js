@@ -112,7 +112,8 @@ async function handleInitialEntry(strategyId, strategy) {
                 if (isSimpleMntm) {
                     roundedMntmTarget = calculateMomentumTarget(instLtp, item.leg);
                     legState = "WAITING_FOR_SIMPLE_MNTM";
-                    addStrategyLog(strategyId, `[VIRTUAL] Simple Mntm enabled for ${item.instrument.symbol}. Snapshot: ₹${instLtp}. Waiting for Target: ₹${roundedMntmTarget}...`, "INFO");
+                    const mntmType = item.leg.simple_mntm_type || "NORMAL";
+                    addStrategyLog(strategyId, `[VIRTUAL] Simple Mntm (${mntmType}) enabled for ${item.instrument.symbol}. Snapshot: ₹${instLtp}. Initial Target: ₹${roundedMntmTarget}...`, "INFO");
                     orderData = {
                         orderid: `VIRTUAL-SIMPLE-${Date.now()}_${idx}`,
                         uniqueorderid: `UVIRTUAL-SIMPLE-${Date.now()}_${idx}`,
@@ -130,18 +131,21 @@ async function handleInitialEntry(strategyId, strategy) {
                 }
             } else if (isSimpleMntm) {
                 roundedMntmTarget = calculateMomentumTarget(instLtp, item.leg);
-                const offsetAmt = getLimitOffsetAmt(roundedMntmTarget, config);
+                const mntmType = item.leg.simple_mntm_type || "NORMAL";
+                const isHighOrLow = mntmType === "HIGH" || mntmType === "LOW";
 
-                if (config.is_paper_trading) {
+                if (config.is_paper_trading || isHighOrLow) {
                     legState = "WAITING_FOR_SIMPLE_MNTM";
-                    addStrategyLog(strategyId, `[PAPER] Simple Mntm enabled for ${item.instrument.symbol}. Snapshot: ₹${instLtp}. Waiting for Target: ₹${roundedMntmTarget}...`, "INFO");
+                    const prefix = config.is_paper_trading ? "[PAPER]" : "[LIVE]";
+                    addStrategyLog(strategyId, `${prefix} Simple Mntm (${mntmType}) enabled for ${item.instrument.symbol}. Snapshot: ₹${instLtp}. Initial Target: ₹${roundedMntmTarget}...`, "INFO");
                     orderData = {
-                        orderid: `V-SIMPLE-${Date.now()}`,
-                        uniqueorderid: `VU-SIMPLE-${Date.now()}`,
+                        orderid: `${config.is_paper_trading ? 'V' : 'LIVE'}-SIMPLE-${Date.now()}_${idx}`,
+                        uniqueorderid: `${config.is_paper_trading ? 'VU' : 'ULIVE'}-SIMPLE-${Date.now()}_${idx}`,
                         mntmTargetPrice: roundedMntmTarget,
                         baseOtp: instLtp
                     };
                 } else {
+                    const offsetAmt = getLimitOffsetAmt(roundedMntmTarget, config);
                     const { variety, ordertype, price, triggerprice } = resolveUniversalOrderParams({
                         targetPrice: roundedMntmTarget,
                         currentLtp: instLtp,
@@ -194,6 +198,11 @@ async function handleInitialEntry(strategyId, strategy) {
                 recost_trigger_price: null,
                 reentry_count: 0,
                 last_tick_price: null,
+                max_peak_price: (item.leg.simple_mntm_type === "HIGH" && isSimpleMntm) ? instLtp : null,
+                max_low_price: (item.leg.simple_mntm_type === "LOW" && isSimpleMntm) ? instLtp : null,
+                re_high_trigger_price: (item.leg.simple_mntm_type === "HIGH" && isSimpleMntm) ? roundedMntmTarget : null,
+                re_low_trigger_price: (item.leg.simple_mntm_type === "LOW" && isSimpleMntm) ? roundedMntmTarget : null,
+                rtp: ((item.leg.simple_mntm_type === "HIGH" || item.leg.simple_mntm_type === "LOW") && isSimpleMntm) ? roundedMntmTarget : null,
                 bookedPnlPoints: 0,
                 bookedPnlRupees: 0,
                 currentActivePnlPoints: 0,

@@ -4,14 +4,23 @@ const { roundToTick } = require("./strategy.offset");
  * Calculates the Momentum Target price based on current LTP and configuration.
  */
 function calculateMomentumTarget(instLtp, legConfig) {
-    const mntmMode = legConfig.simple_mntm_mode || "SIMPLE_PLUS_PCT";
+    const mntmType = legConfig.simple_mntm_type || "NORMAL";
+    const mntmMode = legConfig.simple_mntm_mode || (mntmType === "HIGH" ? "HIGH_MINUS_PTS" : (mntmType === "LOW" ? "LOW_PLUS_PTS" : "SIMPLE_PLUS_PCT"));
     const mntmVal = parseFloat(legConfig.simple_mntm_value || 0);
     let mntmTarget = instLtp;
 
-    if (mntmMode === "SIMPLE_PLUS_PCT") mntmTarget = instLtp + (instLtp * mntmVal / 100);
-    else if (mntmMode === "SIMPLE_PLUS_PTS") mntmTarget = instLtp + mntmVal;
-    else if (mntmMode === "SIMPLE_MINUS_PCT") mntmTarget = instLtp - (instLtp * mntmVal / 100);
-    else if (mntmMode === "SIMPLE_MINUS_PTS") mntmTarget = instLtp - mntmVal;
+    if (mntmType === "HIGH") {
+        if (mntmMode.includes("PCT")) mntmTarget = instLtp - (instLtp * mntmVal / 100);
+        else mntmTarget = instLtp - mntmVal;
+    } else if (mntmType === "LOW") {
+        if (mntmMode.includes("PCT")) mntmTarget = instLtp + (instLtp * mntmVal / 100);
+        else mntmTarget = instLtp + mntmVal;
+    } else {
+        if (mntmMode === "SIMPLE_PLUS_PCT" || mntmMode === "PLUS_PCT") mntmTarget = instLtp + (instLtp * mntmVal / 100);
+        else if (mntmMode === "SIMPLE_PLUS_PTS" || mntmMode === "PLUS_PTS") mntmTarget = instLtp + mntmVal;
+        else if (mntmMode === "SIMPLE_MINUS_PCT" || mntmMode === "MINUS_PCT") mntmTarget = instLtp - (instLtp * mntmVal / 100);
+        else if (mntmMode === "SIMPLE_MINUS_PTS" || mntmMode === "MINUS_PTS") mntmTarget = instLtp - mntmVal;
+    }
 
     return roundToTick(mntmTarget);
 }
