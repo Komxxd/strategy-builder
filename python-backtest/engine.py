@@ -295,22 +295,20 @@ class BacktestEngine:
 
                 if 'PCT' in m_mode:
                     rtp_series = cum_high * (1 - m_val / 100)
-                    initial_rtp = base_price * (1 - m_val / 100)
                 else:
                     rtp_series = cum_high - m_val
-                    initial_rtp = base_price - m_val
 
                 rtp_series = rtp_series.map_elements(lambda x: self.round_to_tick(x), return_dtype=pl.Float64)
-                initial_rtp = self.round_to_tick(initial_rtp)
-                check_rtp_series = rtp_series.shift(1).fill_null(initial_rtp)
 
-                check_series = df.select(pl.col('low')).to_series()
-                rtp_hit_mask = check_series <= check_rtp_series
+                # Check if calculated entry price falls within candle's [close, high] range
+                close_series = df.select(pl.col('close')).to_series()
+                high_series = df.select(pl.col('high')).to_series()
+                rtp_hit_mask = (close_series <= rtp_series) & (rtp_series <= high_series)
 
                 if rtp_hit_mask.any():
                     hit_idx = rtp_hit_mask.arg_true()[0]
                     entry_time = df['time'][hit_idx]
-                    entry_price = check_rtp_series[hit_idx]
+                    entry_price = rtp_series[hit_idx]
                     df = df[hit_idx:]
                 else:
                     return None, df, 'MNTM_NOT_HIT'
@@ -320,22 +318,20 @@ class BacktestEngine:
 
                 if 'PCT' in m_mode:
                     rtp_series = cum_low * (1 + m_val / 100)
-                    initial_rtp = base_price * (1 + m_val / 100)
                 else:
                     rtp_series = cum_low + m_val
-                    initial_rtp = base_price + m_val
 
                 rtp_series = rtp_series.map_elements(lambda x: self.round_to_tick(x), return_dtype=pl.Float64)
-                initial_rtp = self.round_to_tick(initial_rtp)
-                check_rtp_series = rtp_series.shift(1).fill_null(initial_rtp)
 
-                check_series = df.select(pl.col('high')).to_series()
-                rtp_hit_mask = check_series >= check_rtp_series
+                # Check if calculated entry price falls within candle's [low, close] range
+                close_series = df.select(pl.col('close')).to_series()
+                low_series = df.select(pl.col('low')).to_series()
+                rtp_hit_mask = (low_series <= rtp_series) & (rtp_series <= close_series)
 
                 if rtp_hit_mask.any():
                     hit_idx = rtp_hit_mask.arg_true()[0]
                     entry_time = df['time'][hit_idx]
-                    entry_price = check_rtp_series[hit_idx]
+                    entry_price = rtp_series[hit_idx]
                     df = df[hit_idx:]
                 else:
                     return None, df, 'MNTM_NOT_HIT'
@@ -582,19 +578,17 @@ class BacktestEngine:
                                         cum_high = cum_high.map_elements(lambda x: max(x, base_otp), return_dtype=pl.Float64)
                                         if 'PCT' in mntm_mode:
                                             rtp_series = cum_high * (1 - mntm_val / 100)
-                                            initial_rtp = base_otp * (1 - mntm_val / 100)
                                         else:
                                             rtp_series = cum_high - mntm_val
-                                            initial_rtp = base_otp - mntm_val
                                         rtp_series = rtp_series.map_elements(lambda x: self.round_to_tick(x), return_dtype=pl.Float64)
-                                        initial_rtp = self.round_to_tick(initial_rtp)
-                                        check_rtp_series = rtp_series.shift(1).fill_null(initial_rtp)
-                                        cross_mask = df.select(pl.col('low')).to_series() <= check_rtp_series
+                                        close_series = df.select(pl.col('close')).to_series()
+                                        high_series = df.select(pl.col('high')).to_series()
+                                        cross_mask = (close_series <= rtp_series) & (rtp_series <= high_series)
                                         if cross_mask.any():
                                             cross_idx = cross_mask.arg_true()[0]
                                             df = df[cross_idx:]
                                             re_entry_time = df['time'][0]
-                                            pending_override_entry_price = check_rtp_series[cross_idx]
+                                            pending_override_entry_price = rtp_series[cross_idx]
                                         else:
                                             df = df[0:0]
                                     elif m_type == 'LOW':
@@ -602,19 +596,17 @@ class BacktestEngine:
                                         cum_low = cum_low.map_elements(lambda x: min(x, base_otp), return_dtype=pl.Float64)
                                         if 'PCT' in mntm_mode:
                                             rtp_series = cum_low * (1 + mntm_val / 100)
-                                            initial_rtp = base_otp * (1 + mntm_val / 100)
                                         else:
                                             rtp_series = cum_low + mntm_val
-                                            initial_rtp = base_otp + mntm_val
                                         rtp_series = rtp_series.map_elements(lambda x: self.round_to_tick(x), return_dtype=pl.Float64)
-                                        initial_rtp = self.round_to_tick(initial_rtp)
-                                        check_rtp_series = rtp_series.shift(1).fill_null(initial_rtp)
-                                        cross_mask = df.select(pl.col('high')).to_series() >= check_rtp_series
+                                        close_series = df.select(pl.col('close')).to_series()
+                                        low_series = df.select(pl.col('low')).to_series()
+                                        cross_mask = (low_series <= rtp_series) & (rtp_series <= close_series)
                                         if cross_mask.any():
                                             cross_idx = cross_mask.arg_true()[0]
                                             df = df[cross_idx:]
                                             re_entry_time = df['time'][0]
-                                            pending_override_entry_price = check_rtp_series[cross_idx]
+                                            pending_override_entry_price = rtp_series[cross_idx]
                                         else:
                                             df = df[0:0]
                                     else:
