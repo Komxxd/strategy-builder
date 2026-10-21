@@ -143,7 +143,18 @@ function evaluateLegLimits({ leg, config, strategyId, addStrategyLog, isMinuteCl
                     const totalTrail = steps * trailAmount;
 
                     if (steps > 0) {
-                        const oldTrigger = leg.slTriggerPrice;
+                        let oldTrigger = leg.slTriggerPrice;
+                        if (oldTrigger === null || oldTrigger === undefined) {
+                            const isReentered = leg.reentry_count > 0;
+                            const activeSlValue = isReentered && leg.leg.reentry_sl_enabled ? parseFloat(leg.leg.reentry_sl_value || 0) : parseFloat(leg.leg.stop_loss || 0);
+                            const activeSlType = isReentered && leg.leg.reentry_sl_enabled ? leg.leg.reentry_sl_type : (leg.leg.sl_type || "PERCENTAGE");
+                            const initPrices = computeStopLossExitPrices(leg.entryPrice, leg.leg.side, activeSlType, activeSlValue, 0, 'POINTS');
+                            if (initPrices) {
+                                oldTrigger = initPrices.trigger;
+                                leg.slTriggerPrice = initPrices.trigger;
+                                leg.initialSlTriggerPrice = initPrices.trigger;
+                            }
+                        }
                         let newTrigger = oldTrigger;
 
                         if (oldTrigger !== null && oldTrigger !== undefined) {

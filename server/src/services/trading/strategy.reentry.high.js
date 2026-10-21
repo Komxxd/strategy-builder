@@ -315,14 +315,14 @@ async function deployReentrySL(leg, config, strategyId, addStrategyLog) {
             strategyId: strategyId
         });
 
+        const prices = computeStopLossExitPrices(leg.entryPrice, leg.leg.side, activeSlType, slValueToUse, config.entry_limit_offset, config.entry_limit_offset_type || 'POINTS');
         if (slOrder?.orderid) {
-            const prices = computeStopLossExitPrices(leg.entryPrice, leg.leg.side, activeSlType, slValueToUse, config.entry_limit_offset, config.entry_limit_offset_type || 'POINTS');
             leg.slOrderId = slOrder.orderid;
             leg.slUniqueOrderId = slOrder.uniqueorderid;
-            leg.slTriggerPrice = prices?.trigger;
-            leg.initialSlTriggerPrice = prices?.trigger;
-            leg.slLimitPrice = prices?.limit;
         }
+        leg.slTriggerPrice = prices?.trigger;
+        leg.initialSlTriggerPrice = prices?.trigger;
+        leg.slLimitPrice = prices?.limit;
     }
 }
 

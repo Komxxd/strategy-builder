@@ -572,21 +572,21 @@ async function monitorStrategyLoop(strategyId, strategy) {
                                                         strategyId: strategyId
                                                     });
 
+                                                    const prices = computeStopLossExitPrices(
+                                                        leg.entryPrice,
+                                                        leg.leg.side,
+                                                        leg.leg.sl_type || "PERCENTAGE",
+                                                        slValueToUse,
+                                                        getLimitOffsetAmt(leg.entryPrice, config),
+                                                        config.entry_limit_offset_type || 'POINTS'
+                                                    );
                                                     if (slOrder?.orderid) {
-                                                        const prices = computeStopLossExitPrices(
-                                                            leg.entryPrice,
-                                                            leg.leg.side,
-                                                            leg.leg.sl_type || "PERCENTAGE",
-                                                            slValueToUse,
-                                                            getLimitOffsetAmt(leg.entryPrice, config),
-                                                            config.entry_limit_offset_type || 'POINTS'
-                                                        );
                                                         leg.slOrderId = slOrder.orderid;
                                                         leg.slUniqueOrderId = slOrder.uniqueorderid;
-                                                        leg.slTriggerPrice = prices?.trigger;
-                                                        leg.initialSlTriggerPrice = prices?.trigger;
-                                                        leg.slLimitPrice = prices?.limit;
                                                     }
+                                                    leg.slTriggerPrice = prices?.trigger;
+                                                    leg.initialSlTriggerPrice = prices?.trigger;
+                                                    leg.slLimitPrice = prices?.limit;
                                                 }
                                             }
                                         } catch (err) {
@@ -981,6 +981,11 @@ async function monitorStrategyLoop(strategyId, strategy) {
                                 : (config.entry_limit_offset || 0);
                             const limitMarginType = leg.leg.sl_limit_margin_type || config.entry_limit_offset_type || 'POINTS';
 
+                            // If trailing is enabled and has already trailed leg.slTriggerPrice, pass that as overrideSlTriggerPrice
+                            const isSlOverride = isReentered && leg.leg.reentry_sl_enabled === true;
+                            const isTslEnabled = isSlOverride ? (leg.leg.reentry_tsl_enabled === true) : (leg.leg.tsl_enabled || false);
+                            const targetTriggerPrice = (isTslEnabled && leg.slTriggerPrice) ? leg.slTriggerPrice : undefined;
+
                             const slOrder = await placeStopLossWithRetry({
                                 baseConfig: config,
                                 legSide: leg.leg.side,
@@ -993,19 +998,25 @@ async function monitorStrategyLoop(strategyId, strategy) {
                                 slLimitMarginType: limitMarginType,
                                 connectionId: config.connectionId,
                                 strategyId: strategyId,
+                                overrideSlTriggerPrice: targetTriggerPrice,
                                 isDeferred: true
                             });
                             if (slOrder && slOrder.orderid) {
                                 leg.slOrderId = slOrder.orderid;
                                 leg.slUniqueOrderId = slOrder.uniqueorderid;
-                                const prices = computeStopLossExitPrices(leg.entryPrice, leg.leg.side, activeSlType, activeSlValue, limitMargin, limitMarginType);
-                                if (prices) {
-                                    leg.slTriggerPrice = prices.trigger;
-                                    leg.initialSlTriggerPrice = prices.trigger;
-                                    leg.slLimitPrice = prices.limit;
+                                if (targetTriggerPrice) {
+                                    leg.slTriggerPrice = parseFloat(slOrder.triggerprice);
+                                    leg.slLimitPrice = parseFloat(slOrder.limitprice);
+                                } else {
+                                    const prices = computeStopLossExitPrices(leg.entryPrice, leg.leg.side, activeSlType, activeSlValue, limitMargin, limitMarginType);
+                                    if (prices) {
+                                        leg.slTriggerPrice = prices.trigger;
+                                        leg.initialSlTriggerPrice = prices.trigger;
+                                        leg.slLimitPrice = prices.limit;
+                                    }
                                 }
                                 leg.exchangeSlProcessed = false;
-                                addStrategyLog(strategyId, `[Deferred SL] Placed StopLoss for ${leg.instrument.symbol} after entry minute close. Trigger: ₹${prices?.trigger || slOrder.triggerprice}, Limit: ₹${prices?.limit || slOrder.limitprice}`, "INFO");
+                                addStrategyLog(strategyId, `[Deferred SL] Placed StopLoss for ${leg.instrument.symbol} after entry minute close. Trigger: ₹${slOrder.triggerprice}, Limit: ₹${slOrder.limitprice}${targetTriggerPrice ? ' (Trailed)' : ''}`, "INFO");
                             } else {
                                 leg.slOrderId = "DISABLED";
                             }
@@ -1115,6 +1126,8 @@ async function monitorStrategyLoop(strategyId, strategy) {
                             console.error(`[TSL RECOVERY] Failed to check status of ${leg.slOrderId}:`, statusErr.message);
                         }
                     }
+                } else if (!config.is_paper_trading && !leg.is_virtual_leg && config.no_sl_on_entry_candle && isEntryMinute) {
+                    addStrategyLog(strategyId, `[TSL] Entry candle trailing updated SL for ${leg.instrument?.symbol} to ₹${newTrigger} (order deferred)`, "INFO");
                 } else {
                     addStrategyLog(strategyId, `[PAPER TSL] Virtual SL moved to ₹${newTrigger}`, "INFO");
                 }
