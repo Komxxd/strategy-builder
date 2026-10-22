@@ -1063,7 +1063,7 @@ class BacktestEngine:
                     current_sl = trade.get('tslSeries', {}).get(t)
                     if current_sl is not None:
                         if 'last_seen_sl' not in trade:
-                            trade['last_seen_sl'] = trade.get('tradeSlPrice')
+                            trade['last_seen_sl'] = trade.get('initialSlPrice') if trade.get('initialSlPrice') is not None else trade.get('tradeSlPrice')
                             
                         if current_sl != trade['last_seen_sl']:
                             tsl_action = f"TSL updated to: ₹{current_sl:.2f}"
