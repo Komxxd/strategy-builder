@@ -343,8 +343,11 @@ class BacktestEngine:
                 elif "MINUS_PTS" in m_mode: mtp -= m_val
                 mtp = self.round_to_tick(mtp)
 
-                if 'PLUS_' in m_mode or m_mode.startswith('PLUS'): hit_mask = df['high'] >= mtp
-                else: hit_mask = df['low'] <= mtp
+                if 'PLUS_' in m_mode or m_mode.startswith('PLUS'):
+                    hit_expr = pl.when(pl.col('open') <= mtp).then(pl.col('high') >= mtp).otherwise(pl.col('low') <= mtp)
+                else:
+                    hit_expr = pl.when(pl.col('open') >= mtp).then(pl.col('low') <= mtp).otherwise(pl.col('high') >= mtp)
+                hit_mask = df.select(hit_expr).to_series()
 
                 if hit_mask.any():
                     hit_idx = hit_mask.arg_true()[0]
@@ -617,8 +620,11 @@ class BacktestEngine:
                                         elif 'MINUS_PTS' in mntm_mode or mntm_mode == 'MINUS_PTS': mtp -= mntm_val
                                         mtp = self.round_to_tick(mtp)
 
-                                        wait_dir = 'DOWN' if base_otp > mtp else 'UP'
-                                        cross_mask = df['low'] <= mtp if wait_dir == 'DOWN' else df['high'] >= mtp
+                                        if wait_dir == 'DOWN':
+                                            cross_expr = pl.when(pl.col('open') >= mtp).then(pl.col('low') <= mtp).otherwise(pl.col('high') >= mtp)
+                                        else:
+                                            cross_expr = pl.when(pl.col('open') <= mtp).then(pl.col('high') >= mtp).otherwise(pl.col('low') <= mtp)
+                                        cross_mask = df.select(cross_expr).to_series()
                                         if cross_mask.any():
                                             cross_idx = cross_mask.arg_true()[0]
                                             df = df[cross_idx:]
