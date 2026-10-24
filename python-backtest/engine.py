@@ -775,10 +775,13 @@ class BacktestEngine:
                     initial_rtp = self.round_to_tick(initial_rtp)
                     check_rtp_series = rtp_series.shift(1).fill_null(initial_rtp)
                     
-                    # RTP hit: low drops to or below the previous candle's rtp level
-                    check_col = pl.when(pl.col('time') == trade_info['exitTime']).then(pl.col('close')).otherwise(pl.col('low'))
-                    check_series = search_df.select(check_col).to_series()
-                    rtp_hit_mask = check_series <= check_rtp_series
+                    # RTP hit: low drops to or below the previous candle's rtp level (from open >= check_rtp_series) or high reaches it (from open < check_rtp_series)
+                    rtp_hit_expr = pl.when(pl.col('time') == trade_info['exitTime']).then(
+                        pl.col('close') <= check_rtp_series
+                    ).otherwise(
+                        pl.when(pl.col('open') >= check_rtp_series).then(pl.col('low') <= check_rtp_series).otherwise(pl.col('high') >= check_rtp_series)
+                    )
+                    rtp_hit_mask = search_df.select(rtp_hit_expr).to_series()
                     
                     if rtp_hit_mask.any():
                         rtp_idx = rtp_hit_mask.arg_true()[0]
@@ -798,8 +801,19 @@ class BacktestEngine:
                             # Find MTP crossing after RTP hit
                             mtp_search = search_df[rtp_idx + 1:]
                             mtp_wait_dir = 'DOWN' if mtp < rtp else 'UP'
-                            check_col = pl.when(pl.col('time') == trade_info['exitTime']).then(pl.col('close')).otherwise(pl.col('low') if mtp_wait_dir == 'DOWN' else pl.col('high'))
-                            mtp_mask = mtp_search.select(check_col <= mtp if mtp_wait_dir == 'DOWN' else check_col >= mtp).to_series()
+                            if mtp_wait_dir == 'DOWN':
+                                mtp_cross_expr = pl.when(pl.col('time') == trade_info['exitTime']).then(
+                                    pl.col('close') <= mtp
+                                ).otherwise(
+                                    pl.when(pl.col('open') >= mtp).then(pl.col('low') <= mtp).otherwise(pl.col('high') >= mtp)
+                                )
+                            else:
+                                mtp_cross_expr = pl.when(pl.col('time') == trade_info['exitTime']).then(
+                                    pl.col('close') >= mtp
+                                ).otherwise(
+                                    pl.when(pl.col('open') <= mtp).then(pl.col('high') >= mtp).otherwise(pl.col('low') <= mtp)
+                                )
+                            mtp_mask = mtp_search.select(mtp_cross_expr).to_series()
                             if mtp_mask.any():
                                 mtp_idx = mtp_mask.arg_true()[0]
                                 reentry_count += 1
@@ -860,10 +874,13 @@ class BacktestEngine:
                     initial_rtp = self.round_to_tick(initial_rtp)
                     check_rtp_series = rtp_series.shift(1).fill_null(initial_rtp)
                     
-                    # RTP hit: high rises to or above the previous candle's rtp level
-                    check_col = pl.when(pl.col('time') == trade_info['exitTime']).then(pl.col('close')).otherwise(pl.col('high'))
-                    check_series = search_df.select(check_col).to_series()
-                    rtp_hit_mask = check_series >= check_rtp_series
+                    # RTP hit: high rises to or above the previous candle's rtp level (from open <= check_rtp_series) or low reaches it (from open > check_rtp_series)
+                    rtp_hit_expr = pl.when(pl.col('time') == trade_info['exitTime']).then(
+                        pl.col('close') >= check_rtp_series
+                    ).otherwise(
+                        pl.when(pl.col('open') <= check_rtp_series).then(pl.col('high') >= check_rtp_series).otherwise(pl.col('low') <= check_rtp_series)
+                    )
+                    rtp_hit_mask = search_df.select(rtp_hit_expr).to_series()
                     
                     if rtp_hit_mask.any():
                         rtp_idx = rtp_hit_mask.arg_true()[0]
@@ -882,8 +899,19 @@ class BacktestEngine:
                             
                             mtp_search = search_df[rtp_idx + 1:]
                             mtp_wait_dir = 'DOWN' if mtp < rtp else 'UP'
-                            check_col = pl.when(pl.col('time') == trade_info['exitTime']).then(pl.col('close')).otherwise(pl.col('low') if mtp_wait_dir == 'DOWN' else pl.col('high'))
-                            mtp_mask = mtp_search.select(check_col <= mtp if mtp_wait_dir == 'DOWN' else check_col >= mtp).to_series()
+                            if mtp_wait_dir == 'DOWN':
+                                mtp_cross_expr = pl.when(pl.col('time') == trade_info['exitTime']).then(
+                                    pl.col('close') <= mtp
+                                ).otherwise(
+                                    pl.when(pl.col('open') >= mtp).then(pl.col('low') <= mtp).otherwise(pl.col('high') >= mtp)
+                                )
+                            else:
+                                mtp_cross_expr = pl.when(pl.col('time') == trade_info['exitTime']).then(
+                                    pl.col('close') >= mtp
+                                ).otherwise(
+                                    pl.when(pl.col('open') <= mtp).then(pl.col('high') >= mtp).otherwise(pl.col('low') <= mtp)
+                                )
+                            mtp_mask = mtp_search.select(mtp_cross_expr).to_series()
                             if mtp_mask.any():
                                 mtp_idx = mtp_mask.arg_true()[0]
                                 reentry_count += 1
@@ -922,8 +950,19 @@ class BacktestEngine:
                         is_exhausted = False
                         break
                 
-                check_col = pl.when(pl.col('time') == trade_info['exitTime']).then(pl.col('close')).otherwise(pl.col('low') if wait_dir == 'DOWN' else pl.col('high'))
-                cross_mask = remaining_df.select(check_col <= rtp if wait_dir == 'DOWN' else check_col >= rtp).to_series()
+                if wait_dir == 'DOWN':
+                    cross_expr = pl.when(pl.col('time') == trade_info['exitTime']).then(
+                        pl.col('close') <= rtp
+                    ).otherwise(
+                        pl.when(pl.col('open') >= rtp).then(pl.col('low') <= rtp).otherwise(pl.col('high') >= rtp)
+                    )
+                else:
+                    cross_expr = pl.when(pl.col('time') == trade_info['exitTime']).then(
+                        pl.col('close') >= rtp
+                    ).otherwise(
+                        pl.when(pl.col('open') <= rtp).then(pl.col('high') >= rtp).otherwise(pl.col('low') <= rtp)
+                    )
+                cross_mask = remaining_df.select(cross_expr).to_series()
                 if cross_mask.any():
                     cross_idx = cross_mask.arg_true()[0]
                     
@@ -932,8 +971,19 @@ class BacktestEngine:
                     if mtp is not None and mtp != rtp:
                         mtp_search = remaining_df[cross_idx + 1:]
                         mtp_wait_dir = 'DOWN' if mtp < rtp else 'UP'
-                        check_col = pl.when(pl.col('time') == trade_info['exitTime']).then(pl.col('close')).otherwise(pl.col('low') if mtp_wait_dir == 'DOWN' else pl.col('high'))
-                        mtp_mask = mtp_search.select(check_col <= mtp if mtp_wait_dir == 'DOWN' else check_col >= mtp).to_series()
+                        if mtp_wait_dir == 'DOWN':
+                            mtp_cross_expr = pl.when(pl.col('time') == trade_info['exitTime']).then(
+                                pl.col('close') <= mtp
+                            ).otherwise(
+                                pl.when(pl.col('open') >= mtp).then(pl.col('low') <= mtp).otherwise(pl.col('high') >= mtp)
+                            )
+                        else:
+                            mtp_cross_expr = pl.when(pl.col('time') == trade_info['exitTime']).then(
+                                pl.col('close') >= mtp
+                            ).otherwise(
+                                pl.when(pl.col('open') <= mtp).then(pl.col('high') >= mtp).otherwise(pl.col('low') <= mtp)
+                            )
+                        mtp_mask = mtp_search.select(mtp_cross_expr).to_series()
                         if mtp_mask.any():
                             mtp_cross_idx = mtp_mask.arg_true()[0]
                             reentry_count += 1
