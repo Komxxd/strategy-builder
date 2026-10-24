@@ -131,7 +131,11 @@ async function modifyOrderLocallyOrViaWorker(config, modifyParams) {
     const channelKey = `local_${connId}`;
     return await orderDispatcher.dispatchTrade(channelKey, connId, async () => {
         const api = await getAuthorizedInstance(connId);
-        return await api.modifyOrder(modifyParams);
+        const res = await api.modifyOrder(modifyParams);
+        if (res && (res.status === false || res.status === 400)) {
+            throw new Error(res.message || "Order modification rejected by exchange/broker");
+        }
+        return res;
     });
 }
 
@@ -601,6 +605,7 @@ async function placeExitOrder({ config, leg, instrument, exitType }) {
             } catch (modErr) {
                 console.warn(`[Exit] Failed to check or modify SL order ${leg.slOrderId} for exit. Falling back to fresh order. Reason: ${modErr.message}`);
                 orderData = null;
+                useSlOrder = false;
             }
         }
 

@@ -912,13 +912,15 @@ async function monitorStrategyLoop(strategyId, strategy) {
             strategy.exitAttempted = true;
             addStrategyLog(strategyId, `${limitCheck.logMessage} Final PnL: ₹${totalPnlRupees.toFixed(2)} (${avgPnl.toFixed(2)}%).`, limitCheck.logLevel);
 
-            if (config.variety === "STOPLOSS" && !config.is_paper_trading) {
+            if (!config.is_paper_trading) {
                 await Promise.all(strategy.legs.map(async (leg) => {
-                    if (!leg.exited && leg.slOrderId) {
-                        try {
-                            await cancelOrder(config, "STOPLOSS", leg.slOrderId);
-                        } catch (e) { }
-                    }
+                    if (leg.exited) return;
+                    try {
+                        // We NO LONGER cancel slOrderId here. placeExitOrder will convert it to an Exit order.
+                        if (!leg.entryPrice && leg.orderId) {
+                            try { await cancelOrder(config, "NORMAL", leg.orderId); } catch (e) { await cancelOrder(config, "STOPLOSS", leg.orderId); }
+                        }
+                    } catch (e) { }
                 }));
             }
 
