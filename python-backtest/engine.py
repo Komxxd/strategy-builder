@@ -719,7 +719,7 @@ class BacktestEngine:
                     sl_hit = base_resl_sl_hit
                     trade_info['next_rtp'] = rtp
                     trade_info['next_mtp'] = mtp
-                    wait_dir = 'DOWN' if sl_hit > rtp else 'UP'
+                    wait_dir = 'DOWN' if trade_info['exitPrice'] > rtp else 'UP'
                 else:
                     mode, val = leg.get('resl_mode', 'RESL_PLUS_PCT'), float(leg.get('resl_value', 0))
                     sl_hit = trade_info['tradeSlPrice']
@@ -783,7 +783,7 @@ class BacktestEngine:
                     
                     # RTP hit: low drops to or below the previous candle's rtp level (from open >= check_rtp_series) or high reaches it (from open < check_rtp_series)
                     rtp_hit_expr = pl.when(pl.col('time') == trade_info['exitTime']).then(
-                        pl.col('close') <= check_rtp_series
+                        (pl.col('high') >= check_rtp_series) & (pl.col('low') <= check_rtp_series)
                     ).otherwise(
                         pl.when(pl.col('open') >= check_rtp_series).then(pl.col('low') <= check_rtp_series).otherwise(pl.col('high') >= check_rtp_series)
                     )
@@ -882,7 +882,7 @@ class BacktestEngine:
                     
                     # RTP hit: high rises to or above the previous candle's rtp level (from open <= check_rtp_series) or low reaches it (from open > check_rtp_series)
                     rtp_hit_expr = pl.when(pl.col('time') == trade_info['exitTime']).then(
-                        pl.col('close') >= check_rtp_series
+                        (pl.col('low') <= check_rtp_series) & (pl.col('high') >= check_rtp_series)
                     ).otherwise(
                         pl.when(pl.col('open') <= check_rtp_series).then(pl.col('high') >= check_rtp_series).otherwise(pl.col('low') <= check_rtp_series)
                     )
@@ -958,13 +958,13 @@ class BacktestEngine:
                 
                 if wait_dir == 'DOWN':
                     cross_expr = pl.when(pl.col('time') == trade_info['exitTime']).then(
-                        pl.col('close') <= rtp
+                        (pl.col('high') >= rtp) & (pl.col('low') <= rtp)
                     ).otherwise(
                         pl.when(pl.col('open') >= rtp).then(pl.col('low') <= rtp).otherwise(pl.col('high') >= rtp)
                     )
                 else:
                     cross_expr = pl.when(pl.col('time') == trade_info['exitTime']).then(
-                        pl.col('close') >= rtp
+                        (pl.col('low') <= rtp) & (pl.col('high') >= rtp)
                     ).otherwise(
                         pl.when(pl.col('open') <= rtp).then(pl.col('high') >= rtp).otherwise(pl.col('low') <= rtp)
                     )
@@ -979,13 +979,13 @@ class BacktestEngine:
                         mtp_wait_dir = 'DOWN' if mtp < rtp else 'UP'
                         if mtp_wait_dir == 'DOWN':
                             mtp_cross_expr = pl.when(pl.col('time') == trade_info['exitTime']).then(
-                                pl.col('close') <= mtp
+                                (pl.col('high') >= mtp) & (pl.col('low') <= mtp)
                             ).otherwise(
                                 pl.when(pl.col('open') >= mtp).then(pl.col('low') <= mtp).otherwise(pl.col('high') >= mtp)
                             )
                         else:
                             mtp_cross_expr = pl.when(pl.col('time') == trade_info['exitTime']).then(
-                                pl.col('close') >= mtp
+                                (pl.col('low') <= mtp) & (pl.col('high') >= mtp)
                             ).otherwise(
                                 pl.when(pl.col('open') <= mtp).then(pl.col('high') >= mtp).otherwise(pl.col('low') <= mtp)
                             )
@@ -1176,6 +1176,22 @@ class BacktestEngine:
                         else:
                             action = exit_action
                         trade_idx += 1
+                        
+                        # If the next trade entered on this exact same candle, record its entry action as well
+                        if trade_idx < len(trades) and trades[trade_idx]['entryTime'] == t:
+                            next_trade = trades[trade_idx]
+                            next_side = 'Sell' if leg.get('side') == 'SELL' else 'Buy'
+                            reentry_method = next_trade.get('reentry_method')
+                            prefix = f'Re-Entry [{reentry_method}]' if reentry_method else 'Re-Entry'
+                            init_sl_val = next_trade.get('initialSlPrice') or next_trade.get('tradeSlPrice', 0)
+                            sl_str = f" | Init SL: ₹{init_sl_val:.2f}" if init_sl_val else ""
+                            rtp_mtp_str = ""
+                            if next_trade.get('reentry_rtp') is not None:
+                                rtp_mtp_str += f" | RTP: ₹{next_trade['reentry_rtp']:.2f}"
+                            if next_trade.get('reentry_mtp') is not None:
+                                rtp_mtp_str += f" | MTP: ₹{next_trade['reentry_mtp']:.2f}"
+                            entry_action = f"{prefix} ({next_side}): {next_trade['entryPrice']:.2f}{sl_str}{rtp_mtp_str}"
+                            action = f"{action} | {entry_action}"
                 else:
                     pnl_series.append(locked_pnl)
                     open_pnl_series.append(locked_pnl)
