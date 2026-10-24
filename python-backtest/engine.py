@@ -958,13 +958,13 @@ class BacktestEngine:
                 
                 if wait_dir == 'DOWN':
                     cross_expr = pl.when(pl.col('time') == trade_info['exitTime']).then(
-                        (pl.col('high') >= rtp) & (pl.col('low') <= rtp)
+                        (pl.lit(trade_info['exitPrice']) >= rtp) & (pl.col('close') <= rtp)
                     ).otherwise(
                         pl.when(pl.col('open') >= rtp).then(pl.col('low') <= rtp).otherwise(pl.col('high') >= rtp)
                     )
                 else:
                     cross_expr = pl.when(pl.col('time') == trade_info['exitTime']).then(
-                        (pl.col('low') <= rtp) & (pl.col('high') >= rtp)
+                        (pl.lit(trade_info['exitPrice']) <= rtp) & (pl.col('close') >= rtp)
                     ).otherwise(
                         pl.when(pl.col('open') <= rtp).then(pl.col('high') >= rtp).otherwise(pl.col('low') <= rtp)
                     )
@@ -979,13 +979,13 @@ class BacktestEngine:
                         mtp_wait_dir = 'DOWN' if mtp < rtp else 'UP'
                         if mtp_wait_dir == 'DOWN':
                             mtp_cross_expr = pl.when(pl.col('time') == trade_info['exitTime']).then(
-                                (pl.col('high') >= mtp) & (pl.col('low') <= mtp)
+                                (pl.lit(trade_info['exitPrice']) >= mtp) & (pl.col('close') <= mtp)
                             ).otherwise(
                                 pl.when(pl.col('open') >= mtp).then(pl.col('low') <= mtp).otherwise(pl.col('high') >= mtp)
                             )
                         else:
                             mtp_cross_expr = pl.when(pl.col('time') == trade_info['exitTime']).then(
-                                (pl.col('low') <= mtp) & (pl.col('high') >= mtp)
+                                (pl.lit(trade_info['exitPrice']) <= mtp) & (pl.col('close') >= mtp)
                             ).otherwise(
                                 pl.when(pl.col('open') <= mtp).then(pl.col('high') >= mtp).otherwise(pl.col('low') <= mtp)
                             )
