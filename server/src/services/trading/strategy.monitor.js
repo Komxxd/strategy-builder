@@ -287,8 +287,11 @@ async function monitorStrategyLoop(strategyId, strategy) {
                             addStrategyLog(strategyId, `[RE-HIGH] PEAK: ₹${peak} | RTP: ₹${checkRtp}${rtpOnClose ? ' (on close)' : ''} | MTP: ₹${leg.mtp}`, "INFO");
                         }
 
+                        const isSlCandle = (leg.slHitMinute === currentMinute);
                         const candleOpen = leg.candleOpen ?? tickPrice;
-                        const isRtpTriggered = candleOpen < checkRtp ? (tickPrice >= checkRtp) : (tickPrice <= checkRtp);
+                        const isRtpTriggered = isSlCandle
+                            ? (tickPrice <= checkRtp)
+                            : (candleOpen < checkRtp ? (tickPrice >= checkRtp) : (tickPrice <= checkRtp));
 
                         if (isRtpTriggered) {
                             await handleReentryHigh({ leg, config, strategyId, addStrategyLog, currentTick: tickPrice, isMtpPlacement: true });
@@ -301,8 +304,11 @@ async function monitorStrategyLoop(strategyId, strategy) {
                             addStrategyLog(strategyId, `[RE-HIGH] PEAK: ₹${peak} | RTP: ₹${checkRtp}${rtpOnClose ? ' (on close)' : ''}`, "INFO");
                         }
 
+                        const isSlCandle = (leg.slHitMinute === currentMinute);
                         const candleOpen = leg.candleOpen ?? tickPrice;
-                        const isRtpTriggered = candleOpen < checkRtp ? (tickPrice >= checkRtp) : (tickPrice <= checkRtp);
+                        const isRtpTriggered = isSlCandle
+                            ? (tickPrice <= checkRtp)
+                            : (candleOpen < checkRtp ? (tickPrice >= checkRtp) : (tickPrice <= checkRtp));
 
                         if (isRtpTriggered) {
                             await handleReentryHigh({ leg, config, strategyId, addStrategyLog, currentTick: tickPrice, isMtpPlacement: false });
@@ -368,8 +374,11 @@ async function monitorStrategyLoop(strategyId, strategy) {
                             addStrategyLog(strategyId, `[RE-LOW] LOW: ₹${low} | RTP: ₹${checkRtp}${rtpOnClose ? ' (on close)' : ''} | MTP: ₹${leg.mtp}`, "INFO");
                         }
 
+                        const isSlCandle = (leg.slHitMinute === currentMinute);
                         const candleOpen = leg.candleOpen ?? tickPrice;
-                        const isRtpTriggered = candleOpen > checkRtp ? (tickPrice <= checkRtp) : (tickPrice >= checkRtp);
+                        const isRtpTriggered = isSlCandle
+                            ? (tickPrice >= checkRtp)
+                            : (candleOpen > checkRtp ? (tickPrice <= checkRtp) : (tickPrice >= checkRtp));
 
                         if (isRtpTriggered) {
                             await handleReentryLow({ leg, config, strategyId, addStrategyLog, currentTick: tickPrice, isMtpPlacement: true });
@@ -382,8 +391,11 @@ async function monitorStrategyLoop(strategyId, strategy) {
                             addStrategyLog(strategyId, `[RE-LOW] LOW: ₹${low} | RTP: ₹${checkRtp}${rtpOnClose ? ' (on close)' : ''}`, "INFO");
                         }
 
+                        const isSlCandle = (leg.slHitMinute === currentMinute);
                         const candleOpen = leg.candleOpen ?? tickPrice;
-                        const isRtpTriggered = candleOpen > checkRtp ? (tickPrice <= checkRtp) : (tickPrice >= checkRtp);
+                        const isRtpTriggered = isSlCandle
+                            ? (tickPrice >= checkRtp)
+                            : (candleOpen > checkRtp ? (tickPrice <= checkRtp) : (tickPrice >= checkRtp));
 
                         if (isRtpTriggered) {
                             await handleReentryLow({ leg, config, strategyId, addStrategyLog, currentTick: tickPrice, isMtpPlacement: false });
@@ -621,6 +633,7 @@ async function monitorStrategyLoop(strategyId, strategy) {
                         continue;
                     }
 
+                    const isSlCandle = (leg.slHitMinute === currentMinute);
                     const currentTick = leg.currentLtp;
                     const prevTick = leg.last_tick_price;
                     const rtp = leg.recost_trigger_price;
@@ -628,17 +641,27 @@ async function monitorStrategyLoop(strategyId, strategy) {
                     let triggerReEntry = false;
 
                     const recostMode = leg.leg.recost_mode || "RECOST_PLUS_PCT";
-                    if (recostMode.includes("PLUS")) {
-                        if (candleOpen > rtp) {
-                            if (currentTick <= rtp) triggerReEntry = true;
-                        } else {
+                    if (isSlCandle) {
+                        // Normal tick-by-tick price monitoring on the SL candle
+                        if (recostMode.includes("PLUS")) {
                             if (prevTick <= rtp && currentTick >= rtp) triggerReEntry = true;
-                        }
-                    } else {
-                        if (candleOpen < rtp) {
-                            if (currentTick >= rtp) triggerReEntry = true;
                         } else {
                             if (prevTick >= rtp && currentTick <= rtp) triggerReEntry = true;
+                        }
+                    } else {
+                        // Subsequent candles: candle open price check
+                        if (recostMode.includes("PLUS")) {
+                            if (candleOpen > rtp) {
+                                if (currentTick <= rtp) triggerReEntry = true;
+                            } else {
+                                if (prevTick <= rtp && currentTick >= rtp) triggerReEntry = true;
+                            }
+                        } else {
+                            if (candleOpen < rtp) {
+                                if (currentTick >= rtp) triggerReEntry = true;
+                            } else {
+                                if (prevTick >= rtp && currentTick <= rtp) triggerReEntry = true;
+                            }
                         }
                     }
 
@@ -654,6 +677,7 @@ async function monitorStrategyLoop(strategyId, strategy) {
                         continue;
                     }
 
+                    const isSlCandle = (leg.slHitMinute === currentMinute);
                     const currentTick = leg.currentLtp;
                     const prevTick = leg.last_tick_price;
                     const rtp = leg.resl_trigger_price;
@@ -661,17 +685,27 @@ async function monitorStrategyLoop(strategyId, strategy) {
                     let triggerReEntry = false;
 
                     const reslMode = leg.leg.resl_mode || "RESL_PLUS_PCT";
-                    if (reslMode.includes("PLUS")) {
-                        if (candleOpen > rtp) {
-                            if (currentTick <= rtp) triggerReEntry = true;
-                        } else {
+                    if (isSlCandle) {
+                        // Normal tick-by-tick price monitoring on the SL candle
+                        if (reslMode.includes("PLUS")) {
                             if (prevTick <= rtp && currentTick >= rtp) triggerReEntry = true;
-                        }
-                    } else {
-                        if (candleOpen < rtp) {
-                            if (currentTick >= rtp) triggerReEntry = true;
                         } else {
                             if (prevTick >= rtp && currentTick <= rtp) triggerReEntry = true;
+                        }
+                    } else {
+                        // Subsequent candles: candle open price check
+                        if (reslMode.includes("PLUS")) {
+                            if (candleOpen > rtp) {
+                                if (currentTick <= rtp) triggerReEntry = true;
+                            } else {
+                                if (prevTick <= rtp && currentTick >= rtp) triggerReEntry = true;
+                            }
+                        } else {
+                            if (candleOpen < rtp) {
+                                if (currentTick >= rtp) triggerReEntry = true;
+                            } else {
+                                if (prevTick >= rtp && currentTick <= rtp) triggerReEntry = true;
+                            }
                         }
                     }
 
