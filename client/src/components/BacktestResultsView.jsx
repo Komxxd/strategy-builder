@@ -94,6 +94,19 @@ export const BacktestResultsView = ({ results, strategy }) => {
  const [earlyProfitValue, setEarlyProfitValue] = useState('');
  const [earlyProfitTime, setEarlyProfitTime] = useState('');
 
+ // Brokerage Config
+ const [brokerFee, setBrokerFee] = useState(20);
+ const [sellBrokerage, setSellBrokerage] = useState(0.14155);
+ const [buyBrokerage, setBuyBrokerage] = useState(0.04455);
+ const [showTax, setShowTax] = useState(false);
+
+ const formatINR = (val) => {
+  if (val === undefined || val === null || isNaN(val)) return '₹0.00';
+  const num = Number(val);
+  const formatted = Math.abs(num).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return num < 0 ? `-₹${formatted}` : `₹${formatted}`;
+ };
+
  // UI states for dropdowns
  const [openStrategyDropdown, setOpenStrategyDropdown] = useState(false);
  const [openCommonDTEDropdown, setOpenCommonDTEDropdown] = useState(false);
@@ -279,14 +292,58 @@ export const BacktestResultsView = ({ results, strategy }) => {
 
  const isProfitable = totalPnL >= 0;
 
+ const dailyBrokerageMap = React.useMemo(() => {
+ if (!trades || trades.length === 0 || !filteredDailySummary) return {};
+
+ const bFee = parseFloat(brokerFee) || 0;
+ const sPct = parseFloat(sellBrokerage) || 0;
+ const bPct = parseFloat(buyBrokerage) || 0;
+ const map = {};
+
+ trades.forEach(t => {
+ const summary = filteredDailySummary[t.date];
+ if (!summary) return;
+
+ const sId = !strategy?.isCombined ? (strategy?.id || 'single') : (t.leg_id ? t.leg_id.split('_')[0] : 'single');
+ if (summary.activeStrategies && !summary.activeStrategies.some(id => String(id) === String(sId))) return;
+ if (selectedStrategies && selectedStrategies.size > 0 && !Array.from(selectedStrategies).some(id => String(id) === String(sId))) return;
+
+ const daySummaryObj = typeof summary === 'object' ? summary : null;
+ const stratDte = daySummaryObj?.strategyDtes?.[sId] !== undefined ? daySummaryObj.strategyDtes[sId] : daySummaryObj?.dte;
+ const tradeMulti = getEffectiveMultiplier ? getEffectiveMultiplier(sId, stratDte) : 1;
+ const qty = Math.round((Number(t.qty) || 0) * tradeMulti);
+
+ const entryPrice = Number(t.entry_price) || 0;
+ const exitPrice = t.exit_price !== undefined && t.exit_price !== null ? Number(t.exit_price) : entryPrice;
+ const isSell = (String(t.side).toUpperCase() === 'SELL');
+
+ const numTransactions = (t.exit_time || t.exit_price !== undefined) ? 2 : 1;
+ const fixedBroker = numTransactions * bFee;
+
+ const sellValue = (isSell ? entryPrice : exitPrice) * qty;
+ const buyValue = (isSell ? exitPrice : entryPrice) * qty;
+
+ const sellCharge = sellValue * (sPct / 100);
+ const buyCharge = buyValue * (bPct / 100);
+ const totalFee = fixedBroker + sellCharge + buyCharge;
+
+ map[t.date] = (map[t.date] || 0) + totalFee;
+ });
+
+ return map;
+ }, [trades, filteredDailySummary, strategy, selectedStrategies, getEffectiveMultiplier, brokerFee, sellBrokerage, buyBrokerage]);
+
  const analytics = React.useMemo(() => {
  if (!filteredDailySummary) return [];
 
  const yearly = {};
+ const sortedEntries = Object.entries(filteredDailySummary).sort(([a], [b]) => a.localeCompare(b));
 
- Object.entries(filteredDailySummary).forEach(([date, dayData]) => {
+ sortedEntries.forEach(([date, dayData]) => {
  const [yyyy, mm] = date.split('-');
- const dayPnL = typeof dayData ==='object' ? (dayData.pnl || 0) : (dayData || 0);
+ const grossDayPnL = typeof dayData ==='object' ? (dayData.pnl || 0) : (dayData || 0);
+ const dayFee = showTax ? (dailyBrokerageMap[date] || 0) : 0;
+ const dayPnL = grossDayPnL - dayFee;
 
  if (!yearly[yyyy]) {
  yearly[yyyy] = {
@@ -322,12 +379,77 @@ export const BacktestResultsView = ({ results, strategy }) => {
  });
 
  return Object.values(yearly).sort((a, b) => a.year.localeCompare(b.year));
- }, [filteredDailySummary]);
+ }, [filteredDailySummary, dailyBrokerageMap, showTax]);
 
  const overallStats = React.useMemo(() => {
  if (!filteredDailySummary) return null;
 
- const entries = Object.entries(filteredDailySummary).map(([date, d]) => ({ date, pnl: typeof d ==='object' ? (d.pnl || 0) : (d || 0) }));
+ // Calculate Sell Value, Buy Value, Trade Counts, and Brokerage across filtered trades
+ const bFee = parseFloat(brokerFee) || 0;
+ const sPct = parseFloat(sellBrokerage) || 0;
+ const bPct = parseFloat(buyBrokerage) || 0;
+
+ let sellValue = 0;
+ let buyValue = 0;
+ let totalSellTrades = 0;
+ let totalBuyTrades = 0;
+ let totalFixedBroker = 0;
+ const tradesCountByDate = {};
+
+ if (trades && trades.length > 0) {
+ trades.forEach(t => {
+ const summary = filteredDailySummary[t.date];
+ if (!summary) return;
+
+ const sId = !strategy?.isCombined ? (strategy?.id || 'single') : (t.leg_id ? t.leg_id.split('_')[0] : 'single');
+ if (summary.activeStrategies && !summary.activeStrategies.some(id => String(id) === String(sId))) return;
+ if (selectedStrategies && selectedStrategies.size > 0 && !Array.from(selectedStrategies).some(id => String(id) === String(sId))) return;
+
+ if (!tradesCountByDate[t.date]) tradesCountByDate[t.date] = 0;
+ tradesCountByDate[t.date]++;
+
+ const daySummaryObj = typeof summary === 'object' ? summary : null;
+ const stratDte = daySummaryObj?.strategyDtes?.[sId] !== undefined ? daySummaryObj.strategyDtes[sId] : daySummaryObj?.dte;
+ const tradeMulti = getEffectiveMultiplier ? getEffectiveMultiplier(sId, stratDte) : 1;
+ const qty = Math.round((Number(t.qty) || 0) * tradeMulti);
+
+ const entryPrice = Number(t.entry_price) || 0;
+ const exitPrice = t.exit_price !== undefined && t.exit_price !== null ? Number(t.exit_price) : entryPrice;
+ const isSell = (String(t.side).toUpperCase() === 'SELL');
+
+ const numTransactions = (t.exit_time || t.exit_price !== undefined) ? 2 : 1;
+ const fixedBroker = numTransactions * bFee;
+ totalFixedBroker += fixedBroker;
+
+ let tradeSellVal = 0;
+ let tradeBuyVal = 0;
+ if (isSell) {
+ totalSellTrades++;
+ tradeSellVal = entryPrice * qty;
+ tradeBuyVal = exitPrice * qty;
+ } else {
+ totalBuyTrades++;
+ tradeBuyVal = entryPrice * qty;
+ tradeSellVal = exitPrice * qty;
+ }
+ sellValue += tradeSellVal;
+ buyValue += tradeBuyVal;
+ });
+ }
+
+ const totalActualTrades = totalSellTrades + totalBuyTrades;
+ const totalSellBrokerage = sellValue * (sPct / 100);
+ const totalBuyBrokerage = buyValue * (bPct / 100);
+ const totalBrokerage = totalFixedBroker + totalSellBrokerage + totalBuyBrokerage;
+
+ const entries = Object.entries(filteredDailySummary)
+ .sort(([a], [b]) => a.localeCompare(b))
+ .map(([date, d]) => {
+ const grossPnl = typeof d === 'object' ? (d.pnl || 0) : (d || 0);
+ const dayFee = dailyBrokerageMap[date] || 0;
+ const pnl = showTax ? (grossPnl - dayFee) : grossPnl;
+ return { date, pnl, grossPnl, dayFee };
+ });
  if (entries.length === 0) return null;
 
  let winningDays = [];
@@ -350,21 +472,6 @@ export const BacktestResultsView = ({ results, strategy }) => {
  let currentDrawdownStartDate = null;
  let maxDrawdownStartDate = null;
  let maxDrawdownEndDate = null;
-
- const tradesCountByDate = {};
- if (trades) {
-  trades.forEach(t => {
-   const summary = filteredDailySummary[t.date];
-   if (!summary) return;
-
-   const sId = !strategy?.isCombined ? (strategy?.id || 'single') : (t.leg_id ? t.leg_id.split('_')[0] : 'single');
-   if (summary.activeStrategies && !summary.activeStrategies.some(id => String(id) === String(sId))) return;
-   if (selectedStrategies && selectedStrategies.size > 0 && !Array.from(selectedStrategies).some(id => String(id) === String(sId))) return;
-
-   if (!tradesCountByDate[t.date]) tradesCountByDate[t.date] = 0;
-   tradesCountByDate[t.date]++;
-  });
- }
 
  let currentWinStreak = 0;
  let maxWinStreak = 0;
@@ -411,8 +518,8 @@ export const BacktestResultsView = ({ results, strategy }) => {
 
  const dd = cumulativeBalance - maxBalance;
  if (dd < maxDrawdown) {
-  maxDrawdown = dd;
-  maxDrawdownDate = date;
+ maxDrawdown = dd;
+ maxDrawdownDate = date;
  }
  if (currentDrawdownDays > maxDrawdownDays) {
  maxDrawdownDays = currentDrawdownDays;
@@ -426,9 +533,12 @@ export const BacktestResultsView = ({ results, strategy }) => {
  });
 
  const totalDays = entries.length;
+ const grossTotalPnL = entries.reduce((acc, e) => acc + e.grossPnl, 0);
+ const netProfit = grossTotalPnL - totalBrokerage;
+ const effectiveTotalPnL = showTax ? netProfit : grossTotalPnL;
+
  const totalWin = winningDays.reduce((a, b) => a + b, 0);
  const totalLoss = losingDays.reduce((a, b) => a + b, 0);
- const dynamicTotalPnL = totalWin + totalLoss;
 
  const avgProfit = winningDays.length > 0 ? totalWin / winningDays.length : 0;
  const avgLoss = losingDays.length > 0 ? totalLoss / losingDays.length : 0;
@@ -436,56 +546,25 @@ export const BacktestResultsView = ({ results, strategy }) => {
  const winRate = (winningDays.length / (totalDays || 1)) * 100;
  const lossRate = (losingDays.length / (totalDays || 1)) * 100;
 
+ const totalTrades = totalActualTrades > 0 ? totalActualTrades : (trades ? 0 : totalDays);
+ const avgTrade = effectiveTotalPnL / (totalTrades || 1);
+
  const uniqueMonths = new Set(entries.map(e => e.date.substring(0, 7)));
  const totalMonths = uniqueMonths.size || 1;
- const annualizedReturn = (dynamicTotalPnL / totalMonths) * 12;
+ const annualizedReturn = (effectiveTotalPnL / totalMonths) * 12;
  const returnOnMDD = maxDrawdown !== 0 ? Math.abs(annualizedReturn / maxDrawdown) : 0;
  const riskReward = avgLoss !== 0 ? Math.abs(avgProfit / avgLoss) : 0;
 
  const expectancy = ((winRate / 100) * avgProfit) + ((lossRate / 100) * avgLoss);
  const expectancyRatio = avgLoss !== 0 ? (expectancy / Math.abs(avgLoss)) : 0;
 
- // Calculate Sell Value, Buy Value, and Trade Counts across filtered trades
- let sellValue = 0;
- let buyValue = 0;
- let totalSellTrades = 0;
- let totalBuyTrades = 0;
- if (trades && trades.length > 0) {
- trades.forEach(t => {
- const summary = filteredDailySummary[t.date];
- if (!summary) return;
-
- const sId = !strategy?.isCombined ? (strategy?.id || 'single') : (t.leg_id ? t.leg_id.split('_')[0] : 'single');
- if (summary.activeStrategies && !summary.activeStrategies.some(id => String(id) === String(sId))) return;
- if (selectedStrategies && selectedStrategies.size > 0 && !Array.from(selectedStrategies).some(id => String(id) === String(sId))) return;
-
- const daySummaryObj = typeof summary === 'object' ? summary : null;
- const stratDte = daySummaryObj?.strategyDtes?.[sId] !== undefined ? daySummaryObj.strategyDtes[sId] : daySummaryObj?.dte;
- const tradeMulti = getEffectiveMultiplier ? getEffectiveMultiplier(sId, stratDte) : 1;
- const qty = (Number(t.qty) || 0) * tradeMulti;
-
- const entryPrice = Number(t.entry_price) || 0;
- const exitPrice = t.exit_price !== undefined && t.exit_price !== null ? Number(t.exit_price) : entryPrice;
- const isSell = (String(t.side).toUpperCase() === 'SELL');
-
- if (isSell) {
- totalSellTrades++;
- sellValue += (entryPrice * qty);
- buyValue += (exitPrice * qty);
- } else {
- totalBuyTrades++;
- buyValue += (entryPrice * qty);
- sellValue += (exitPrice * qty);
- }
- });
- }
-
- const totalActualTrades = totalSellTrades + totalBuyTrades;
- const totalTrades = totalActualTrades > 0 ? totalActualTrades : (trades ? 0 : totalDays);
- const avgTrade = dynamicTotalPnL / (totalTrades || 1);
-
  return {
- totalPnL: dynamicTotalPnL,
+ totalPnL: grossTotalPnL,
+ netProfit,
+ totalBrokerage,
+ totalFixedBroker,
+ totalSellBrokerage,
+ totalBuyBrokerage,
  totalTrades,
  totalSellTrades,
  totalBuyTrades,
@@ -513,7 +592,7 @@ export const BacktestResultsView = ({ results, strategy }) => {
  maxWinStreak,
  maxLoseStreak
  };
- }, [filteredDailySummary, trades, strategy, selectedStrategies, getEffectiveMultiplier]);
+ }, [filteredDailySummary, trades, strategy, selectedStrategies, getEffectiveMultiplier, brokerFee, sellBrokerage, buyBrokerage, showTax]);
 
  const groupedDates = React.useMemo(() => {
  if (!filteredDailySummary) return {};
@@ -1059,7 +1138,7 @@ export const BacktestResultsView = ({ results, strategy }) => {
  <div className="flex items-center justify-between mb-3 mt-8">
  <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
  <CalendarDays className="h-5 w-5 text-indigo-500" />
- Year-wise Returns
+ Year-wise Returns {showTax && <span className="text-xs font-semibold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-200">Net of Tax</span>}
  </h2>
  </div>
 
@@ -1080,7 +1159,7 @@ export const BacktestResultsView = ({ results, strategy }) => {
  <th className="px-2 py-2 text-center">Oct</th>
  <th className="px-2 py-2 text-center">Nov</th>
  <th className="px-2 py-2 text-center">Dec</th>
- <th className="px-3 py-2 text-right font-semibold text-slate-700">Total</th>
+ <th className="px-3 py-2 text-right font-semibold text-slate-700">{showTax ? 'Total (Net)' : 'Total'}</th>
  <th className="px-3 py-2 text-right text-rose-500/80">Max Drawdown</th>
  </tr>
  </thead>
@@ -1133,113 +1212,258 @@ export const BacktestResultsView = ({ results, strategy }) => {
  Strategy Performance
  </h2>
  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
- {/* Column 1 */}
- <div className="bg-white border border-slate-200 rounded-lg overflow-hidden text-[11px]">
- <div className="flex justify-between items-center p-3 border-b border-slate-100">
- <span className="text-slate-600 font-medium">Overall Profit</span>
- <span className={overallStats.totalPnL >= 0 ?"text-emerald-600 font-bold text-[12px]" :"text-rose-600 font-bold text-[12px]"}>₹{overallStats.totalPnL.toFixed(2)}</span>
- </div>
- <div className="flex justify-between items-center p-3 border-b border-slate-100">
- <span className="text-slate-600 font-medium">No. of Trades</span>
- <span className="text-slate-800 font-bold">{overallStats.totalTrades}</span>
- </div>
- <div className="flex justify-between items-center p-3 border-b border-slate-100">
- <span className="text-slate-600 font-medium">Sell Value</span>
- <span className="text-slate-800 font-bold">₹{overallStats.sellValue ? overallStats.sellValue.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0.00'}</span>
- </div>
- <div className="flex justify-between items-center p-3 border-b border-slate-100">
- <span className="text-slate-600 font-medium">Buy Value</span>
- <span className="text-slate-800 font-bold">₹{overallStats.buyValue ? overallStats.buyValue.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0.00'}</span>
- </div>
- <div className="flex justify-between items-center p-3 border-b border-slate-100">
- <span className="text-slate-600 font-medium">Average Profit per Trade</span>
- <span className={overallStats.avgTrade >= 0 ?"text-emerald-600 font-bold" :"text-rose-600 font-bold"}>₹{overallStats.avgTrade.toFixed(2)}</span>
- </div>
- <div className="flex justify-between items-center p-3 border-b border-slate-100">
- <span className="text-slate-600 font-medium">Win %</span>
- <span className="text-slate-800 font-bold">{overallStats.winRate.toFixed(2)}%</span>
- </div>
- <div className="flex justify-between items-center p-3">
- <span className="text-slate-600 font-medium">Loss %</span>
- <span className="text-slate-800 font-bold">{overallStats.lossRate.toFixed(2)}%</span>
- </div>
- </div>
+ {showTax ? (
+  <>
+  {/* Column 1 */}
+  <div className="bg-white border border-slate-200 rounded-lg overflow-hidden text-[11px]">
+  <div className="flex justify-between items-center p-3 border-b border-slate-100">
+  <span className="text-slate-600 font-medium">Overall Profit</span>
+  <span className={overallStats.totalPnL >= 0 ?"text-emerald-600 font-bold text-[12px]" :"text-rose-600 font-bold text-[12px]"}>{formatINR(overallStats.totalPnL)}</span>
+  </div>
+  <div className="flex justify-between items-center p-3 border-b border-slate-100">
+  <span className="text-slate-600 font-medium">Net Profit</span>
+  <span className={overallStats.netProfit >= 0 ?"text-emerald-600 font-bold text-[12px]" :"text-rose-600 font-bold text-[12px]"}>{formatINR(overallStats.netProfit)}</span>
+  </div>
+  <div className="flex justify-between items-center p-3 border-b border-slate-100">
+  <span className="text-slate-600 font-medium">Total Brokerage</span>
+  <span className="text-rose-600 font-bold">{formatINR(overallStats.totalBrokerage)}</span>
+  </div>
+  <div className="flex justify-between items-center p-3 border-b border-slate-100">
+  <span className="text-slate-600 font-medium">Brokerage</span>
+  <span className="text-slate-800 font-bold">{formatINR(overallStats.totalFixedBroker)}</span>
+  </div>
+  <div className="flex justify-between items-center p-3 border-b border-slate-100">
+  <span className="text-slate-600 font-medium">Sell Tax</span>
+  <span className="text-slate-800 font-bold">{formatINR(overallStats.totalSellBrokerage)}</span>
+  </div>
+  <div className="flex justify-between items-center p-3 border-b border-slate-100">
+  <span className="text-slate-600 font-medium">Buy Tax</span>
+  <span className="text-slate-800 font-bold">{formatINR(overallStats.totalBuyBrokerage)}</span>
+  </div>
+  <div className="flex justify-between items-center p-3 border-b border-slate-100">
+  <span className="text-slate-600 font-medium">Sell Value</span>
+  <span className="text-slate-800 font-bold">{formatINR(overallStats.sellValue)}</span>
+  </div>
+  <div className="flex justify-between items-center p-3">
+  <span className="text-slate-600 font-medium">Buy Value</span>
+  <span className="text-slate-800 font-bold">{formatINR(overallStats.buyValue)}</span>
+  </div>
+  </div>
 
- {/* Column 2 */}
- <div className="bg-white border border-slate-200 rounded-lg overflow-hidden text-[11px]">
- <div className="flex justify-between items-center p-3 border-b border-slate-100">
- <span className="text-slate-600 font-medium">Average Profit on Winning Trades</span>
- <span className="text-emerald-600 font-bold">₹{overallStats.avgProfit.toFixed(2)}</span>
- </div>
- <div className="flex justify-between items-center p-3 border-b border-slate-100">
- <span className="text-slate-600 font-medium">Average Loss on Losing Trades</span>
- <span className="text-rose-600 font-bold">₹{overallStats.avgLoss.toFixed(2)}</span>
- </div>
- <div className="flex justify-between items-center p-3 border-b border-slate-100">
- <span className="text-slate-600 font-medium">Max Profit in Single Day</span>
- <div className="flex flex-col items-end">
- <span className="text-emerald-600 font-bold">₹{overallStats.maxProfit.toFixed(2)}</span>
- {overallStats.maxProfitDate && <span className="text-[9px] text-slate-400 font-medium">{new Date(overallStats.maxProfitDate).toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' })}</span>}
- </div>
- </div>
- <div className="flex justify-between items-center p-3 border-b border-slate-100">
- <span className="text-slate-600 font-medium">Max Loss in Single Day</span>
- <div className="flex flex-col items-end">
- <span className="text-rose-600 font-bold">₹{overallStats.maxLoss.toFixed(2)}</span>
- {overallStats.maxLossDate && <span className="text-[9px] text-slate-400 font-medium">{new Date(overallStats.maxLossDate).toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' })}</span>}
- </div>
- </div>
- <div className="flex justify-between items-center p-3 border-b border-slate-100">
- <span className="text-slate-600 font-medium">Max Drawdown</span>
- <div className="flex flex-col items-end">
- <span className="text-rose-600 font-bold">₹{overallStats.maxDrawdown.toFixed(2)}</span>
- {overallStats.maxDrawdownDate && <span className="text-[9px] text-slate-400 font-medium">{new Date(overallStats.maxDrawdownDate).toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' })}</span>}
- </div>
- </div>
- <div className="flex justify-between items-center p-3">
- <span className="text-slate-600 font-medium">Duration of Max Drawdown</span>
- <span className="text-slate-800 font-bold text-right leading-tight">
- {overallStats.maxDrawdownDays}
- {overallStats.maxDrawdownStartDate && overallStats.maxDrawdownEndDate && (
- <span className="block text-[9px] text-slate-400 font-medium">
- [{new Date(overallStats.maxDrawdownStartDate).toLocaleDateString('en-GB', { day:'numeric', month:'numeric', year:'numeric' })} to {new Date(overallStats.maxDrawdownEndDate).toLocaleDateString('en-GB', { day:'numeric', month:'numeric', year:'numeric' })}]
- </span>
- )}
- </span>
- </div>
- </div>
+  {/* Column 2 */}
+  <div className="bg-white border border-slate-200 rounded-lg overflow-hidden text-[11px]">
+  <div className="flex justify-between items-center p-3 border-b border-slate-100">
+  <span className="text-slate-600 font-medium">No. of Trades</span>
+  <span className="text-slate-800 font-bold">{overallStats.totalTrades}</span>
+  </div>
+  <div className="flex justify-between items-center p-3 border-b border-slate-100">
+  <span className="text-slate-600 font-medium">Average Profit per Trade</span>
+  <span className={overallStats.avgTrade >= 0 ?"text-emerald-600 font-bold" :"text-rose-600 font-bold"}>{formatINR(overallStats.avgTrade)}</span>
+  </div>
+  <div className="flex justify-between items-center p-3 border-b border-slate-100">
+  <span className="text-slate-600 font-medium">Win %</span>
+  <span className="text-slate-800 font-bold">{overallStats.winRate.toFixed(2)}%</span>
+  </div>
+  <div className="flex justify-between items-center p-3 border-b border-slate-100">
+  <span className="text-slate-600 font-medium">Loss %</span>
+  <span className="text-slate-800 font-bold">{overallStats.lossRate.toFixed(2)}%</span>
+  </div>
+  <div className="flex justify-between items-center p-3 border-b border-slate-100">
+  <span className="text-slate-600 font-medium">Average Profit on Winning Trades</span>
+  <span className="text-emerald-600 font-bold">{formatINR(overallStats.avgProfit)}</span>
+  </div>
+  <div className="flex justify-between items-center p-3 border-b border-slate-100">
+  <span className="text-slate-600 font-medium">Average Loss on Losing Trades</span>
+  <span className="text-rose-600 font-bold">{formatINR(overallStats.avgLoss)}</span>
+  </div>
+  <div className="flex justify-between items-center p-3 border-b border-slate-100">
+  <span className="text-slate-600 font-medium">Max Profit in Single Day</span>
+  <div className="flex flex-col items-end">
+  <span className="text-emerald-600 font-bold">{formatINR(overallStats.maxProfit)}</span>
+  {overallStats.maxProfitDate && <span className="text-[9px] text-slate-400 font-medium">{new Date(overallStats.maxProfitDate).toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' })}</span>}
+  </div>
+  </div>
+  <div className="flex justify-between items-center p-3">
+  <span className="text-slate-600 font-medium">Max Loss in Single Day</span>
+  <div className="flex flex-col items-end">
+  <span className="text-rose-600 font-bold">{formatINR(overallStats.maxLoss)}</span>
+  {overallStats.maxLossDate && <span className="text-[9px] text-slate-400 font-medium">{new Date(overallStats.maxLossDate).toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' })}</span>}
+  </div>
+  </div>
+  </div>
 
- {/* Column 3 */}
- <div className="bg-white border border-slate-200 rounded-lg overflow-hidden text-[11px]">
- <div className="flex justify-between items-center p-3 border-b border-slate-100">
- <span className="text-slate-600 font-medium">Yearly Return / MaxDD</span>
- <span className="text-slate-800 font-bold">{overallStats.returnOnMDD.toFixed(2)}</span>
- </div>
- <div className="flex justify-between items-center p-3 border-b border-slate-100">
- <span className="text-slate-600 font-medium">Reward to Risk Ratio</span>
- <span className="text-slate-800 font-bold">{overallStats.riskReward.toFixed(2)}</span>
- </div>
- <div className="flex justify-between items-center p-3 border-b border-slate-100">
- <span className="text-slate-600 font-medium">Expectancy Ratio</span>
- <span className="text-slate-800 font-bold">{overallStats.expectancyRatio.toFixed(2)}</span>
- </div>
- <div className="flex justify-between items-center p-3 border-b border-slate-100">
- <span className="text-slate-600 font-medium">Max Win Streak (days)</span>
- <span className="text-emerald-600 font-bold">{overallStats.maxWinStreak}</span>
- </div>
- <div className="flex justify-between items-center p-3 border-b border-slate-100">
- <span className="text-slate-600 font-medium">Max Losing Streak (days)</span>
- <span className="text-rose-600 font-bold">{overallStats.maxLoseStreak}</span>
- </div>
- <div className="flex justify-between items-center p-3">
- <span className="text-slate-600 font-medium">Max trades in any drawdown</span>
- <span className="text-slate-800 font-bold">{overallStats.maxDrawdownTrades}</span>
- </div>
- </div>
+  {/* Column 3 */}
+  <div className="bg-white border border-slate-200 rounded-lg overflow-hidden text-[11px]">
+  <div className="flex justify-between items-center p-3 border-b border-slate-100">
+  <span className="text-slate-600 font-medium">Max Drawdown</span>
+  <div className="flex flex-col items-end">
+  <span className="text-rose-600 font-bold">{formatINR(overallStats.maxDrawdown)}</span>
+  {overallStats.maxDrawdownDate && <span className="text-[9px] text-slate-400 font-medium">{new Date(overallStats.maxDrawdownDate).toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' })}</span>}
+  </div>
+  </div>
+  <div className="flex justify-between items-center p-3 border-b border-slate-100">
+  <span className="text-slate-600 font-medium">Duration of Max Drawdown</span>
+  <span className="text-slate-800 font-bold text-right leading-tight">
+  {overallStats.maxDrawdownDays}
+  {overallStats.maxDrawdownStartDate && overallStats.maxDrawdownEndDate && (
+  <span className="block text-[9px] text-slate-400 font-medium">
+  [{new Date(overallStats.maxDrawdownStartDate).toLocaleDateString('en-GB', { day:'numeric', month:'numeric', year:'numeric' })} to {new Date(overallStats.maxDrawdownEndDate).toLocaleDateString('en-GB', { day:'numeric', month:'numeric', year:'numeric' })}]
+  </span>
+  )}
+  </span>
+  </div>
+  <div className="flex justify-between items-center p-3 border-b border-slate-100">
+  <span className="text-slate-600 font-medium">Max trades in any drawdown</span>
+  <span className="text-slate-800 font-bold">{overallStats.maxDrawdownTrades}</span>
+  </div>
+  <div className="flex justify-between items-center p-3 border-b border-slate-100">
+  <span className="text-slate-600 font-medium">Max Win Streak (days)</span>
+  <span className="text-emerald-600 font-bold">{overallStats.maxWinStreak}</span>
+  </div>
+  <div className="flex justify-between items-center p-3 border-b border-slate-100">
+  <span className="text-slate-600 font-medium">Max Losing Streak (days)</span>
+  <span className="text-rose-600 font-bold">{overallStats.maxLoseStreak}</span>
+  </div>
+  <div className="flex justify-between items-center p-3 border-b border-slate-100">
+  <span className="text-slate-600 font-medium">Yearly Return / MaxDD</span>
+  <span className="text-slate-800 font-bold">{overallStats.returnOnMDD.toFixed(2)}</span>
+  </div>
+  <div className="flex justify-between items-center p-3 border-b border-slate-100">
+  <span className="text-slate-600 font-medium">Reward to Risk Ratio</span>
+  <span className="text-slate-800 font-bold">{overallStats.riskReward.toFixed(2)}</span>
+  </div>
+  <div className="flex justify-between items-center p-3">
+  <span className="text-slate-600 font-medium">Expectancy Ratio</span>
+  <span className="text-slate-800 font-bold">{overallStats.expectancyRatio.toFixed(2)}</span>
+  </div>
+  </div>
+  </>
+ ) : (
+  <>
+  {/* Column 1 (Standard: 7 items) */}
+  <div className="bg-white border border-slate-200 rounded-lg overflow-hidden text-[11px]">
+  <div className="flex justify-between items-center p-3 border-b border-slate-100">
+  <span className="text-slate-600 font-medium">Overall Profit</span>
+  <span className={overallStats.totalPnL >= 0 ?"text-emerald-600 font-bold text-[12px]" :"text-rose-600 font-bold text-[12px]"}>{formatINR(overallStats.totalPnL)}</span>
+  </div>
+  <div className="flex justify-between items-center p-3 border-b border-slate-100">
+  <span className="text-slate-600 font-medium">No. of Trades</span>
+  <span className="text-slate-800 font-bold">{overallStats.totalTrades}</span>
+  </div>
+  <div className="flex justify-between items-center p-3 border-b border-slate-100">
+  <span className="text-slate-600 font-medium">Average Profit per Trade</span>
+  <span className={overallStats.avgTrade >= 0 ?"text-emerald-600 font-bold" :"text-rose-600 font-bold"}>{formatINR(overallStats.avgTrade)}</span>
+  </div>
+  <div className="flex justify-between items-center p-3 border-b border-slate-100">
+  <span className="text-slate-600 font-medium">Win %</span>
+  <span className="text-slate-800 font-bold">{overallStats.winRate.toFixed(2)}%</span>
+  </div>
+  <div className="flex justify-between items-center p-3 border-b border-slate-100">
+  <span className="text-slate-600 font-medium">Loss %</span>
+  <span className="text-slate-800 font-bold">{overallStats.lossRate.toFixed(2)}%</span>
+  </div>
+  <div className="flex justify-between items-center p-3 border-b border-slate-100">
+  <span className="text-slate-600 font-medium">Sell Value</span>
+  <span className="text-slate-800 font-bold">{formatINR(overallStats.sellValue)}</span>
+  </div>
+  <div className="flex justify-between items-center p-3">
+  <span className="text-slate-600 font-medium">Buy Value</span>
+  <span className="text-slate-800 font-bold">{formatINR(overallStats.buyValue)}</span>
+  </div>
+  </div>
+
+  {/* Column 2 (Standard: 6 items) */}
+  <div className="bg-white border border-slate-200 rounded-lg overflow-hidden text-[11px]">
+  <div className="flex justify-between items-center p-3 border-b border-slate-100">
+  <span className="text-slate-600 font-medium">Average Profit on Winning Trades</span>
+  <span className="text-emerald-600 font-bold">{formatINR(overallStats.avgProfit)}</span>
+  </div>
+  <div className="flex justify-between items-center p-3 border-b border-slate-100">
+  <span className="text-slate-600 font-medium">Average Loss on Losing Trades</span>
+  <span className="text-rose-600 font-bold">{formatINR(overallStats.avgLoss)}</span>
+  </div>
+  <div className="flex justify-between items-center p-3 border-b border-slate-100">
+  <span className="text-slate-600 font-medium">Max Profit in Single Day</span>
+  <div className="flex flex-col items-end">
+  <span className="text-emerald-600 font-bold">{formatINR(overallStats.maxProfit)}</span>
+  {overallStats.maxProfitDate && <span className="text-[9px] text-slate-400 font-medium">{new Date(overallStats.maxProfitDate).toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' })}</span>}
+  </div>
+  </div>
+  <div className="flex justify-between items-center p-3 border-b border-slate-100">
+  <span className="text-slate-600 font-medium">Max Loss in Single Day</span>
+  <div className="flex flex-col items-end">
+  <span className="text-rose-600 font-bold">{formatINR(overallStats.maxLoss)}</span>
+  {overallStats.maxLossDate && <span className="text-[9px] text-slate-400 font-medium">{new Date(overallStats.maxLossDate).toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' })}</span>}
+  </div>
+  </div>
+  <div className="flex justify-between items-center p-3 border-b border-slate-100">
+  <span className="text-slate-600 font-medium">Max Win Streak (days)</span>
+  <span className="text-emerald-600 font-bold">{overallStats.maxWinStreak}</span>
+  </div>
+  <div className="flex justify-between items-center p-3">
+  <span className="text-slate-600 font-medium">Max Losing Streak (days)</span>
+  <span className="text-rose-600 font-bold">{overallStats.maxLoseStreak}</span>
+  </div>
+  </div>
+
+  {/* Column 3 (Standard: 6 items) */}
+  <div className="bg-white border border-slate-200 rounded-lg overflow-hidden text-[11px]">
+  <div className="flex justify-between items-center p-3 border-b border-slate-100">
+  <span className="text-slate-600 font-medium">Max Drawdown</span>
+  <div className="flex flex-col items-end">
+  <span className="text-rose-600 font-bold">{formatINR(overallStats.maxDrawdown)}</span>
+  {overallStats.maxDrawdownDate && <span className="text-[9px] text-slate-400 font-medium">{new Date(overallStats.maxDrawdownDate).toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' })}</span>}
+  </div>
+  </div>
+  <div className="flex justify-between items-center p-3 border-b border-slate-100">
+  <span className="text-slate-600 font-medium">Duration of Max Drawdown</span>
+  <span className="text-slate-800 font-bold text-right leading-tight">
+  {overallStats.maxDrawdownDays}
+  {overallStats.maxDrawdownStartDate && overallStats.maxDrawdownEndDate && (
+  <span className="block text-[9px] text-slate-400 font-medium">
+  [{new Date(overallStats.maxDrawdownStartDate).toLocaleDateString('en-GB', { day:'numeric', month:'numeric', year:'numeric' })} to {new Date(overallStats.maxDrawdownEndDate).toLocaleDateString('en-GB', { day:'numeric', month:'numeric', year:'numeric' })}]
+  </span>
+  )}
+  </span>
+  </div>
+  <div className="flex justify-between items-center p-3 border-b border-slate-100">
+  <span className="text-slate-600 font-medium">Max trades in any drawdown</span>
+  <span className="text-slate-800 font-bold">{overallStats.maxDrawdownTrades}</span>
+  </div>
+  <div className="flex justify-between items-center p-3 border-b border-slate-100">
+  <span className="text-slate-600 font-medium">Yearly Return / MaxDD</span>
+  <span className="text-slate-800 font-bold">{overallStats.returnOnMDD.toFixed(2)}</span>
+  </div>
+  <div className="flex justify-between items-center p-3 border-b border-slate-100">
+  <span className="text-slate-600 font-medium">Reward to Risk Ratio</span>
+  <span className="text-slate-800 font-bold">{overallStats.riskReward.toFixed(2)}</span>
+  </div>
+  <div className="flex justify-between items-center p-3">
+  <span className="text-slate-600 font-medium">Expectancy Ratio</span>
+  <span className="text-slate-800 font-bold">{overallStats.expectancyRatio.toFixed(2)}</span>
+  </div>
+  </div>
+  </>
+ )}
  </div>
  </div>
  )}
- <TradesSummaryTable trades={trades} filteredDailySummary={filteredDailySummary} strategy={strategy} availableStrategies={availableStrategies} selectedStrategies={selectedStrategies} getEffectiveMultiplier={getEffectiveMultiplier} />
+ <TradesSummaryTable
+  trades={trades}
+  filteredDailySummary={filteredDailySummary}
+  strategy={strategy}
+  availableStrategies={availableStrategies}
+  selectedStrategies={selectedStrategies}
+  getEffectiveMultiplier={getEffectiveMultiplier}
+  brokerFee={brokerFee}
+  setBrokerFee={setBrokerFee}
+  sellBrokerage={sellBrokerage}
+  setSellBrokerage={setSellBrokerage}
+  buyBrokerage={buyBrokerage}
+  setBuyBrokerage={setBuyBrokerage}
+  showTax={showTax}
+  setShowTax={setShowTax}
+ />
  </div>
  ) : (
  <>
