@@ -189,11 +189,6 @@ export const BacktestResultsView = ({ results, strategy }) => {
  }
  }
 
- if (isTraded && chartData && chartData[date] && (portfolioMaxLoss !=='' || portfolioTarget !=='' || earlyProfitValue !=='')) {
- const timeMap = {};
- let hasData = false;
-
- // Build a map of strategyId -> dte for this day
  const stratDteMap = {};
  if (dayData.strategies) {
  Object.entries(dayData.strategies).forEach(([sId, sData]) => {
@@ -203,6 +198,10 @@ export const BacktestResultsView = ({ results, strategy }) => {
  const sId = strategy?.id ||'single';
  stratDteMap[sId] = dayData.dte;
  }
+
+ if (isTraded && chartData && chartData[date] && (portfolioMaxLoss !=='' || portfolioTarget !=='' || earlyProfitValue !=='')) {
+ const timeMap = {};
+ let hasData = false;
 
  const allTimes = new Set();
  const legTimeMap = {};
@@ -268,7 +267,9 @@ export const BacktestResultsView = ({ results, strategy }) => {
  filtered[date] = {
  pnl: dayPnL,
  trade_value: dayTradeValue,
- pnl_percent: dayTradeValue > 0 ? (dayPnL / dayTradeValue) * 100 : 0
+ pnl_percent: dayTradeValue > 0 ? (dayPnL / dayTradeValue) * 100 : 0,
+ activeStrategies: Array.from(activeStrategyKeys),
+ strategyDtes: stratDteMap
  };
  }
  }
@@ -351,10 +352,17 @@ export const BacktestResultsView = ({ results, strategy }) => {
 
  const tradesCountByDate = {};
  if (trades) {
- trades.forEach(t => {
- if (!tradesCountByDate[t.date]) tradesCountByDate[t.date] = 0;
- tradesCountByDate[t.date]++;
- });
+  trades.forEach(t => {
+   const summary = filteredDailySummary[t.date];
+   if (!summary) return;
+
+   const sId = !strategy?.isCombined ? (strategy?.id || 'single') : (t.leg_id ? t.leg_id.split('_')[0] : 'single');
+   if (summary.activeStrategies && !summary.activeStrategies.some(id => String(id) === String(sId))) return;
+   if (selectedStrategies && selectedStrategies.size > 0 && !Array.from(selectedStrategies).some(id => String(id) === String(sId))) return;
+
+   if (!tradesCountByDate[t.date]) tradesCountByDate[t.date] = 0;
+   tradesCountByDate[t.date]++;
+  });
  }
 
  let currentWinStreak = 0;
@@ -439,13 +447,16 @@ export const BacktestResultsView = ({ results, strategy }) => {
  let buyValue = 0;
  if (trades && trades.length > 0) {
  trades.forEach(t => {
- if (!filteredDailySummary[t.date]) return;
+ const summary = filteredDailySummary[t.date];
+ if (!summary) return;
 
  const sId = !strategy?.isCombined ? (strategy?.id || 'single') : (t.leg_id ? t.leg_id.split('_')[0] : 'single');
- if (selectedStrategies && selectedStrategies.size > 0 && !selectedStrategies.has(sId)) return;
+ if (summary.activeStrategies && !summary.activeStrategies.some(id => String(id) === String(sId))) return;
+ if (selectedStrategies && selectedStrategies.size > 0 && !Array.from(selectedStrategies).some(id => String(id) === String(sId))) return;
 
- const daySummaryObj = typeof filteredDailySummary[t.date] === 'object' ? filteredDailySummary[t.date] : null;
- const tradeMulti = getEffectiveMultiplier ? getEffectiveMultiplier(sId, daySummaryObj?.dte) : 1;
+ const daySummaryObj = typeof summary === 'object' ? summary : null;
+ const stratDte = daySummaryObj?.strategyDtes?.[sId] !== undefined ? daySummaryObj.strategyDtes[sId] : daySummaryObj?.dte;
+ const tradeMulti = getEffectiveMultiplier ? getEffectiveMultiplier(sId, stratDte) : 1;
  const qty = (Number(t.qty) || 0) * tradeMulti;
 
  const entryPrice = Number(t.entry_price) || 0;

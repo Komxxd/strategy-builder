@@ -3,18 +3,18 @@ import { ChevronDown, ChevronRight, Download, ChevronsUpDown } from'lucide-react
 import * as XLSX from'xlsx';
 
 export const TradesSummaryTable = ({ trades = [], filteredDailySummary = {}, strategy, availableStrategies = [], selectedStrategies, getEffectiveMultiplier }) => {
- // Helper: check if a trade belongs to one of the selected strategies
+ // Helper: check if a trade belongs to one of the selected strategies and matching DTEs for that date
  const isTradeSelected = (trade) => {
- if (!selectedStrategies || selectedStrategies.size === 0) return true;
- if (!strategy?.isCombined) {
- // Single strategy: check if the strategy id is selected
- const sId = strategy?.id ||'single';
- return selectedStrategies.has(sId);
+ if (!trade || !trade.date) return false;
+ const summary = filteredDailySummary[trade.date];
+ if (!summary) return false;
+
+ const sId = !strategy?.isCombined ? (strategy?.id || 'single') : (trade.leg_id ? trade.leg_id.split('_')[0] : 'single');
+ if (summary.activeStrategies) {
+ return summary.activeStrategies.some(id => String(id) === String(sId));
  }
- // Combined strategy: extract strategy id from leg_id
- if (!trade.leg_id) return true;
- const sId = trade.leg_id.split('_')[0];
- return selectedStrategies.has(sId);
+ if (!selectedStrategies || selectedStrategies.size === 0) return true;
+ return Array.from(selectedStrategies).some(id => String(id) === String(sId));
  };
  const getStrategyName = (legId) => {
  if (!strategy?.isCombined) return strategy?.name ||'Strategy';
@@ -113,7 +113,8 @@ export const TradesSummaryTable = ({ trades = [], filteredDailySummary = {}, str
 
  const sId = !strategy?.isCombined ? (strategy?.id || 'single') : (t.leg_id ? t.leg_id.split('_')[0] : 'single');
  const daySummaryObj = typeof filteredDailySummary[date] === 'object' ? filteredDailySummary[date] : null;
- const tradeMulti = getEffectiveMultiplier ? getEffectiveMultiplier(sId, daySummaryObj?.dte) : 1;
+ const stratDte = daySummaryObj?.strategyDtes?.[sId] !== undefined ? daySummaryObj.strategyDtes[sId] : daySummaryObj?.dte;
+ const tradeMulti = getEffectiveMultiplier ? getEffectiveMultiplier(sId, stratDte) : 1;
  const displayQty = Math.round((t.qty || 0) * tradeMulti);
  const displayPnL = (t.pnl || 0) * tradeMulti;
 
@@ -246,7 +247,8 @@ export const TradesSummaryTable = ({ trades = [], filteredDailySummary = {}, str
 
  const sId = !strategy?.isCombined ? (strategy?.id || 'single') : (t.leg_id ? t.leg_id.split('_')[0] : 'single');
  const daySummaryObj = typeof filteredDailySummary[date] === 'object' ? filteredDailySummary[date] : null;
- const tradeMulti = getEffectiveMultiplier ? getEffectiveMultiplier(sId, daySummaryObj?.dte) : 1;
+ const stratDte = daySummaryObj?.strategyDtes?.[sId] !== undefined ? daySummaryObj.strategyDtes[sId] : daySummaryObj?.dte;
+ const tradeMulti = getEffectiveMultiplier ? getEffectiveMultiplier(sId, stratDte) : 1;
  const displayQty = Math.round((t.qty || 0) * tradeMulti);
  const displayPnL = (t.pnl || 0) * tradeMulti;
 
