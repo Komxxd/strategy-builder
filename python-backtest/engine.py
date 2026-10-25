@@ -1543,7 +1543,11 @@ class BacktestEngine:
                 t_str = curr.strftime("%Y-%m-%d")
                 y, m = t_str.split('-')[:2]
                 idx_file = os.path.join(MARKET_DATA_DIR, 'index', self.index_name, y, m, f"{t_str}.parquet")
-                if os.path.exists(idx_file): dte += 1
+                if os.path.exists(idx_file):
+                    dte += 1
+                elif curr.weekday() < 5:
+                    # Fallback for future dates beyond available market data files
+                    dte += 1
                 curr += timedelta(days=1)
                 
             final_daily_trades = []
