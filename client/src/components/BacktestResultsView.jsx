@@ -340,6 +340,7 @@ export const BacktestResultsView = ({ results, strategy }) => {
  let cumulativeBalance = 0;
  let maxBalance = 0;
  let maxDrawdown = 0;
+ let maxDrawdownDate = null;
  let currentDrawdownDays = 0;
  let maxDrawdownDays = 0;
 
@@ -409,7 +410,10 @@ export const BacktestResultsView = ({ results, strategy }) => {
  currentDrawdownTrades += dayTradesCount;
 
  const dd = cumulativeBalance - maxBalance;
- if (dd < maxDrawdown) maxDrawdown = dd;
+ if (dd < maxDrawdown) {
+  maxDrawdown = dd;
+  maxDrawdownDate = date;
+ }
  if (currentDrawdownDays > maxDrawdownDays) {
  maxDrawdownDays = currentDrawdownDays;
  maxDrawdownStartDate = currentDrawdownStartDate;
@@ -498,6 +502,7 @@ export const BacktestResultsView = ({ results, strategy }) => {
  maxLoss,
  maxLossDate,
  maxDrawdown,
+ maxDrawdownDate,
  maxDrawdownDays,
  maxDrawdownTrades,
  maxDrawdownStartDate,
@@ -1186,7 +1191,10 @@ export const BacktestResultsView = ({ results, strategy }) => {
  </div>
  <div className="flex justify-between items-center p-3 border-b border-slate-100">
  <span className="text-slate-600 font-medium">Max Drawdown</span>
+ <div className="flex flex-col items-end">
  <span className="text-rose-600 font-bold">₹{overallStats.maxDrawdown.toFixed(2)}</span>
+ {overallStats.maxDrawdownDate && <span className="text-[9px] text-slate-400 font-medium">{new Date(overallStats.maxDrawdownDate).toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' })}</span>}
+ </div>
  </div>
  <div className="flex justify-between items-center p-3">
  <span className="text-slate-600 font-medium">Duration of Max Drawdown</span>
