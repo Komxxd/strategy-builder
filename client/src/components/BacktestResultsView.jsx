@@ -361,7 +361,8 @@ export const BacktestResultsView = ({ results, strategy }) => {
    if (selectedStrategies && selectedStrategies.size > 0 && !Array.from(selectedStrategies).some(id => String(id) === String(sId))) return;
 
    if (!tradesCountByDate[t.date]) tradesCountByDate[t.date] = 0;
-   tradesCountByDate[t.date]++;
+   const tradeCount = (t.exit_time || (t.exit_price !== undefined && t.exit_price !== null)) ? 2 : 1;
+   tradesCountByDate[t.date] += tradeCount;
   });
  }
 
@@ -421,17 +422,16 @@ export const BacktestResultsView = ({ results, strategy }) => {
  }
  });
 
- const totalTrades = entries.length;
+ const totalDays = entries.length;
  const totalWin = winningDays.reduce((a, b) => a + b, 0);
  const totalLoss = losingDays.reduce((a, b) => a + b, 0);
  const dynamicTotalPnL = totalWin + totalLoss;
 
  const avgProfit = winningDays.length > 0 ? totalWin / winningDays.length : 0;
  const avgLoss = losingDays.length > 0 ? totalLoss / losingDays.length : 0;
- const avgTrade = dynamicTotalPnL / (totalTrades || 1);
 
- const winRate = (winningDays.length / totalTrades) * 100;
- const lossRate = (losingDays.length / totalTrades) * 100;
+ const winRate = (winningDays.length / (totalDays || 1)) * 100;
+ const lossRate = (losingDays.length / (totalDays || 1)) * 100;
 
  const uniqueMonths = new Set(entries.map(e => e.date.substring(0, 7)));
  const totalMonths = uniqueMonths.size || 1;
@@ -442,9 +442,11 @@ export const BacktestResultsView = ({ results, strategy }) => {
  const expectancy = ((winRate / 100) * avgProfit) + ((lossRate / 100) * avgLoss);
  const expectancyRatio = avgLoss !== 0 ? (expectancy / Math.abs(avgLoss)) : 0;
 
- // Calculate Sell Value and Buy Value across filtered trades
+ // Calculate Sell Value, Buy Value, and Trade Counts across filtered trades
  let sellValue = 0;
  let buyValue = 0;
+ let totalSellTrades = 0;
+ let totalBuyTrades = 0;
  if (trades && trades.length > 0) {
  trades.forEach(t => {
  const summary = filteredDailySummary[t.date];
@@ -462,20 +464,36 @@ export const BacktestResultsView = ({ results, strategy }) => {
  const entryPrice = Number(t.entry_price) || 0;
  const exitPrice = t.exit_price !== undefined && t.exit_price !== null ? Number(t.exit_price) : entryPrice;
  const isSell = (String(t.side).toUpperCase() === 'SELL');
+ const hasExited = Boolean(t.exit_time || (t.exit_price !== undefined && t.exit_price !== null));
 
  if (isSell) {
+ totalSellTrades++;
  sellValue += (entryPrice * qty);
+ if (hasExited) {
+ totalBuyTrades++;
  buyValue += (exitPrice * qty);
+ }
  } else {
+ totalBuyTrades++;
  buyValue += (entryPrice * qty);
+ if (hasExited) {
+ totalSellTrades++;
  sellValue += (exitPrice * qty);
+ }
  }
  });
  }
 
+ const totalActualTrades = totalSellTrades + totalBuyTrades;
+ const totalTrades = totalActualTrades > 0 ? totalActualTrades : (trades ? 0 : totalDays);
+ const avgTrade = dynamicTotalPnL / (totalTrades || 1);
+
  return {
  totalPnL: dynamicTotalPnL,
  totalTrades,
+ totalSellTrades,
+ totalBuyTrades,
+ totalDays,
  sellValue,
  buyValue,
  avgTrade,
