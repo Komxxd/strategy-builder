@@ -370,7 +370,7 @@ export const TradesSummaryTable = ({
  <th className="px-3 py-2 border-b border-slate-200 text-right">Qty</th>
  <th className="px-3 py-2 border-b border-slate-200 text-right">Entry Price</th>
  <th className="px-3 py-2 border-b border-slate-200 text-right">Exit Price</th>
- <th className="px-4 py-2 border-b border-slate-200 text-right whitespace-nowrap" title={showTax ? "PnL adjusted for Total Brokerage" : "Overall PnL"}>{showTax ? 'PnL (Net)' : 'PnL'}</th>
+ <th className="px-4 py-2 border-b border-slate-200 text-right whitespace-nowrap min-w-[120px]" title={showTax ? "PnL adjusted for Total Brokerage" : "Overall PnL"}>{showTax ? 'PnL (Net)' : 'PnL'}</th>
  {showTax && (
  <>
  <th className="px-2.5 py-2 border-b border-slate-200 text-right whitespace-nowrap">Brokerage</th>
@@ -431,7 +431,7 @@ export const TradesSummaryTable = ({
  {(() => {
  const displayDayPnL = showTax ? (overallPnL - dayTotals.total) : overallPnL;
  return (
- <td className={`px-4 py-2 font-bold text-right ${displayDayPnL >= 0 ?'text-emerald-600' :'text-rose-600'}`} title={showTax ? `Gross PnL: ${overallPnL >= 0 ? '+' : ''}₹${overallPnL.toFixed(2)} | Total Brokerage: ₹${dayTotals.total.toFixed(2)}` : undefined}>
+ <td className={`px-4 py-2 font-bold text-right whitespace-nowrap ${displayDayPnL >= 0 ?'text-emerald-600' :'text-rose-600'}`} title={showTax ? `Gross PnL: ${overallPnL >= 0 ? '+' : ''}₹${overallPnL.toFixed(2)} | Total Brokerage: ₹${dayTotals.total.toFixed(2)}` : undefined}>
  {displayDayPnL > 0 ?'+' : (displayDayPnL < 0 ? '-' : '')}₹{Math.abs(displayDayPnL).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
  </td>
  );
@@ -486,7 +486,7 @@ export const TradesSummaryTable = ({
  <td className="px-3 py-1.5 text-slate-700 text-right">
  {t.exit_price ?`₹${t.exit_price.toFixed(2)}` :'-'}
  </td>
- <td className={`px-4 py-1.5 font-bold text-right ${rowPnL >= 0 ?'text-emerald-600' :'text-rose-600'}`} title={showTax && tradeDetails ? `Gross PnL: ${displayPnL >= 0 ? '+' : ''}₹${displayPnL.toFixed(2)} | Total Brokerage: ₹${tradeDetails.total.toFixed(2)}` : undefined}>
+ <td className={`px-4 py-1.5 font-bold text-right whitespace-nowrap ${rowPnL >= 0 ?'text-emerald-600' :'text-rose-600'}`} title={showTax && tradeDetails ? `Gross PnL: ${displayPnL >= 0 ? '+' : ''}₹${displayPnL.toFixed(2)} | Total Brokerage: ₹${tradeDetails.total.toFixed(2)}` : undefined}>
  {rowPnL > 0 ?'+' : (rowPnL < 0 ? '-' : '')}₹{Math.abs(rowPnL).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
  </td>
  {showTax && tradeDetails && (
