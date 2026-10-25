@@ -548,6 +548,7 @@ export const BacktestResultsView = ({ results, strategy }) => {
 
  const totalTrades = totalActualTrades > 0 ? totalActualTrades : (trades ? 0 : totalDays);
  const avgTrade = effectiveTotalPnL / (totalTrades || 1);
+ const avgProfitPerDay = effectiveTotalPnL / (totalDays || 1);
 
  const uniqueMonths = new Set(entries.map(e => e.date.substring(0, 7)));
  const totalMonths = uniqueMonths.size || 1;
@@ -572,6 +573,7 @@ export const BacktestResultsView = ({ results, strategy }) => {
  sellValue,
  buyValue,
  avgTrade,
+ avgProfitPerDay,
  winRate,
  lossRate,
  avgProfit,
@@ -1261,6 +1263,10 @@ export const BacktestResultsView = ({ results, strategy }) => {
   <span className={overallStats.avgTrade >= 0 ?"text-emerald-600 font-bold" :"text-rose-600 font-bold"}>{formatINR(overallStats.avgTrade)}</span>
   </div>
   <div className="flex justify-between items-center p-3 border-b border-slate-100">
+  <span className="text-slate-600 font-medium">Average Profit per Day</span>
+  <span className={overallStats.avgProfitPerDay >= 0 ?"text-emerald-600 font-bold" :"text-rose-600 font-bold"}>{formatINR(overallStats.avgProfitPerDay)}</span>
+  </div>
+  <div className="flex justify-between items-center p-3 border-b border-slate-100">
   <span className="text-slate-600 font-medium">Win %</span>
   <span className="text-slate-800 font-bold">{overallStats.winRate.toFixed(2)}%</span>
   </div>
@@ -1353,6 +1359,10 @@ export const BacktestResultsView = ({ results, strategy }) => {
   <div className="flex justify-between items-center p-3 border-b border-slate-100">
   <span className="text-slate-600 font-medium">Average Profit per Trade</span>
   <span className={overallStats.avgTrade >= 0 ?"text-emerald-600 font-bold" :"text-rose-600 font-bold"}>{formatINR(overallStats.avgTrade)}</span>
+  </div>
+  <div className="flex justify-between items-center p-3 border-b border-slate-100">
+  <span className="text-slate-600 font-medium">Average Profit per Day</span>
+  <span className={overallStats.avgProfitPerDay >= 0 ?"text-emerald-600 font-bold" :"text-rose-600 font-bold"}>{formatINR(overallStats.avgProfitPerDay)}</span>
   </div>
   <div className="flex justify-between items-center p-3 border-b border-slate-100">
   <span className="text-slate-600 font-medium">Win %</span>
