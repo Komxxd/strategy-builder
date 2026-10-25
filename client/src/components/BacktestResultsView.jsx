@@ -434,9 +434,39 @@ export const BacktestResultsView = ({ results, strategy }) => {
  const expectancy = ((winRate / 100) * avgProfit) + ((lossRate / 100) * avgLoss);
  const expectancyRatio = avgLoss !== 0 ? (expectancy / Math.abs(avgLoss)) : 0;
 
+ // Calculate Sell Value and Buy Value across filtered trades
+ let sellValue = 0;
+ let buyValue = 0;
+ if (trades && trades.length > 0) {
+ trades.forEach(t => {
+ if (!filteredDailySummary[t.date]) return;
+
+ const sId = !strategy?.isCombined ? (strategy?.id || 'single') : (t.leg_id ? t.leg_id.split('_')[0] : 'single');
+ if (selectedStrategies && selectedStrategies.size > 0 && !selectedStrategies.has(sId)) return;
+
+ const daySummaryObj = typeof filteredDailySummary[t.date] === 'object' ? filteredDailySummary[t.date] : null;
+ const tradeMulti = getEffectiveMultiplier ? getEffectiveMultiplier(sId, daySummaryObj?.dte) : 1;
+ const qty = (Number(t.qty) || 0) * tradeMulti;
+
+ const entryPrice = Number(t.entry_price) || 0;
+ const exitPrice = t.exit_price !== undefined && t.exit_price !== null ? Number(t.exit_price) : entryPrice;
+ const isSell = (String(t.side).toUpperCase() === 'SELL');
+
+ if (isSell) {
+ sellValue += (entryPrice * qty);
+ buyValue += (exitPrice * qty);
+ } else {
+ buyValue += (entryPrice * qty);
+ sellValue += (exitPrice * qty);
+ }
+ });
+ }
+
  return {
  totalPnL: dynamicTotalPnL,
  totalTrades,
+ sellValue,
+ buyValue,
  avgTrade,
  winRate,
  lossRate,
@@ -457,7 +487,7 @@ export const BacktestResultsView = ({ results, strategy }) => {
  maxWinStreak,
  maxLoseStreak
  };
- }, [filteredDailySummary, trades]);
+ }, [filteredDailySummary, trades, strategy, selectedStrategies, getEffectiveMultiplier]);
 
  const groupedDates = React.useMemo(() => {
  if (!filteredDailySummary) return {};
@@ -1088,6 +1118,14 @@ export const BacktestResultsView = ({ results, strategy }) => {
  <span className="text-slate-800 font-bold">{overallStats.totalTrades}</span>
  </div>
  <div className="flex justify-between items-center p-3 border-b border-slate-100">
+ <span className="text-slate-600 font-medium">Sell Value</span>
+ <span className="text-slate-800 font-bold">₹{overallStats.sellValue ? overallStats.sellValue.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0.00'}</span>
+ </div>
+ <div className="flex justify-between items-center p-3 border-b border-slate-100">
+ <span className="text-slate-600 font-medium">Buy Value</span>
+ <span className="text-slate-800 font-bold">₹{overallStats.buyValue ? overallStats.buyValue.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0.00'}</span>
+ </div>
+ <div className="flex justify-between items-center p-3 border-b border-slate-100">
  <span className="text-slate-600 font-medium">Average Profit per Trade</span>
  <span className={overallStats.avgTrade >= 0 ?"text-emerald-600 font-bold" :"text-rose-600 font-bold"}>₹{overallStats.avgTrade.toFixed(2)}</span>
  </div>
@@ -1095,18 +1133,18 @@ export const BacktestResultsView = ({ results, strategy }) => {
  <span className="text-slate-600 font-medium">Win %</span>
  <span className="text-slate-800 font-bold">{overallStats.winRate.toFixed(2)}%</span>
  </div>
- <div className="flex justify-between items-center p-3 border-b border-slate-100">
+ <div className="flex justify-between items-center p-3">
  <span className="text-slate-600 font-medium">Loss %</span>
  <span className="text-slate-800 font-bold">{overallStats.lossRate.toFixed(2)}%</span>
- </div>
- <div className="flex justify-between items-center p-3">
- <span className="text-slate-600 font-medium">Average Profit on Winning Trades</span>
- <span className="text-emerald-600 font-bold">₹{overallStats.avgProfit.toFixed(2)}</span>
  </div>
  </div>
 
  {/* Column 2 */}
  <div className="bg-white border border-slate-200 rounded-lg overflow-hidden text-[11px]">
+ <div className="flex justify-between items-center p-3 border-b border-slate-100">
+ <span className="text-slate-600 font-medium">Average Profit on Winning Trades</span>
+ <span className="text-emerald-600 font-bold">₹{overallStats.avgProfit.toFixed(2)}</span>
+ </div>
  <div className="flex justify-between items-center p-3 border-b border-slate-100">
  <span className="text-slate-600 font-medium">Average Loss on Losing Trades</span>
  <span className="text-rose-600 font-bold">₹{overallStats.avgLoss.toFixed(2)}</span>
