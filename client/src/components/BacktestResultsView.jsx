@@ -361,8 +361,7 @@ export const BacktestResultsView = ({ results, strategy }) => {
    if (selectedStrategies && selectedStrategies.size > 0 && !Array.from(selectedStrategies).some(id => String(id) === String(sId))) return;
 
    if (!tradesCountByDate[t.date]) tradesCountByDate[t.date] = 0;
-   const tradeCount = (t.exit_time || (t.exit_price !== undefined && t.exit_price !== null)) ? 2 : 1;
-   tradesCountByDate[t.date] += tradeCount;
+   tradesCountByDate[t.date]++;
   });
  }
 
@@ -464,22 +463,15 @@ export const BacktestResultsView = ({ results, strategy }) => {
  const entryPrice = Number(t.entry_price) || 0;
  const exitPrice = t.exit_price !== undefined && t.exit_price !== null ? Number(t.exit_price) : entryPrice;
  const isSell = (String(t.side).toUpperCase() === 'SELL');
- const hasExited = Boolean(t.exit_time || (t.exit_price !== undefined && t.exit_price !== null));
 
  if (isSell) {
  totalSellTrades++;
  sellValue += (entryPrice * qty);
- if (hasExited) {
- totalBuyTrades++;
  buyValue += (exitPrice * qty);
- }
  } else {
  totalBuyTrades++;
  buyValue += (entryPrice * qty);
- if (hasExited) {
- totalSellTrades++;
  sellValue += (exitPrice * qty);
- }
  }
  });
  }
