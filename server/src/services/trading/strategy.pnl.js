@@ -228,8 +228,11 @@ function evaluateLegLimits({ leg, config, strategyId, addStrategyLog, isMinuteCl
 
         if (isSlEnabled && activeSlValue > 0) {
             const activeSlType = isReentered && leg.leg.reentry_sl_enabled ? leg.leg.reentry_sl_type : (leg.leg.sl_type || "PERCENTAGE");
+            const isSlCandleOpen = !isReentered && (config?.is_sl_price_on_candle_open || config?.sl_price_on_candle_open || config?.sl_based_on_candle_open) && !leg.simpleMntmEnabled;
 
-            if (activeSlType === "POINTS") {
+            if (isSlCandleOpen && leg.slTriggerPrice) {
+                result.isHit = leg.leg.side === "BUY" ? leg.currentLtp <= leg.slTriggerPrice : leg.currentLtp >= leg.slTriggerPrice;
+            } else if (activeSlType === "POINTS") {
                 result.isHit = leg.currentActivePnlPoints <= -activeSlValue;
             } else {
                 result.isHit = leg.currentActivePnlPercent <= -activeSlValue;
@@ -245,9 +248,10 @@ function evaluateLegLimits({ leg, config, strategyId, addStrategyLog, isMinuteCl
             }
 
             if (leg.initialSlTriggerPrice === undefined || leg.initialSlTriggerPrice === null) {
-                const offsetAmount = getLimitOffsetAmt(leg.entryPrice, config);
+                const basePrice = (isSlCandleOpen && leg.entryCandleOpen) ? leg.entryCandleOpen : leg.entryPrice;
+                const offsetAmount = getLimitOffsetAmt(basePrice, config);
                 const prices = computeStopLossExitPrices(
-                    leg.entryPrice,
+                    basePrice,
                     leg.leg.side,
                     activeSlType,
                     activeSlValue,

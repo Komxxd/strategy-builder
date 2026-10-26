@@ -2146,6 +2146,19 @@ export const StrategyFormContent = ({ config, setConfig, editingId, setEditingId
  </Label>
  </div>
  </div>
+
+ <div className="space-y-1 w-full min-w-[120px] md:w-[200px] flex-none flex flex-col justify-center">
+ <div className="flex items-center gap-2 mt-4">
+ <Switch
+ checked={config.is_sl_price_on_candle_open ?? config.sl_based_on_candle_open ?? false}
+ onCheckedChange={(val) => setConfig({ ...config, is_sl_price_on_candle_open: val, sl_price_on_candle_open: val, sl_based_on_candle_open: val })}
+ id="is-sl-price-candle-open"
+ />
+ <Label htmlFor="is-sl-price-candle-open" className="text-[10px] font-medium text-gray-700 cursor-pointer" title="Calculate Stop Loss based on entry candle open price instead of entry fill price (Initial entry with no simple momentum only)">
+ SL Price on Candle Open
+ </Label>
+ </div>
+ </div>
  </div>
 
  <div className="flex flex-wrap items-start gap-4 md:gap-5 px-0 w-full pt-2 border-t border-gray-50 mt-2 mb-1">
@@ -2887,6 +2900,9 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  entry_limit_offset_type:'POINTS',
  chase_time_seconds: 45,
  quantity_multiplier: 1,
+ no_sl_on_entry_candle: false,
+ is_sl_price_on_candle_open: false,
+ sl_based_on_candle_open: false,
  legs: [
  { strike_criteria:'STRIKE_TYPE', option_type:'CE', strike:'ATM', premium: 0, side:'BUY', lots: 1, sl_type:'PERCENTAGE', stop_loss: 10, simple_mntm_enabled: false, simple_mntm_type:'NORMAL', simple_mntm_mode:'SIMPLE_PLUS_PCT', simple_mntm_value: 0, recost_enabled: false, recost_mode:'RECOST_PLUS_PCT', recost_value: 0, max_reentry: 1, no_reentry_on_sl_candle: false, reentry_sl_enabled: false, reentry_sl_type:'PERCENTAGE', reentry_sl_value: 10, reentry_tsl_enabled: false, reentry_tsl_type:'PERCENTAGE', reentry_tsl_move: 0, reentry_tsl_trail: 0, re_asap_enabled: false, re_asap_max_entries: 1, lazy_leg_enabled: false, lazy_leg: null, tsl_enabled: false, tsl_type:'PERCENTAGE', tsl_move: 0 }
  ]
