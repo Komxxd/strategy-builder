@@ -228,7 +228,7 @@ function evaluateLegLimits({ leg, config, strategyId, addStrategyLog, isMinuteCl
 
         if (isSlEnabled && activeSlValue > 0) {
             const activeSlType = isReentered && leg.leg.reentry_sl_enabled ? leg.leg.reentry_sl_type : (leg.leg.sl_type || "PERCENTAGE");
-            const isSlCandleOpen = !isReentered && (config?.is_sl_price_on_candle_open || config?.sl_price_on_candle_open || config?.sl_based_on_candle_open) && !leg.simpleMntmEnabled;
+            const isSlCandleOpen = !isReentered && (leg.is_sl_price_on_candle_open || leg.leg?.is_sl_price_on_candle_open || leg.leg?.sl_price_on_candle_open || leg.leg?.sl_based_on_candle_open || config?.is_sl_price_on_candle_open || config?.sl_price_on_candle_open || config?.sl_based_on_candle_open) && !leg.simpleMntmEnabled;
 
             if (isSlCandleOpen && leg.slTriggerPrice) {
                 result.isHit = leg.leg.side === "BUY" ? leg.currentLtp <= leg.slTriggerPrice : leg.currentLtp >= leg.slTriggerPrice;

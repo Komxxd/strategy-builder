@@ -1049,7 +1049,7 @@ async function monitorStrategyLoop(strategyId, strategy) {
                     if (isSlEnabled && activeSlValue > 0 && leg.slOrderId !== "DISABLED") {
                         try {
                             const activeSlType = isReentered && leg.leg.reentry_sl_enabled ? leg.leg.reentry_sl_type : (leg.leg.sl_type || "PERCENTAGE");
-                            const isSlCandleOpen = !isReentered && (config.is_sl_price_on_candle_open || config.sl_price_on_candle_open || config.sl_based_on_candle_open) && !leg.simpleMntmEnabled;
+                            const isSlCandleOpen = !isReentered && (leg.is_sl_price_on_candle_open || leg.leg?.is_sl_price_on_candle_open || leg.leg?.sl_price_on_candle_open || leg.leg?.sl_based_on_candle_open || config.is_sl_price_on_candle_open || config.sl_price_on_candle_open || config.sl_based_on_candle_open) && !leg.simpleMntmEnabled;
                             const basePriceForSl = (isSlCandleOpen && leg.entryCandleOpen) ? leg.entryCandleOpen : leg.entryPrice;
 
                             const limitMargin = leg.leg.sl_limit_margin !== undefined && leg.leg.sl_limit_margin !== null && leg.leg.sl_limit_margin !== ''
@@ -1109,7 +1109,7 @@ async function monitorStrategyLoop(strategyId, strategy) {
                     const activeSlValue = isReentered && leg.leg.reentry_sl_enabled ? leg.leg.reentry_sl_value : leg.leg.stop_loss;
                     const activeSlType = isReentered && leg.leg.reentry_sl_enabled ? leg.leg.reentry_sl_type : (leg.leg.sl_type || "PERCENTAGE");
                     
-                    const isSlCandleOpen = !isReentered && (config.is_sl_price_on_candle_open || config.sl_price_on_candle_open || config.sl_based_on_candle_open) && !leg.simpleMntmEnabled;
+                    const isSlCandleOpen = !isReentered && (leg.is_sl_price_on_candle_open || leg.leg?.is_sl_price_on_candle_open || leg.leg?.sl_price_on_candle_open || leg.leg?.sl_based_on_candle_open || config.is_sl_price_on_candle_open || config.sl_price_on_candle_open || config.sl_based_on_candle_open) && !leg.simpleMntmEnabled;
                     const basePriceForSl = (isSlCandleOpen && leg.entryCandleOpen) ? leg.entryCandleOpen : leg.entryPrice;
 
                     const prices = computeStopLossExitPrices(basePriceForSl, leg.leg.side, activeSlType, activeSlValue, config.entry_limit_offset, config.entry_limit_offset_type || 'POINTS');

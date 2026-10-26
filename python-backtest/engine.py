@@ -361,7 +361,8 @@ class BacktestEngine:
             entry_price = override_entry_price if override_entry_price is not None else df['open'][0]
             
         is_momentum = leg.get('simple_mntm_enabled', False)
-        is_candle_open_sl = self.config.get('is_sl_price_on_candle_open') or self.config.get('sl_price_on_candle_open') or self.config.get('sl_based_on_candle_open')
+        is_candle_open_sl = (leg.get('is_sl_price_on_candle_open') or leg.get('sl_price_on_candle_open') or leg.get('sl_based_on_candle_open') or
+                             self.config.get('is_sl_price_on_candle_open') or self.config.get('sl_price_on_candle_open') or self.config.get('sl_based_on_candle_open'))
         if is_candle_open_sl and not is_momentum and not is_reentry:
             sl_base_price = df['open'][0]
 

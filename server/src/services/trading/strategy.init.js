@@ -8,7 +8,7 @@ const marketSocketService = require("../marketSocket.service");
 const { pauseStrategy } = require("./strategy.lifecycle");
 
 async function resolveEntryCandleOpenPrice(leg, config) {
-    const isEnabled = config?.is_sl_price_on_candle_open || config?.sl_price_on_candle_open || config?.sl_based_on_candle_open;
+    const isEnabled = leg.is_sl_price_on_candle_open || leg.sl_price_on_candle_open || leg.sl_based_on_candle_open || leg.leg?.is_sl_price_on_candle_open || leg.leg?.sl_price_on_candle_open || leg.leg?.sl_based_on_candle_open || config?.is_sl_price_on_candle_open || config?.sl_price_on_candle_open || config?.sl_based_on_candle_open;
     if (!isEnabled || leg.simpleMntmEnabled) {
         return leg.entryPrice;
     }
@@ -258,12 +258,13 @@ async function handleInitialEntry(strategyId, strategy) {
                 slOrderId: null,
                 slUniqueOrderId: null,
                 slTriggerPrice: null,
-                slLimitPrice: null
+                slLimitPrice: null,
+                is_sl_price_on_candle_open: !!(item.leg?.is_sl_price_on_candle_open || item.leg?.sl_price_on_candle_open || item.leg?.sl_based_on_candle_open || config?.is_sl_price_on_candle_open || config?.sl_price_on_candle_open || config?.sl_based_on_candle_open)
             };
 
             if (isVirtualStrategy && leg.entryPrice && config.variety === "STOPLOSS" && leg.leg.sl_enabled !== false) {
                 let basePriceForSl = leg.entryPrice;
-                const isSlCandleOpen = (config.is_sl_price_on_candle_open || config.sl_price_on_candle_open || config.sl_based_on_candle_open) && !leg.simpleMntmEnabled;
+                const isSlCandleOpen = (leg.is_sl_price_on_candle_open || leg.leg?.is_sl_price_on_candle_open || leg.leg?.sl_price_on_candle_open || leg.leg?.sl_based_on_candle_open || config?.is_sl_price_on_candle_open || config?.sl_price_on_candle_open || config?.sl_based_on_candle_open) && !leg.simpleMntmEnabled;
                 if (isSlCandleOpen) {
                     basePriceForSl = leg.entryCandleOpen || leg.candleOpen || leg.initialLtp || leg.entryPrice;
                     leg.entryCandleOpen = basePriceForSl;
@@ -280,7 +281,7 @@ async function handleInitialEntry(strategyId, strategy) {
                 leg.initialSlTriggerPrice = prices?.trigger || null;
                 leg.slLimitPrice = prices?.limit || null;
                 if (isSlCandleOpen) {
-                    addStrategyLog(strategyId, `[VIRTUAL][SL Price on Candle Open] Calculated Stop-Loss for ${leg.instrument.symbol} using Candle Open ₹${basePriceForSl} instead of Entry Price ₹${leg.entryPrice}. Trigger: ₹${prices?.trigger}`, "INFO");
+                    addStrategyLog(strategyId, `[VIRTUAL][SL Price on Entry Candle Open] Calculated Stop-Loss for ${leg.instrument.symbol} using Entry Candle Open ₹${basePriceForSl} instead of Entry Price ₹${leg.entryPrice}. Trigger: ₹${prices?.trigger}`, "INFO");
                 }
             }
 
@@ -460,7 +461,7 @@ async function handleInitialEntry(strategyId, strategy) {
                     slValueToUse = leg.leg.stop_loss * parseFloat(leg.leg.sl_multiplier_value);
                     leg.sl_multiplier_applied = true;
                 }
-                const isSlCandleOpen = (config.is_sl_price_on_candle_open || config.sl_price_on_candle_open || config.sl_based_on_candle_open) && !leg.simpleMntmEnabled;
+                const isSlCandleOpen = (leg.is_sl_price_on_candle_open || leg.leg?.is_sl_price_on_candle_open || leg.leg?.sl_price_on_candle_open || leg.leg?.sl_based_on_candle_open || config?.is_sl_price_on_candle_open || config?.sl_price_on_candle_open || config?.sl_based_on_candle_open) && !leg.simpleMntmEnabled;
                 let basePriceForSl = leg.entryPrice;
                 if (isSlCandleOpen) {
                     basePriceForSl = await resolveEntryCandleOpenPrice(leg, config);
@@ -488,7 +489,7 @@ async function handleInitialEntry(strategyId, strategy) {
                 leg.initialSlTriggerPrice = prices?.trigger || null;
                 leg.slLimitPrice = prices?.limit || null;
                 if (isSlCandleOpen) {
-                    addStrategyLog(strategyId, `[SL Price on Candle Open] Calculated Stop-Loss for ${leg.instrument.symbol} using Candle Open ₹${basePriceForSl} instead of Entry Price ₹${leg.entryPrice}. Trigger: ₹${prices?.trigger}, Limit: ₹${prices?.limit}`, "INFO");
+                    addStrategyLog(strategyId, `[SL Price on Entry Candle Open] Calculated Stop-Loss for ${leg.instrument.symbol} using Entry Candle Open ₹${basePriceForSl} instead of Entry Price ₹${leg.entryPrice}. Trigger: ₹${prices?.trigger}, Limit: ₹${prices?.limit}`, "INFO");
                 }
             }
         }));
