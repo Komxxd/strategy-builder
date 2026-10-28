@@ -7,19 +7,24 @@ const { placeOrder, chaseOrderFill, waitForOrderFillPrice, placeStopLossWithRetr
 const marketSocketService = require("../marketSocket.service");
 const { pauseStrategy } = require("./strategy.lifecycle");
 
-async function resolveEntryCandleOpenPrice(leg, config) {
+async function resolveEntryCandleOpenPrice(leg, config, strategyId) {
     const isEnabled = leg.is_sl_price_on_candle_open || leg.sl_price_on_candle_open || leg.sl_based_on_candle_open || leg.leg?.is_sl_price_on_candle_open || leg.leg?.sl_price_on_candle_open || leg.leg?.sl_based_on_candle_open || config?.is_sl_price_on_candle_open || config?.sl_price_on_candle_open || config?.sl_based_on_candle_open;
     if (!isEnabled || leg.simpleMntmEnabled) {
         return leg.entryPrice;
     }
-    let candleOpen = leg.entryCandleOpen || leg.candleOpen || leg.initialLtp || leg.entryPrice;
-    try {
-        const { getISTFullDate, getISTTime } = require("./strategy.time");
-        const today = getISTFullDate();
-        const timeStr = leg.entryTime || config.entry_time || getISTTime();
-        const minute = timeStr.includes(" ") ? timeStr.split(" ")[1].substring(0, 5) : timeStr.substring(0, 5);
-        const marketService = require("../market.service");
+    const { getISTDateOnly, getISTTime } = require("./strategy.time");
+    const today = getISTDateOnly();
+    const timeStr = leg.entryTime || config.entry_time || getISTTime();
+    const minute = timeStr.includes(" ") ? timeStr.split(" ")[1].substring(0, 5) : timeStr.substring(0, 5);
 
+    let candleOpen = leg.entryCandleOpen || leg.candleOpen || leg.initialLtp || leg.entryPrice;
+    let source = "Snapshot LTP";
+    if (leg.candleOpen && leg.candleOpen > 0) {
+        source = "Websocket Tick";
+    }
+
+    try {
+        const marketService = require("../market.service");
         const fetchPromise = marketService.getHistoricalData({
             exchange: leg.instrument.exch_seg,
             symboltoken: leg.instrument.token,
@@ -28,19 +33,33 @@ async function resolveEntryCandleOpenPrice(leg, config) {
             todate: `${today} ${minute}`,
             connectionId: config.connectionId
         });
-        const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Candle fetch timeout")), 1500));
+        const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Candle fetch timeout")), 2000));
         const res = await Promise.race([fetchPromise, timeoutPromise]);
 
         if (res && res.status && Array.isArray(res.data) && res.data.length > 0) {
             const openVal = parseFloat(res.data[0][1]);
             if (openVal > 0) {
                 candleOpen = openVal;
+                source = "Exchange Candle API";
             }
         }
     } catch (e) {
-        // Fall back to leg.entryCandleOpen / leg.initialLtp
+        // Fall back to leg.entryCandleOpen / leg.candleOpen / leg.initialLtp
     }
+
+    if (!candleOpen || candleOpen <= 0) {
+        candleOpen = leg.entryPrice;
+        source = "Traded Fill Price Fallback";
+    }
+
     leg.entryCandleOpen = candleOpen;
+    leg.candleOpen = candleOpen;
+    leg.entryCandleOpenSource = source;
+
+    if (strategyId) {
+        addStrategyLog(strategyId, `[SL Price on Entry Candle Open] Resolved Entry Candle (${minute}) Open Price for ${leg.instrument.symbol}: ₹${Number(candleOpen).toFixed(2)} [Source: ${source}]. Traded Entry Price: ₹${Number(leg.entryPrice || 0).toFixed(2)}.`, "INFO");
+    }
+
     return candleOpen;
 }
 
@@ -281,7 +300,7 @@ async function handleInitialEntry(strategyId, strategy) {
                 leg.initialSlTriggerPrice = prices?.trigger || null;
                 leg.slLimitPrice = prices?.limit || null;
                 if (isSlCandleOpen) {
-                    addStrategyLog(strategyId, `[VIRTUAL][SL Price on Entry Candle Open] Calculated Stop-Loss for ${leg.instrument.symbol} using Entry Candle Open ₹${basePriceForSl} instead of Entry Price ₹${leg.entryPrice}. Trigger: ₹${prices?.trigger}`, "INFO");
+                    addStrategyLog(strategyId, `[VIRTUAL][SL Price on Entry Candle Open] Calculated Stop-Loss for ${leg.instrument.symbol}: Entry Candle Open ₹${Number(basePriceForSl).toFixed(2)} (vs Entry Price ₹${Number(leg.entryPrice).toFixed(2)}) → Trigger: ₹${prices?.trigger}`, "INFO");
                 }
             }
 
@@ -464,7 +483,7 @@ async function handleInitialEntry(strategyId, strategy) {
                 const isSlCandleOpen = (leg.is_sl_price_on_candle_open || leg.leg?.is_sl_price_on_candle_open || leg.leg?.sl_price_on_candle_open || leg.leg?.sl_based_on_candle_open || config?.is_sl_price_on_candle_open || config?.sl_price_on_candle_open || config?.sl_based_on_candle_open) && !leg.simpleMntmEnabled;
                 let basePriceForSl = leg.entryPrice;
                 if (isSlCandleOpen) {
-                    basePriceForSl = await resolveEntryCandleOpenPrice(leg, config);
+                    basePriceForSl = await resolveEntryCandleOpenPrice(leg, config, strategyId);
                 }
                 const slLimitMargin = getLimitOffsetAmt(basePriceForSl, config);
                 const slOrder = await placeStopLossWithRetry({
@@ -478,7 +497,10 @@ async function handleInitialEntry(strategyId, strategy) {
                     slLimitMargin: slLimitMargin,
                     slLimitMarginType: 'POINTS',
                     connectionId: config.connectionId,
-                    strategyId: strategyId
+                    strategyId: strategyId,
+                    isCandleOpenSl: isSlCandleOpen,
+                    candleOpenPrice: basePriceForSl,
+                    actualEntryPrice: leg.entryPrice
                 });
                 const prices = computeStopLossExitPrices(basePriceForSl, leg.leg.side, leg.leg.sl_type || "PERCENTAGE", slValueToUse, slLimitMargin, 'POINTS');
                 if (slOrder?.orderid) {
@@ -489,7 +511,7 @@ async function handleInitialEntry(strategyId, strategy) {
                 leg.initialSlTriggerPrice = prices?.trigger || null;
                 leg.slLimitPrice = prices?.limit || null;
                 if (isSlCandleOpen) {
-                    addStrategyLog(strategyId, `[SL Price on Entry Candle Open] Calculated Stop-Loss for ${leg.instrument.symbol} using Entry Candle Open ₹${basePriceForSl} instead of Entry Price ₹${leg.entryPrice}. Trigger: ₹${prices?.trigger}, Limit: ₹${prices?.limit}`, "INFO");
+                    addStrategyLog(strategyId, `[SL Price on Entry Candle Open] Calculated Stop-Loss for ${leg.instrument.symbol}: Entry Candle Open ₹${Number(basePriceForSl).toFixed(2)} (vs Traded Entry ₹${Number(leg.entryPrice).toFixed(2)}) → Trigger: ₹${prices?.trigger}, Limit: ₹${prices?.limit}`, "INFO");
                 }
             }
         }));

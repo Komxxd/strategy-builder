@@ -1050,7 +1050,11 @@ async function monitorStrategyLoop(strategyId, strategy) {
                         try {
                             const activeSlType = isReentered && leg.leg.reentry_sl_enabled ? leg.leg.reentry_sl_type : (leg.leg.sl_type || "PERCENTAGE");
                             const isSlCandleOpen = !isReentered && (leg.is_sl_price_on_candle_open || leg.leg?.is_sl_price_on_candle_open || leg.leg?.sl_price_on_candle_open || leg.leg?.sl_based_on_candle_open || config.is_sl_price_on_candle_open || config.sl_price_on_candle_open || config.sl_based_on_candle_open) && !leg.simpleMntmEnabled;
-                            const basePriceForSl = (isSlCandleOpen && leg.entryCandleOpen) ? leg.entryCandleOpen : leg.entryPrice;
+                            let basePriceForSl = (isSlCandleOpen && leg.entryCandleOpen) ? leg.entryCandleOpen : leg.entryPrice;
+                            if (isSlCandleOpen) {
+                                const { resolveEntryCandleOpenPrice } = require("./strategy.init");
+                                basePriceForSl = await resolveEntryCandleOpenPrice(leg, config, strategyId);
+                            }
 
                             const limitMargin = leg.leg.sl_limit_margin !== undefined && leg.leg.sl_limit_margin !== null && leg.leg.sl_limit_margin !== ''
                                 ? leg.leg.sl_limit_margin
@@ -1075,7 +1079,10 @@ async function monitorStrategyLoop(strategyId, strategy) {
                                 connectionId: config.connectionId,
                                 strategyId: strategyId,
                                 overrideSlTriggerPrice: targetTriggerPrice,
-                                isDeferred: true
+                                isDeferred: true,
+                                isCandleOpenSl: isSlCandleOpen,
+                                candleOpenPrice: basePriceForSl,
+                                actualEntryPrice: leg.entryPrice
                             });
                             if (slOrder && slOrder.orderid) {
                                 leg.slOrderId = slOrder.orderid;
@@ -1092,7 +1099,7 @@ async function monitorStrategyLoop(strategyId, strategy) {
                                     }
                                 }
                                 leg.exchangeSlProcessed = false;
-                                const candleOpenMsg = isSlCandleOpen ? ` using Candle Open ₹${basePriceForSl} (Entry: ₹${leg.entryPrice})` : '';
+                                const candleOpenMsg = isSlCandleOpen ? ` using Entry Candle Open ₹${Number(basePriceForSl).toFixed(2)} (Traded Entry Price: ₹${Number(leg.entryPrice).toFixed(2)})` : '';
                                 addStrategyLog(strategyId, `[Deferred SL] Placed StopLoss for ${leg.instrument.symbol} after entry minute close${candleOpenMsg}. Trigger: ₹${slOrder.triggerprice}, Limit: ₹${slOrder.limitprice}${targetTriggerPrice ? ' (Trailed)' : ''}`, "INFO");
                             } else {
                                 leg.slOrderId = "DISABLED";
@@ -1131,7 +1138,7 @@ async function monitorStrategyLoop(strategyId, strategy) {
                             leg.slLimitPrice = prices.limit;
                             leg.initialSlTriggerPrice = prices.trigger;
                             
-                            const candleOpenMsg = isSlCandleOpen ? ` (based on Candle Open ₹${basePriceForSl})` : '';
+                            const candleOpenMsg = isSlCandleOpen ? ` (based on Entry Candle Open ₹${Number(basePriceForSl).toFixed(2)}, Traded Entry Price: ₹${Number(leg.entryPrice).toFixed(2)})` : '';
                             addStrategyLog(strategyId, `[SL Multiplier] Reverted SL order for ${leg.instrument.symbol} to normal price ₹${prices.trigger}${candleOpenMsg} after entry minute.`, "INFO");
                         } catch(err) {
                             addStrategyLog(strategyId, `[SL Multiplier] Failed to revert SL order for ${leg.instrument.symbol}: ${err.message}`, "ERROR");

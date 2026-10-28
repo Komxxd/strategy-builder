@@ -4332,6 +4332,12 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  <span className="text-primary font-medium text-[10px] font-mono">{l.entryTime ||"---"}</span>
  <span className="text-muted-foreground text-[10px] font-mono">|</span>
  <span className="text-[10px] font-mono text-muted-foreground">Entry: {(l.entryPrice || 0).toFixed(2)}</span>
+ {((l.is_sl_price_on_candle_open || l.leg?.is_sl_price_on_candle_open || l.leg?.sl_price_on_candle_open || l.leg?.sl_based_on_candle_open) && l.entryCandleOpen != null) && (
+ <>
+ <span className="text-muted-foreground text-[10px] font-mono">|</span>
+ <span className="text-amber-600 font-bold text-[10px] font-mono" title="Entry Candle Open Price">C.Open: {Number(l.entryCandleOpen).toFixed(2)}</span>
+ </>
+ )}
  <span className="text-muted-foreground text-[10px] font-mono">|</span>
  <span className="text-[10px] font-mono animate-pulse text-blue-600 font-medium">LTP: {(l.currentLtp || 0).toFixed(2)}</span>
  {l.leg?.tsl_on_close_low && l.leg?.side === 'SELL' && l.candleLow != null && (
@@ -4527,6 +4533,12 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  <span className="text-black font-bold text-[10px] font-mono">{l.entryTime ||"---"}</span>
  <span className="text-black/30 text-[10px] font-mono">|</span>
  <span className="text-[10px] font-mono text-black">Entry: {(l.entryPrice || 0).toFixed(2)}</span>
+ {((l.is_sl_price_on_candle_open || l.leg?.is_sl_price_on_candle_open || l.leg?.sl_price_on_candle_open || l.leg?.sl_based_on_candle_open) && l.entryCandleOpen != null) && (
+ <>
+ <span className="text-black/30 text-[10px] font-mono">|</span>
+ <span className="text-amber-700 font-bold text-[10px] font-mono" title="Entry Candle Open Price">C.Open: {Number(l.entryCandleOpen).toFixed(2)}</span>
+ </>
+ )}
  <span className="text-black/30 text-[10px] font-mono">|</span>
  <span className="text-black font-bold text-[10px] font-mono">Exit: {l.exitTime || l.exitSnapshot?.exitTime ||"---"}</span>
  <span className="text-black/30 text-[10px] font-mono">|</span>

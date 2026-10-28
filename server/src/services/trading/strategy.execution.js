@@ -384,11 +384,12 @@ async function placeStopLossExitOrder({ baseConfig, legSide, entryPrice, instrum
  * If the first attempt to place an SL fails (e.g. network error),
  * this function will try up to 3 times before giving up.
  */
-async function placeStopLossWithRetry({ baseConfig, legSide, entryPrice, instrument, lots, slType, slValue, slLimitMargin, slLimitMarginType = 'POINTS', connectionId, strategyId, overrideSlTriggerPrice, isDeferred = false }) {
+async function placeStopLossWithRetry({ baseConfig, legSide, entryPrice, instrument, lots, slType, slValue, slLimitMargin, slLimitMarginType = 'POINTS', connectionId, strategyId, overrideSlTriggerPrice, isDeferred = false, isCandleOpenSl = false, candleOpenPrice, actualEntryPrice }) {
     if (baseConfig?.no_sl_on_entry_candle && !isDeferred) {
         if (strategyId) {
             const { addStrategyLog } = require("./strategy.state");
-            addStrategyLog(strategyId, `Deferred SL placement for ${instrument.symbol} because 'No SL on entry candle' is enabled.`, "INFO");
+            const openInfo = isCandleOpenSl ? ` [Entry Candle Open: ₹${Number(candleOpenPrice || entryPrice).toFixed(2)}]` : '';
+            addStrategyLog(strategyId, `Deferred SL placement for ${instrument.symbol}${openInfo} because 'No SL on entry candle' is enabled.`, "INFO");
         }
         return { orderid: null, uniqueorderid: null, deferred: true };
     }
@@ -400,7 +401,10 @@ async function placeStopLossWithRetry({ baseConfig, legSide, entryPrice, instrum
             baseConfig, legSide, entryPrice, instrument, lots, slType, slValue, slLimitMargin, slLimitMarginType, connectionId, overrideSlTriggerPrice
         });
         if (slOrder?.orderid) {
-            if (strategyId) addStrategyLog(strategyId, `[SUCCESS] Placed Stop-Loss order for ${instrument.symbol} with broker (ID: ${slOrder.orderid}). Trigger: ₹${slOrder.triggerprice}, Limit: ₹${slOrder.limitprice}`, "INFO");
+            if (strategyId) {
+                const baseInfo = isCandleOpenSl ? ` (Base: Entry Candle Open ₹${Number(candleOpenPrice || entryPrice).toFixed(2)}${actualEntryPrice ? `, Traded Price: ₹${Number(actualEntryPrice).toFixed(2)}` : ''})` : '';
+                addStrategyLog(strategyId, `[SUCCESS] Placed Stop-Loss order for ${instrument.symbol} with broker (ID: ${slOrder.orderid})${baseInfo}. Trigger: ₹${slOrder.triggerprice}, Limit: ₹${slOrder.limitprice}`, "INFO");
+            }
             return slOrder;
         }
     } catch (err) {
