@@ -1235,6 +1235,13 @@ async function monitorStrategyLoop(strategyId, strategy) {
                             leg.slUniqueOrderId = orderData.uniqueorderid;
                         }
 
+                        // Log SL hit detection with broker order status (once per SL order)
+                        const statusDisplay = (orderStatus || "unknown").toUpperCase();
+                        if (leg.slHitLoggedForOrderId !== leg.slOrderId) {
+                            addStrategyLog(strategyId, `[SL CHECK] ${leg.instrument?.symbol}: SL price hit by LTP (₹${leg.currentLtp}), order status at Angel as "${statusDisplay}"`, "INFO");
+                            leg.slHitLoggedForOrderId = leg.slOrderId;
+                        }
+
                         const isCancelledOrRejected = ["cancelled", "rejected"].includes(orderStatus);
                         const isExecuted = ["complete", "filled"].includes(orderStatus);
                         const isTriggerPending = ["trigger pending", "pending"].includes(orderStatus);
@@ -1327,6 +1334,15 @@ async function monitorStrategyLoop(strategyId, strategy) {
                                     leg.slOpenUnfilledCount = (leg.slOpenUnfilledCount || 0) + 1;
                                 } else {
                                     leg.slOpenUnfilledCount = 0;
+                                }
+                                // For pending SL orders: monitor and log status every 1-min candle close
+                                if (isTriggerPending) {
+                                    const { getISTTime } = require("./strategy.time");
+                                    const currentMinute = getISTTime().substring(0, 5);
+                                    if (leg.slPendingLastLogMinute !== currentMinute) {
+                                        addStrategyLog(strategyId, `[SL PENDING] ${leg.instrument?.symbol}: SL order ${leg.slOrderId} still "${statusDisplay}" at Angel. LTP: ₹${currentLtp}, SL Trigger: ₹${limitPrice}. Monitoring continues...`, "WARNING");
+                                        leg.slPendingLastLogMinute = currentMinute;
+                                    }
                                 }
                                 // Let the exchange/Phase 6 handle it.
                                 continue;
