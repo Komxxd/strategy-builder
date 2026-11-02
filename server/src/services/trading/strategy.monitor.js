@@ -1395,11 +1395,36 @@ async function monitorStrategyLoop(strategyId, strategy) {
                         if (!leg.slUniqueOrderId && orderData?.uniqueorderid) {
                             leg.slUniqueOrderId = orderData.uniqueorderid;
                         }
-                        if (orderStatus === "complete" || orderStatus === "filled") {
+                        const statusDisplay = (orderStatus || "unknown").toUpperCase();
+                        const isExecuted = ["complete", "filled"].includes(orderStatus);
+                        const isTriggerPending = ["trigger pending", "pending"].includes(orderStatus);
+                        const isSlHitByLtp = leg.leg.side === "BUY" ? (leg.currentLtp <= leg.slTriggerPrice) : (leg.currentLtp >= leg.slTriggerPrice);
+
+                        // Log SL hit detection with broker order status (once per SL order)
+                        if (isExecuted || isSlHitByLtp) {
+                            if (leg.slHitLoggedForOrderId !== leg.slOrderId) {
+                                addStrategyLog(strategyId, `[SL CHECK] ${leg.instrument?.symbol}: SL price hit by LTP (₹${leg.currentLtp}), order status at Angel as "${statusDisplay}"`, "INFO");
+                                leg.slHitLoggedForOrderId = leg.slOrderId;
+                            }
+                        }
+
+                        if (isExecuted) {
                             const exchangeFillPrice = Number(orderData?.averageprice || orderData?.averagePrice || 0) || null;
                             const exchangeFillTime = getBrokerFillTime(orderData);
                             leg.exchangeSlProcessed = true;
+                            addStrategyLog(strategyId, `[EXCHANGE_STOP_LOSS] Verified SL executed on exchange for ${leg.instrument?.symbol} at ₹${exchangeFillPrice || leg.slTriggerPrice}.`, "INFO");
                             await handleLegStopOut(leg, "EXCHANGE_STOP_LOSS", strategy, { exchangeFillPrice, exchangeFillTime });
+                            continue;
+                        }
+
+                        // For pending SL orders when SL price is hit: monitor and log status every 1-min candle close
+                        if (isTriggerPending && isSlHitByLtp) {
+                            const { getISTTime } = require("./strategy.time");
+                            const currentMinute = getISTTime().substring(0, 5);
+                            if (leg.slPendingLastLogMinute !== currentMinute) {
+                                addStrategyLog(strategyId, `[SL PENDING] ${leg.instrument?.symbol}: SL order ${leg.slOrderId} still "${statusDisplay}" at Angel. LTP: ₹${leg.currentLtp}, SL Trigger: ₹${leg.slTriggerPrice}. Monitoring continues...`, "WARNING");
+                                leg.slPendingLastLogMinute = currentMinute;
+                            }
                         }
                     } catch (err) { }
                 }
