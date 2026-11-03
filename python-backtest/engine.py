@@ -283,6 +283,7 @@ class BacktestEngine:
         entry_time = None
         entry_price = None
         
+        simple_mntm_actions = {}
         if mntm_enabled:
             base_price = df['open'][0]
             m_type = config.get('simple_mntm_type', 'NORMAL')
@@ -305,13 +306,45 @@ class BacktestEngine:
                 high_series = df.select(pl.col('high')).to_series()
                 rtp_hit_mask = (close_series <= rtp_series) & (rtp_series <= high_series)
 
+                times = df['time'].to_list()
+                high_vals = cum_high.to_list()
+                rtp_vals = rtp_series.to_list()
+
                 if rtp_hit_mask.any():
                     hit_idx = rtp_hit_mask.arg_true()[0]
                     entry_time = df['time'][hit_idx]
                     entry_price = rtp_series[hit_idx]
                     df = df[hit_idx:]
+                    max_idx = hit_idx
                 else:
+                    max_idx = len(times) - 1
+
+                last_peak = None
+                for idx in range(max_idx + 1):
+                    t_str = times[idx]
+                    peak = high_vals[idx]
+                    rtp = rtp_vals[idx]
+                    if idx == 0:
+                        simple_mntm_actions[t_str] = f"[Simple Mntm High] Initial Peak: ₹{peak:.2f} | Target: ₹{rtp:.2f}"
+                        last_peak = peak
+                    elif peak != last_peak:
+                        simple_mntm_actions[t_str] = f"[Simple Mntm High] Peak updated: ₹{peak:.2f} | Target: ₹{rtp:.2f}"
+                        last_peak = peak
+
+                if rtp_hit_mask.any():
+                    hit_time = times[hit_idx]
+                    hit_str = f"[Mntm Hit: ₹{entry_price:.2f}]"
+                    simple_mntm_actions[hit_time] = f"{simple_mntm_actions[hit_time]} | {hit_str}" if hit_time in simple_mntm_actions else hit_str
+                    leg['simple_mntm_actions'] = simple_mntm_actions
+                    self._current_simple_mntm_actions = simple_mntm_actions
+                else:
+                    end_time = times[-1]
+                    not_hit_str = f"[Simple Mntm High] Not Hit | Last Peak: ₹{high_vals[-1]:.2f} | Target: ₹{rtp_vals[-1]:.2f}"
+                    simple_mntm_actions[end_time] = f"{simple_mntm_actions[end_time]} | {not_hit_str}" if end_time in simple_mntm_actions else not_hit_str
+                    leg['simple_mntm_actions'] = simple_mntm_actions
+                    self._current_simple_mntm_actions = simple_mntm_actions
                     return None, df, 'MNTM_NOT_HIT'
+
             elif m_type == 'LOW':
                 cum_low = df.select(pl.col('low')).to_series().cum_min()
                 cum_low = cum_low.map_elements(lambda x: min(x, base_price), return_dtype=pl.Float64)
@@ -328,13 +361,45 @@ class BacktestEngine:
                 low_series = df.select(pl.col('low')).to_series()
                 rtp_hit_mask = (low_series <= rtp_series) & (rtp_series <= close_series)
 
+                times = df['time'].to_list()
+                low_vals = cum_low.to_list()
+                rtp_vals = rtp_series.to_list()
+
                 if rtp_hit_mask.any():
                     hit_idx = rtp_hit_mask.arg_true()[0]
                     entry_time = df['time'][hit_idx]
                     entry_price = rtp_series[hit_idx]
                     df = df[hit_idx:]
+                    max_idx = hit_idx
                 else:
+                    max_idx = len(times) - 1
+
+                last_low = None
+                for idx in range(max_idx + 1):
+                    t_str = times[idx]
+                    low = low_vals[idx]
+                    rtp = rtp_vals[idx]
+                    if idx == 0:
+                        simple_mntm_actions[t_str] = f"[Simple Mntm Low] Initial Low: ₹{low:.2f} | Target: ₹{rtp:.2f}"
+                        last_low = low
+                    elif low != last_low:
+                        simple_mntm_actions[t_str] = f"[Simple Mntm Low] Low updated: ₹{low:.2f} | Target: ₹{rtp:.2f}"
+                        last_low = low
+
+                if rtp_hit_mask.any():
+                    hit_time = times[hit_idx]
+                    hit_str = f"[Mntm Hit: ₹{entry_price:.2f}]"
+                    simple_mntm_actions[hit_time] = f"{simple_mntm_actions[hit_time]} | {hit_str}" if hit_time in simple_mntm_actions else hit_str
+                    leg['simple_mntm_actions'] = simple_mntm_actions
+                    self._current_simple_mntm_actions = simple_mntm_actions
+                else:
+                    end_time = times[-1]
+                    not_hit_str = f"[Simple Mntm Low] Not Hit | Last Low: ₹{low_vals[-1]:.2f} | Target: ₹{rtp_vals[-1]:.2f}"
+                    simple_mntm_actions[end_time] = f"{simple_mntm_actions[end_time]} | {not_hit_str}" if end_time in simple_mntm_actions else not_hit_str
+                    leg['simple_mntm_actions'] = simple_mntm_actions
+                    self._current_simple_mntm_actions = simple_mntm_actions
                     return None, df, 'MNTM_NOT_HIT'
+
             else:
                 mtp = base_price
                 if "PLUS_PCT" in m_mode: mtp += (base_price * m_val / 100)
@@ -349,13 +414,30 @@ class BacktestEngine:
                     hit_expr = pl.when(pl.col('open') >= mtp).then(pl.col('low') <= mtp).otherwise(pl.col('high') >= mtp)
                 hit_mask = df.select(hit_expr).to_series()
 
+                times = df['time'].to_list()
+                t0 = times[0]
+                simple_mntm_actions[t0] = f"[Simple Mntm] Base: ₹{base_price:.2f} | Target MTP: ₹{mtp:.2f}"
+
                 if hit_mask.any():
                     hit_idx = hit_mask.arg_true()[0]
                     entry_time = df['time'][hit_idx]
                     entry_price = mtp
                     df = df[hit_idx:]
+                    hit_time = times[hit_idx]
+                    hit_str = f"[Mntm Hit: ₹{mtp:.2f}]"
+                    simple_mntm_actions[hit_time] = f"{simple_mntm_actions[hit_time]} | {hit_str}" if hit_time in simple_mntm_actions else hit_str
+                    leg['simple_mntm_actions'] = simple_mntm_actions
+                    self._current_simple_mntm_actions = simple_mntm_actions
                 else:
+                    end_time = times[-1]
+                    not_hit_str = f"[Simple Mntm] Not Hit | Target MTP: ₹{mtp:.2f}"
+                    simple_mntm_actions[end_time] = f"{simple_mntm_actions[end_time]} | {not_hit_str}" if end_time in simple_mntm_actions else not_hit_str
+                    leg['simple_mntm_actions'] = simple_mntm_actions
+                    self._current_simple_mntm_actions = simple_mntm_actions
                     return None, df, 'MNTM_NOT_HIT'
+
+            leg['simple_mntm_actions'] = simple_mntm_actions
+            self._current_simple_mntm_actions = simple_mntm_actions
         else:
             entry_time = df['time'][0]
             entry_price = override_entry_price if override_entry_price is not None else df['open'][0]
@@ -499,19 +581,22 @@ class BacktestEngine:
             else:
                 return self.calculate_trade_vectorized(leg, df, {**config, 'tsl_enabled': False}, is_reentry)
                 
-    def _build_trade_res(self, entry_time, entry_price, exit_time, exit_price, reason, sl_price, tsl_series=None, initial_sl=None, normal_sl=None):
+    def _build_trade_res(self, entry_time, entry_price, exit_time, exit_price, reason, sl_price, tsl_series=None, initial_sl=None, normal_sl=None, simple_mntm_actions=None):
         return {
             'entryTime': entry_time, 'entryPrice': entry_price,
             'exitTime': exit_time, 'exitPrice': exit_price,
             'exitReason': reason, 'tradeSlPrice': sl_price,
             'tslSeries': tsl_series or {},
             'initialSlPrice': initial_sl if initial_sl is not None else sl_price,
-            'normalSlPrice': normal_sl
+            'normalSlPrice': normal_sl,
+            'simple_mntm_actions': simple_mntm_actions or getattr(self, '_current_simple_mntm_actions', {}) or {}
         }
 
     def calculate_leg_trades(self, leg, df, config, index_name, expiry, year, month, date_str, step, index_df, current_strike):
         all_trades = []
         reentry_count = 0
+        leg['simple_mntm_actions'] = {}
+        self._current_simple_mntm_actions = {}
         max_reentry = int(leg.get('no_of_reentry', 0)) if leg.get('reentry_enabled') else 0
         if leg.get('re_asap_enabled'):
             max_reentry = int(leg.get('re_asap_max_entries', max_reentry))
@@ -1070,9 +1155,11 @@ class BacktestEngine:
         open_pnl_series = []
         action_series = []
         
+        simple_mntm_actions = leg.get('simple_mntm_actions') or (trades[0].get('simple_mntm_actions') if trades else {}) or {}
+
         trade_idx = 0
         for time_idx, t in enumerate(time_df['time']):
-            action = None
+            action = simple_mntm_actions.get(t)
             prev_trade = trades[trade_idx - 1] if trade_idx > 0 else {}
             
             if trade_idx < len(trades) and t >= trades[trade_idx]['entryTime']:
@@ -1096,7 +1183,8 @@ class BacktestEngine:
                             rtp_mtp_str += f" | RTP: ₹{trade['reentry_rtp']:.2f}"
                         if trade.get('reentry_mtp') is not None:
                             rtp_mtp_str += f" | MTP: ₹{trade['reentry_mtp']:.2f}"
-                        action = f"{prefix} ({side}): {trade['entryPrice']:.2f}{sl_str}{rtp_mtp_str}"
+                        entry_action = f"{prefix} ({side}): {trade['entryPrice']:.2f}{sl_str}{rtp_mtp_str}"
+                        action = f"{action} | {entry_action}" if action else entry_action
                     
                     if t == trade['exitTime']:
                         price = trade['exitPrice']
