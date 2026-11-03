@@ -301,10 +301,14 @@ class BacktestEngine:
 
                 rtp_series = rtp_series.map_elements(lambda x: self.round_to_tick(x), return_dtype=pl.Float64)
 
-                # Check if calculated entry price falls within candle's [close, high] range
-                close_series = df.select(pl.col('close')).to_series()
+                # Check if calculated entry price falls within candle range:
+                # If peak is updated in candle: check close <= rtp <= high
+                # If peak is NOT updated in candle: check low <= rtp <= high
+                prev_cum_high = cum_high.shift(1).fill_null(base_price)
+                is_peak_updated = (cum_high > prev_cum_high) | (pl.Series(range(df.height)) == 0)
+                check_bottom_series = df.select(pl.when(is_peak_updated).then(pl.col('close')).otherwise(pl.col('low'))).to_series()
                 high_series = df.select(pl.col('high')).to_series()
-                rtp_hit_mask = (close_series <= rtp_series) & (rtp_series <= high_series)
+                rtp_hit_mask = (check_bottom_series <= rtp_series) & (rtp_series <= high_series)
 
                 times = df['time'].to_list()
                 high_vals = cum_high.to_list()
@@ -356,10 +360,14 @@ class BacktestEngine:
 
                 rtp_series = rtp_series.map_elements(lambda x: self.round_to_tick(x), return_dtype=pl.Float64)
 
-                # Check if calculated entry price falls within candle's [low, close] range
-                close_series = df.select(pl.col('close')).to_series()
+                # Check if calculated entry price falls within candle range:
+                # If low is updated in candle: check low <= rtp <= close
+                # If low is NOT updated in candle: check low <= rtp <= high
+                prev_cum_low = cum_low.shift(1).fill_null(base_price)
+                is_low_updated = (cum_low < prev_cum_low) | (pl.Series(range(df.height)) == 0)
+                check_top_series = df.select(pl.when(is_low_updated).then(pl.col('close')).otherwise(pl.col('high'))).to_series()
                 low_series = df.select(pl.col('low')).to_series()
-                rtp_hit_mask = (low_series <= rtp_series) & (rtp_series <= close_series)
+                rtp_hit_mask = (low_series <= rtp_series) & (rtp_series <= check_top_series)
 
                 times = df['time'].to_list()
                 low_vals = cum_low.to_list()
@@ -676,9 +684,11 @@ class BacktestEngine:
                                         else:
                                             rtp_series = cum_high - mntm_val
                                         rtp_series = rtp_series.map_elements(lambda x: self.round_to_tick(x), return_dtype=pl.Float64)
-                                        close_series = df.select(pl.col('close')).to_series()
+                                        prev_cum_high = cum_high.shift(1).fill_null(base_otp)
+                                        is_peak_updated = (cum_high > prev_cum_high) | (pl.Series(range(df.height)) == 0)
+                                        check_bottom_series = df.select(pl.when(is_peak_updated).then(pl.col('close')).otherwise(pl.col('low'))).to_series()
                                         high_series = df.select(pl.col('high')).to_series()
-                                        cross_mask = (close_series <= rtp_series) & (rtp_series <= high_series)
+                                        cross_mask = (check_bottom_series <= rtp_series) & (rtp_series <= high_series)
                                         if cross_mask.any():
                                             cross_idx = cross_mask.arg_true()[0]
                                             df = df[cross_idx:]
@@ -694,9 +704,11 @@ class BacktestEngine:
                                         else:
                                             rtp_series = cum_low + mntm_val
                                         rtp_series = rtp_series.map_elements(lambda x: self.round_to_tick(x), return_dtype=pl.Float64)
-                                        close_series = df.select(pl.col('close')).to_series()
+                                        prev_cum_low = cum_low.shift(1).fill_null(base_otp)
+                                        is_low_updated = (cum_low < prev_cum_low) | (pl.Series(range(df.height)) == 0)
+                                        check_top_series = df.select(pl.when(is_low_updated).then(pl.col('close')).otherwise(pl.col('high'))).to_series()
                                         low_series = df.select(pl.col('low')).to_series()
-                                        cross_mask = (low_series <= rtp_series) & (rtp_series <= close_series)
+                                        cross_mask = (low_series <= rtp_series) & (rtp_series <= check_top_series)
                                         if cross_mask.any():
                                             cross_idx = cross_mask.arg_true()[0]
                                             df = df[cross_idx:]
