@@ -33,7 +33,8 @@ const REENTRY_WAITING_STATES = [
   "WAITING_FOR_RE_LOW",
   "WAITING_FOR_SIMPLE_MNTM",
   "WAITING_FOR_FILL",
-  "WAITING_FOR_INTERNAL_FALLBACK"
+  "WAITING_FOR_INTERNAL_FALLBACK",
+  "WAITING_FOR_REENTRY_COND"
 ];
 
 // Removed interceptor, handled globally in App.jsx
@@ -94,7 +95,8 @@ const DEFAULT_LEG = {
  tsl_on_close_high: false,
  reentry_tsl_on_close: false,
  reentry_tsl_on_close_low: false,
- reentry_tsl_on_close_high: false
+ reentry_tsl_on_close_high: false,
+ reentry_conditions: []
 };
 
 
@@ -272,10 +274,693 @@ const LazyLegModal = ({ isOpen, onClose, leg, onChange, legIndex, level }) => {
  return createPortal(modalContent, document.body);
 };
 
+const createDefaultReentryCondition = (type = 'RE_COST', operator = 'OR') => ({
+  id: `cond_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+  operator,
+  type,
+  recost_mode: 'RECOST_PLUS_PCT',
+  recost_value: 2,
+  resl_mode: 'RESL_PLUS_PCT',
+  resl_value: 0,
+  rehigh_mode: 'REHIGH_MINUS_PTS',
+  rehigh_value: 1,
+  rehigh_rtp_on_close: false,
+  relow_mode: 'RELOW_PLUS_PTS',
+  relow_value: 1,
+  relow_rtp_on_close: false,
+  max_reentry: 1,
+  mntm_enabled: false,
+  mntm_mode: type === 'RE_HIGH' ? 'REHIGH_PLUS_PTS' : type === 'RE_LOW' ? 'RELOW_PLUS_PTS' : type === 'RE_SL' ? 'RESL_PLUS_PCT' : 'RECOST_PLUS_PCT',
+  mntm_value: 2,
+  reentry_sl_enabled: false,
+  reentry_sl_type: 'PERCENTAGE',
+  reentry_sl_value: 10,
+  reentry_sl_multiplier_entry_candle: false,
+  reentry_sl_multiplier_value: 2,
+  reentry_tsl_enabled: false,
+  reentry_tsl_type: 'PERCENTAGE',
+  reentry_tsl_move: 0,
+  reentry_tsl_trail: 0,
+  reentry_tsl_on_close: false,
+  reentry_tsl_on_close_low: false,
+  reentry_tsl_on_close_high: false
+});
+
+const getReentryConditions = (leg) => {
+  let type = 'RE_COST';
+  if (leg?.resl_enabled) type = 'RE_SL';
+  else if (leg?.rehigh_enabled) type = 'RE_HIGH';
+  else if (leg?.relow_enabled) type = 'RE_LOW';
+
+  if (Array.isArray(leg?.reentry_conditions) && leg.reentry_conditions.length > 0) {
+    if (leg.reentry_conditions[0].type !== type) {
+      return leg.reentry_conditions.map((c, i) => i === 0 ? { ...c, type } : c);
+    }
+    return leg.reentry_conditions;
+  }
+
+  return [{
+    id: 'cond_default',
+    operator: 'OR',
+    type,
+    recost_mode: leg?.recost_mode || 'RECOST_PLUS_PCT',
+    recost_value: leg?.recost_value !== undefined ? leg.recost_value : 2,
+    resl_mode: leg?.resl_mode || 'RESL_PLUS_PCT',
+    resl_value: leg?.resl_value !== undefined ? leg.resl_value : 0,
+    rehigh_mode: leg?.rehigh_mode || 'REHIGH_MINUS_PTS',
+    rehigh_value: leg?.rehigh_value !== undefined ? leg.rehigh_value : 1,
+    rehigh_rtp_on_close: leg?.rehigh_rtp_on_close || false,
+    relow_mode: leg?.relow_mode || 'RELOW_PLUS_PTS',
+    relow_value: leg?.relow_value !== undefined ? leg.relow_value : 1,
+    relow_rtp_on_close: leg?.relow_rtp_on_close || false,
+    max_reentry: leg?.max_reentry || 1,
+    mntm_enabled: leg?.recost_mntm_enabled || leg?.resl_mntm_enabled || leg?.rehigh_mntm_enabled || leg?.relow_mntm_enabled || false,
+    mntm_mode: leg?.recost_mntm_mode || leg?.resl_mntm_mode || leg?.rehigh_mntm_mode || leg?.relow_mntm_mode || (type === 'RE_HIGH' ? 'REHIGH_PLUS_PTS' : type === 'RE_LOW' ? 'RELOW_PLUS_PTS' : 'RECOST_PLUS_PCT'),
+    mntm_value: leg?.recost_mntm_value !== undefined ? leg.recost_mntm_value : (leg?.resl_mntm_value !== undefined ? leg.resl_mntm_value : (leg?.rehigh_mntm_value !== undefined ? leg.rehigh_mntm_value : (leg?.relow_mntm_value !== undefined ? leg.relow_mntm_value : 2))),
+    reentry_sl_enabled: leg?.reentry_sl_enabled || false,
+    reentry_sl_type: leg?.reentry_sl_type || 'PERCENTAGE',
+    reentry_sl_value: leg?.reentry_sl_value !== undefined ? leg.reentry_sl_value : 10,
+    reentry_sl_multiplier_entry_candle: leg?.reentry_sl_multiplier_entry_candle || false,
+    reentry_sl_multiplier_value: leg?.reentry_sl_multiplier_value || 2,
+    reentry_tsl_enabled: leg?.reentry_tsl_enabled || false,
+    reentry_tsl_type: leg?.reentry_tsl_type || 'PERCENTAGE',
+    reentry_tsl_move: leg?.reentry_tsl_move !== undefined ? leg.reentry_tsl_move : (leg?.tsl_move || 0),
+    reentry_tsl_trail: leg?.reentry_tsl_trail !== undefined ? leg.reentry_tsl_trail : (leg?.tsl_trail || 0),
+    reentry_tsl_on_close: leg?.reentry_tsl_on_close || false,
+    reentry_tsl_on_close_low: leg?.reentry_tsl_on_close_low || false,
+    reentry_tsl_on_close_high: leg?.reentry_tsl_on_close_high || false
+  }];
+};
+
+const syncReentryConditions = (leg, newConditions, currentMode) => {
+  const primary = newConditions[0] || {};
+  const activeType = currentMode || primary.type || 'RE_COST';
+  const isCost = activeType === 'RE_COST';
+  const isSl = activeType === 'RE_SL';
+  const isHigh = activeType === 'RE_HIGH';
+  const isLow = activeType === 'RE_LOW';
+
+  return {
+    ...leg,
+    reentry_conditions: newConditions,
+    recost_enabled: isCost,
+    recost_mode: primary.recost_mode || leg.recost_mode || 'RECOST_PLUS_PCT',
+    recost_value: primary.recost_value !== undefined ? primary.recost_value : leg.recost_value,
+    recost_mntm_enabled: isCost ? !!primary.mntm_enabled : false,
+    recost_mntm_mode: primary.mntm_mode || leg.recost_mntm_mode,
+    recost_mntm_value: primary.mntm_value !== undefined ? primary.mntm_value : leg.recost_mntm_value,
+
+    resl_enabled: isSl,
+    resl_mode: primary.resl_mode || leg.resl_mode || 'RESL_PLUS_PCT',
+    resl_value: primary.resl_value !== undefined ? primary.resl_value : leg.resl_value,
+    resl_mntm_enabled: isSl ? !!primary.mntm_enabled : false,
+    resl_mntm_mode: primary.mntm_mode || leg.resl_mntm_mode,
+    resl_mntm_value: primary.mntm_value !== undefined ? primary.mntm_value : leg.resl_mntm_value,
+
+    rehigh_enabled: isHigh,
+    rehigh_mode: primary.rehigh_mode || leg.rehigh_mode || 'REHIGH_MINUS_PTS',
+    rehigh_value: primary.rehigh_value !== undefined ? primary.rehigh_value : leg.rehigh_value,
+    rehigh_rtp_on_close: !!primary.rehigh_rtp_on_close,
+    rehigh_mntm_enabled: isHigh ? !!primary.mntm_enabled : false,
+    rehigh_mntm_mode: primary.mntm_mode || leg.rehigh_mntm_mode,
+    rehigh_mntm_value: primary.mntm_value !== undefined ? primary.mntm_value : leg.rehigh_mntm_value,
+
+    relow_enabled: isLow,
+    relow_mode: primary.relow_mode || leg.relow_mode || 'RELOW_PLUS_PTS',
+    relow_value: primary.relow_value !== undefined ? primary.relow_value : leg.relow_value,
+    relow_rtp_on_close: !!primary.relow_rtp_on_close,
+    relow_mntm_enabled: isLow ? !!primary.mntm_enabled : false,
+    relow_mntm_mode: primary.mntm_mode || leg.relow_mntm_mode,
+    relow_mntm_value: primary.mntm_value !== undefined ? primary.mntm_value : leg.relow_mntm_value,
+
+    max_reentry: primary.max_reentry || leg.max_reentry || 1,
+    reentry_sl_enabled: !!primary.reentry_sl_enabled,
+    reentry_sl_type: primary.reentry_sl_type || 'PERCENTAGE',
+    reentry_sl_value: primary.reentry_sl_value !== undefined ? primary.reentry_sl_value : 10,
+    reentry_sl_multiplier_entry_candle: !!primary.reentry_sl_multiplier_entry_candle,
+    reentry_sl_multiplier_value: primary.reentry_sl_multiplier_value || 2,
+    reentry_tsl_enabled: !!primary.reentry_tsl_enabled,
+    reentry_tsl_type: primary.reentry_tsl_type || 'PERCENTAGE',
+    reentry_tsl_move: primary.reentry_tsl_move !== undefined ? primary.reentry_tsl_move : (primary.tsl_move || 0),
+    reentry_tsl_trail: primary.reentry_tsl_trail !== undefined ? primary.reentry_tsl_trail : (primary.tsl_trail || 0),
+    reentry_tsl_on_close: !!primary.reentry_tsl_on_close,
+    reentry_tsl_on_close_low: !!primary.reentry_tsl_on_close_low,
+    reentry_tsl_on_close_high: !!primary.reentry_tsl_on_close_high
+  };
+};
+
+const ReentryConditionBlock = ({
+  cond,
+  condIdx,
+  totalConditions,
+  idPrefix,
+  legSide,
+  defaultStopLoss,
+  defaultTslMove,
+  defaultTslTrail,
+  isReadOnly,
+  onChange,
+  onRemove,
+  onOperatorChange
+}) => {
+  const isCost = cond.type === 'RE_COST';
+  const isSl = cond.type === 'RE_SL';
+  const isHigh = cond.type === 'RE_HIGH';
+  const isLow = cond.type === 'RE_LOW';
+
+  const currentMode = isCost
+    ? (cond.recost_mode || 'RECOST_PLUS_PCT')
+    : isSl
+      ? (cond.resl_mode || 'RESL_PLUS_PCT')
+      : isHigh
+        ? (cond.rehigh_mode || 'REHIGH_MINUS_PTS')
+        : (cond.relow_mode || 'RELOW_PLUS_PTS');
+
+  const isPct = (currentMode || '').includes('PCT');
+
+  const currentValue = isCost
+    ? cond.recost_value
+    : isSl
+      ? cond.resl_value
+      : isHigh
+        ? cond.rehigh_value
+        : cond.relow_value;
+
+  const handleTypeChange = (newType) => {
+    let defaultMode = 'RECOST_PLUS_PCT';
+    let defaultMntmMode = 'RECOST_PLUS_PCT';
+    if (newType === 'RE_SL') {
+      defaultMode = 'RESL_PLUS_PCT';
+      defaultMntmMode = 'RESL_PLUS_PCT';
+    } else if (newType === 'RE_HIGH') {
+      defaultMode = 'REHIGH_MINUS_PTS';
+      defaultMntmMode = 'REHIGH_PLUS_PTS';
+    } else if (newType === 'RE_LOW') {
+      defaultMode = 'RELOW_PLUS_PTS';
+      defaultMntmMode = 'RELOW_PLUS_PTS';
+    }
+    onChange({
+      ...cond,
+      type: newType,
+      mntm_mode: defaultMntmMode,
+      ...(newType === 'RE_COST' ? { recost_mode: defaultMode } : {}),
+      ...(newType === 'RE_SL' ? { resl_mode: defaultMode } : {}),
+      ...(newType === 'RE_HIGH' ? { rehigh_mode: defaultMode } : {}),
+      ...(newType === 'RE_LOW' ? { relow_mode: defaultMode } : {})
+    });
+  };
+
+  const handleModeChange = (mode) => {
+    if (isCost) onChange({ ...cond, recost_mode: mode });
+    else if (isSl) onChange({ ...cond, resl_mode: mode });
+    else if (isHigh) onChange({ ...cond, rehigh_mode: mode });
+    else if (isLow) onChange({ ...cond, relow_mode: mode });
+  };
+
+  const handleValueChange = (val) => {
+    if (isCost) onChange({ ...cond, recost_value: val });
+    else if (isSl) onChange({ ...cond, resl_value: val });
+    else if (isHigh) onChange({ ...cond, rehigh_value: val });
+    else if (isLow) onChange({ ...cond, relow_value: val });
+  };
+
+  return (
+    <div className="space-y-2">
+      {condIdx > 0 && (
+        <div className="flex items-center justify-center my-2 relative">
+          <div className="absolute inset-0 flex items-center">
+            <div className="w-full border-t border-dashed border-slate-300" />
+          </div>
+          <div className="relative flex items-center bg-background px-2.5 gap-1 z-10 rounded-md border border-slate-200 shadow-sm p-0.5">
+            <button
+              type="button"
+              disabled={isReadOnly}
+              onClick={() => onOperatorChange('AND')}
+              className={`px-2.5 py-0.5 text-[10px] font-bold rounded transition-all ${
+                cond.operator === 'AND'
+                  ? 'bg-indigo-600 text-white shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+              }`}
+            >
+              AND
+            </button>
+            <button
+              type="button"
+              disabled={isReadOnly}
+              onClick={() => onOperatorChange('OR')}
+              className={`px-2.5 py-0.5 text-[10px] font-bold rounded transition-all ${
+                cond.operator === 'OR'
+                  ? 'bg-amber-600 text-white shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+              }`}
+            >
+              OR
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div className="p-3.5 rounded-xl border border-slate-200 space-y-3">
+        <div className="flex items-center justify-between pb-2 border-b border-slate-200/80">
+          <div className="flex items-center gap-2">
+            <span className="px-2 py-0.5 text-[10px] font-bold rounded bg-primary/10 text-primary">
+              Condition #{condIdx + 1}
+            </span>
+            <div className="w-[140px]">
+              <Select
+                disabled={isReadOnly || condIdx === 0}
+                value={cond.type || 'RE_COST'}
+                onValueChange={handleTypeChange}
+              >
+                <SelectTrigger className={`h-8 rounded-md text-[11px] font-medium bg-background border-input ${condIdx === 0 ? 'opacity-85 cursor-not-allowed bg-muted/40 font-semibold' : ''}`}>
+                  <SelectValue placeholder="Type" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="RE_COST">RE COST</SelectItem>
+                  <SelectItem value="RE_SL">RE SL</SelectItem>
+                  <SelectItem value="RE_HIGH">RE HIGH</SelectItem>
+                  <SelectItem value="RE_LOW">RE LOW</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          {condIdx > 0 && !isReadOnly && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 text-red-500 hover:text-red-700 hover:bg-red-50 rounded"
+              onClick={onRemove}
+              title="Remove condition"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </Button>
+          )}
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+          <div className="space-y-1">
+            <Label className="text-[9px] font-medium uppercase tracking-wider text-muted-foreground block mb-1">
+              {isCost ? 'Re-Cost Mode' : isSl ? 'RE SL Mode' : isHigh ? 'RE HIGH Mode' : 'RE LOW Mode'}
+            </Label>
+            <Select
+              disabled={isReadOnly}
+              value={currentMode}
+              onValueChange={handleModeChange}
+            >
+              <SelectTrigger className="h-9 rounded-lg text-[10px] bg-background">
+                <SelectValue placeholder="Mode" />
+              </SelectTrigger>
+              <SelectContent>
+                {isCost && (
+                  <>
+                    <SelectItem value="RECOST_PLUS_PCT">RECOST + %</SelectItem>
+                    <SelectItem value="RECOST_PLUS_PTS">RECOST + Pts</SelectItem>
+                    <SelectItem value="RECOST_MINUS_PCT">RECOST - %</SelectItem>
+                    <SelectItem value="RECOST_MINUS_PTS">RECOST - Pts</SelectItem>
+                  </>
+                )}
+                {isSl && (
+                  <>
+                    <SelectItem value="RESL_PLUS_PCT">RE-SL + %</SelectItem>
+                    <SelectItem value="RESL_PLUS_PTS">RE-SL + Pts</SelectItem>
+                    <SelectItem value="RESL_MINUS_PCT">RE-SL - %</SelectItem>
+                    <SelectItem value="RESL_MINUS_PTS">RE-SL - Pts</SelectItem>
+                  </>
+                )}
+                {isHigh && (
+                  <>
+                    <SelectItem value="REHIGH_MINUS_PCT">High - %</SelectItem>
+                    <SelectItem value="REHIGH_MINUS_PTS">High - Pts</SelectItem>
+                  </>
+                )}
+                {isLow && (
+                  <>
+                    <SelectItem value="RELOW_PLUS_PCT">Low + %</SelectItem>
+                    <SelectItem value="RELOW_PLUS_PTS">Low + Pts</SelectItem>
+                  </>
+                )}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-1">
+            <Label className="text-[9px] font-medium uppercase tracking-wider text-muted-foreground flex items-center gap-1.5 mb-1">
+              Value {isPct ? '(%)' : '(Pts)'}
+            </Label>
+            <Input
+              disabled={isReadOnly}
+              className="h-9 rounded-lg text-[10px] bg-background"
+              type="text"
+              value={currentValue === undefined ? '' : currentValue}
+              onChange={(e) => {
+                const val = e.target.value;
+                if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                  handleValueChange(val);
+                }
+              }}
+              onBlur={(e) => {
+                const num = parseFloat(e.target.value) || 0;
+                handleValueChange(isHigh || isLow ? (num || 1) : num);
+              }}
+            />
+          </div>
+
+          <div className="space-y-1">
+            <Label className="text-[9px] font-medium uppercase tracking-wider text-muted-foreground block mb-1">
+              Max Entries
+            </Label>
+            <Select
+              disabled={isReadOnly}
+              value={(cond.max_reentry || 1).toString()}
+              onValueChange={(v) => onChange({ ...cond, max_reentry: parseInt(v, 10) })}
+            >
+              <SelectTrigger className="h-9 rounded-lg text-[10px] bg-background">
+                <SelectValue placeholder="Entries" />
+              </SelectTrigger>
+              <SelectContent className="max-h-[250px]">
+                {Array.from({ length: 20 }, (_, i) => i + 1).map((num) => (
+                  <SelectItem key={`${idPrefix}-max-${num}`} value={num.toString()}>
+                    {num} {num === 1 ? 'Entry' : 'Entries'}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
+        {(isHigh || isLow) && (
+          <div className="flex items-center gap-2 pt-1">
+            <input
+              type="checkbox"
+              id={`rtp-on-close-${idPrefix}`}
+              disabled={isReadOnly}
+              className="w-3.5 h-3.5 rounded text-amber-600 focus:ring-amber-500 cursor-pointer"
+              checked={isHigh ? (cond.rehigh_rtp_on_close || false) : (cond.relow_rtp_on_close || false)}
+              onChange={(e) => {
+                if (isHigh) onChange({ ...cond, rehigh_rtp_on_close: e.target.checked });
+                else onChange({ ...cond, relow_rtp_on_close: e.target.checked });
+              }}
+            />
+            <Label htmlFor={`rtp-on-close-${idPrefix}`} className="text-[10px] cursor-pointer text-amber-700 font-medium">
+              RTP on Close
+            </Label>
+          </div>
+        )}
+
+        <div className="space-y-2 pt-1 border-t border-slate-200/60">
+          <div className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              id={`reentry-mntm-${idPrefix}`}
+              disabled={isReadOnly}
+              className="w-3.5 h-3.5 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
+              checked={cond.mntm_enabled || false}
+              onChange={(e) => onChange({ ...cond, mntm_enabled: e.target.checked })}
+            />
+            <Label htmlFor={`reentry-mntm-${idPrefix}`} className="text-[10px] cursor-pointer font-medium">
+              Re-Entry Momentum
+            </Label>
+          </div>
+
+          {cond.mntm_enabled && (
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pl-5 animate-in slide-in-from-top-2 border-l-2 border-primary/20">
+              <div className="space-y-1">
+                <Label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground block mb-1">
+                  Mntm Mode
+                </Label>
+                <Select
+                  disabled={isReadOnly}
+                  value={cond.mntm_mode || (isHigh ? 'REHIGH_PLUS_PTS' : isLow ? 'RELOW_PLUS_PTS' : 'RECOST_PLUS_PCT')}
+                  onValueChange={(v) => onChange({ ...cond, mntm_mode: v })}
+                >
+                  <SelectTrigger className="h-9 rounded-lg text-[10px] bg-background">
+                    <SelectValue placeholder="Mode" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="RECOST_PLUS_PCT">RTP + %</SelectItem>
+                    <SelectItem value="RECOST_PLUS_PTS">RTP + Pts</SelectItem>
+                    <SelectItem value="RECOST_MINUS_PCT">RTP - %</SelectItem>
+                    <SelectItem value="RECOST_MINUS_PTS">RTP - Pts</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground block mb-1">
+                  Value {cond.mntm_mode && cond.mntm_mode.includes('PCT') ? '(%)' : '(Pts)'}
+                </Label>
+                <Input
+                  disabled={isReadOnly}
+                  className="h-9 rounded-lg text-[10px] bg-background"
+                  type="text"
+                  value={cond.mntm_value === undefined ? '' : cond.mntm_value}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                      onChange({ ...cond, mntm_value: val });
+                    }
+                  }}
+                  onBlur={(e) => onChange({ ...cond, mntm_value: parseFloat(e.target.value) || 0 })}
+                />
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="space-y-2 pt-1 border-t border-slate-200/60">
+          <div className="flex items-center justify-between w-full lg:max-w-[280px]">
+            <Label className="text-[10px] font-medium text-gray-700">
+              Override SL on Re-Entry
+            </Label>
+            <Switch
+              disabled={isReadOnly}
+              checked={cond.reentry_sl_enabled || false}
+              onCheckedChange={(val) => {
+                const nextCond = { ...cond, reentry_sl_enabled: val };
+                if (!val) nextCond.reentry_tsl_enabled = false;
+                onChange(nextCond);
+              }}
+            />
+          </div>
+
+          {cond.reentry_sl_enabled && (
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pl-5 animate-in slide-in-from-top-2 border-l-2 border-primary/20">
+              <div className="space-y-1">
+                <Label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground block mb-1">
+                  SL Type
+                </Label>
+                <Select
+                  disabled={isReadOnly}
+                  value={cond.reentry_sl_type || 'PERCENTAGE'}
+                  onValueChange={(v) => onChange({ ...cond, reentry_sl_type: v })}
+                >
+                  <SelectTrigger className="h-9 rounded-lg text-[10px] bg-background">
+                    <SelectValue placeholder="SL Type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="PERCENTAGE">Percentage (%)</SelectItem>
+                    <SelectItem value="POINTS">Points (Pts)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground flex items-center gap-1.5 mb-1">
+                  Value {cond.reentry_sl_type === 'POINTS' ? '(Pts)' : '(%)'}
+                </Label>
+                <Input
+                  disabled={isReadOnly}
+                  className="h-9 rounded-lg text-[10px] bg-background"
+                  type="number"
+                  value={cond.reentry_sl_value === 0 ? '' : (cond.reentry_sl_value !== undefined ? cond.reentry_sl_value : '')}
+                  placeholder={defaultStopLoss || "10"}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    onChange({ ...cond, reentry_sl_value: val === '' ? 0 : parseFloat(val) });
+                  }}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground block mb-1">
+                  SL Multiplier on Entry Candle
+                </Label>
+                <div className="flex items-center gap-2">
+                  <Switch
+                    disabled={isReadOnly}
+                    checked={cond.reentry_sl_multiplier_entry_candle || false}
+                    onCheckedChange={(val) => onChange({ ...cond, reentry_sl_multiplier_entry_candle: val })}
+                  />
+                  {cond.reentry_sl_multiplier_entry_candle && (
+                    <Input
+                      disabled={isReadOnly}
+                      className="h-9 rounded-lg text-[10px] flex-1 bg-background"
+                      type="number"
+                      step="0.1"
+                      placeholder="x2"
+                      value={cond.reentry_sl_multiplier_value || ""}
+                      onChange={(e) => onChange({ ...cond, reentry_sl_multiplier_value: parseFloat(e.target.value) })}
+                    />
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {cond.reentry_sl_enabled && (
+            <>
+              <div className="flex items-center justify-between w-full lg:max-w-[280px] pt-1">
+                <Label className="text-[10px] font-medium text-gray-700">
+                  Override TSL on Re-Entry
+                </Label>
+                <Switch
+                  disabled={isReadOnly}
+                  checked={cond.reentry_tsl_enabled || false}
+                  onCheckedChange={(val) => onChange({ ...cond, reentry_tsl_enabled: val })}
+                />
+              </div>
+
+              {cond.reentry_tsl_enabled && (
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pl-5 animate-in slide-in-from-top-2 border-l-2 border-primary/20">
+                  <div className="space-y-1">
+                    <Label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground block mb-1">
+                      TSL Type
+                    </Label>
+                    <Select
+                      disabled={isReadOnly}
+                      value={cond.reentry_tsl_type || 'PERCENTAGE'}
+                      onValueChange={(v) => onChange({ ...cond, reentry_tsl_type: v })}
+                    >
+                      <SelectTrigger className="h-9 rounded-lg text-[10px] bg-background">
+                        <SelectValue placeholder="TSL Type" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="PERCENTAGE">Percentage (%)</SelectItem>
+                        <SelectItem value="POINTS">Points (Pts)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground block mb-1">
+                      Move
+                    </Label>
+                    <Input
+                      disabled={isReadOnly}
+                      className="h-9 rounded-lg text-[10px] bg-background"
+                      type="number"
+                      value={cond.reentry_tsl_move !== undefined ? cond.reentry_tsl_move : (defaultTslMove || 0)}
+                      onChange={(e) => onChange({ ...cond, reentry_tsl_move: parseFloat(e.target.value) })}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground block mb-1">
+                      Trail
+                    </Label>
+                    <Input
+                      disabled={isReadOnly}
+                      className="h-9 rounded-lg text-[10px] bg-background"
+                      type="number"
+                      value={cond.reentry_tsl_trail !== undefined ? cond.reentry_tsl_trail : (defaultTslTrail || 0)}
+                      onChange={(e) => onChange({ ...cond, reentry_tsl_trail: parseFloat(e.target.value) })}
+                    />
+                  </div>
+
+                  <div className="col-span-1 sm:col-span-3 space-y-2 pt-1">
+                    <div className="flex items-center gap-1.5">
+                      <input
+                        type="checkbox"
+                        id={`reentry-tsl-on-close-${idPrefix}`}
+                        disabled={isReadOnly}
+                        className="w-3.5 h-3.5 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
+                        checked={cond.reentry_tsl_on_close || false}
+                        onChange={(e) => onChange({
+                          ...cond,
+                          reentry_tsl_on_close: e.target.checked,
+                          reentry_tsl_on_close_low: false,
+                          reentry_tsl_on_close_high: false
+                        })}
+                      />
+                      <Label htmlFor={`reentry-tsl-on-close-${idPrefix}`} className="text-[10px] cursor-pointer whitespace-nowrap">
+                        On Close
+                      </Label>
+                    </div>
+
+                    {cond.reentry_tsl_on_close && legSide === 'SELL' && (
+                      <div className="flex items-center gap-1.5 pl-4">
+                        <input
+                          type="checkbox"
+                          id={`reentry-tsl-on-close-low-${idPrefix}`}
+                          disabled={isReadOnly}
+                          className="w-3.5 h-3.5 rounded text-pink-600 focus:ring-pink-500 cursor-pointer"
+                          checked={cond.reentry_tsl_on_close_low || false}
+                          onChange={(e) => onChange({ ...cond, reentry_tsl_on_close_low: e.target.checked })}
+                        />
+                        <Label htmlFor={`reentry-tsl-on-close-low-${idPrefix}`} className="text-[10px] cursor-pointer whitespace-nowrap text-pink-600">
+                          On Close Low
+                        </Label>
+                      </div>
+                    )}
+
+                    {cond.reentry_tsl_on_close && legSide === 'BUY' && (
+                      <div className="flex items-center gap-1.5 pl-4">
+                        <input
+                          type="checkbox"
+                          id={`reentry-tsl-on-close-high-${idPrefix}`}
+                          disabled={isReadOnly}
+                          className="w-3.5 h-3.5 rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                          checked={cond.reentry_tsl_on_close_high || false}
+                          onChange={(e) => onChange({ ...cond, reentry_tsl_on_close_high: e.target.checked })}
+                        />
+                        <Label htmlFor={`reentry-tsl-on-close-high-${idPrefix}`} className="text-[10px] cursor-pointer whitespace-nowrap text-emerald-600">
+                          On Close High
+                        </Label>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
 
 const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove, isRecursive = false, level = 0, isReadOnly = false }) => {
  const idPrefix = isRecursive ?`lazy-${level}-${legIndex}` :`leg-${legIndex}`;
  const [isLazyModalOpen, setIsLazyModalOpen] = useState(false);
+ const conditions = getReentryConditions(leg);
+
+ const handleConditionChange = (idx, updatedCond) => {
+   const nextConditions = [...conditions];
+   if (idx === 0) {
+     const primaryType = leg.resl_enabled ? 'RE_SL' : leg.rehigh_enabled ? 'RE_HIGH' : leg.relow_enabled ? 'RE_LOW' : 'RE_COST';
+     updatedCond = { ...updatedCond, type: primaryType };
+   }
+   nextConditions[idx] = updatedCond;
+   const currentMode = nextConditions[0]?.type || 'RE_COST';
+   onChange(syncReentryConditions(leg, nextConditions, currentMode));
+ };
+
+ const handleRemoveCondition = (idx) => {
+   if (idx === 0 || conditions.length <= 1) return;
+   const nextConditions = conditions.filter((_, i) => i !== idx);
+   const currentMode = nextConditions[0]?.type || 'RE_COST';
+   onChange(syncReentryConditions(leg, nextConditions, currentMode));
+ };
+
+ const handleOperatorChange = (idx, op) => {
+   const nextConditions = [...conditions];
+   nextConditions[idx] = { ...nextConditions[idx], operator: op };
+   onChange({ ...leg, reentry_conditions: nextConditions });
+ };
+
+ const handleAddCondition = (operator = 'OR') => {
+   if (conditions.length >= 5) return;
+   const baseType = conditions[0]?.type || (leg.resl_enabled ? 'RE_SL' : leg.rehigh_enabled ? 'RE_HIGH' : leg.relow_enabled ? 'RE_LOW' : 'RE_COST');
+   const newCond = createDefaultReentryCondition(baseType, operator);
+   const nextConditions = [...conditions, newCond];
+   onChange({ ...leg, reentry_conditions: nextConditions });
+ };
 
  return (
  <div className={`p-2 rounded-lg border-2 transition-all duration-300 ${isRecursive ?'bg-muted/30 border-dashed mt-2 ml-4 md:ml-6 border-primary/20' :'bg-card border-primary/10 hover:border-primary/30'}`}>
@@ -725,15 +1410,12 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
  checked={leg.re_asap_enabled || leg.recost_enabled || leg.resl_enabled || leg.rehigh_enabled || leg.relow_enabled || leg.lazy_leg_enabled || false}
  onCheckedChange={(val) => {
  if (val) {
- onChange({
+ const defaultCond = createDefaultReentryCondition('RE_COST');
+ onChange(syncReentryConditions({
  ...leg,
- re_asap_enabled: true,
- recost_enabled: false,
- resl_enabled: false,
- rehigh_enabled: false,
- lazy_leg_enabled: false,
- re_asap_max_entries: leg.re_asap_max_entries || 1
- });
+ re_asap_enabled: false,
+ lazy_leg_enabled: false
+ }, [defaultCond], 'RE_COST'));
  } else {
  onChange({
  ...leg,
@@ -757,28 +1439,57 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
  onValueChange={(v) => {
  const isReHigh = v ==='RE_HIGH';
  const isReLow = v ==='RE_LOW';
- onChange({
- ...leg,
- re_asap_enabled: v ==='RE_ASAP',
- recost_enabled: v ==='RE_COST',
- resl_enabled: v ==='RE_SL',
- rehigh_enabled: isReHigh,
- relow_enabled: isReLow,
- lazy_leg_enabled: v ==='LAZY_LEG',
- lazy_leg: v ==='LAZY_LEG' ? (leg.lazy_leg || { ...DEFAULT_LEG }) : leg.lazy_leg,
- // Specifics for RE HIGH
- rehigh_mode: isReHigh ?'REHIGH_MINUS_PTS' : (leg.rehigh_mode ||'REHIGH_MINUS_PTS'),
- rehigh_value: isReHigh ? 1 : (leg.rehigh_value || 1),
- rehigh_mntm_enabled: isReHigh ? false : leg.rehigh_mntm_enabled,
- rehigh_mntm_mode: isReHigh ?'REHIGH_PLUS_PTS' : (leg.rehigh_mntm_mode ||'REHIGH_PLUS_PTS'),
- rehigh_mntm_value: isReHigh ? 0 : (leg.rehigh_mntm_value || 0),
- // Specifics for RE LOW
- relow_mode: isReLow ?'RELOW_PLUS_PTS' : (leg.relow_mode ||'RELOW_PLUS_PTS'),
- relow_value: isReLow ? 1 : (leg.relow_value || 1),
- relow_mntm_enabled: isReLow ? false : leg.relow_mntm_enabled,
- relow_mntm_mode: isReLow ?'RELOW_PLUS_PTS' : (leg.relow_mntm_mode ||'RELOW_PLUS_PTS'),
- relow_mntm_value: isReLow ? 0 : (leg.relow_mntm_value || 0)
- });
+ const isReCost = v ==='RE_COST';
+ const isReSl = v ==='RE_SL';
+ const isLazy = v ==='LAZY_LEG';
+ const isAsap = v ==='RE_ASAP';
+
+ if (isReCost || isReSl || isReHigh || isReLow) {
+   const curConditions = getReentryConditions(leg);
+   const updatedConditions = curConditions.map((c, i) => {
+     if (i === 0) {
+       let defaultMode = 'RECOST_PLUS_PCT';
+       let defaultMntmMode = 'RECOST_PLUS_PCT';
+       if (isReSl) {
+         defaultMode = 'RESL_PLUS_PCT';
+         defaultMntmMode = 'RESL_PLUS_PCT';
+       } else if (isReHigh) {
+         defaultMode = 'REHIGH_MINUS_PTS';
+         defaultMntmMode = 'REHIGH_PLUS_PTS';
+       } else if (isReLow) {
+         defaultMode = 'RELOW_PLUS_PTS';
+         defaultMntmMode = 'RELOW_PLUS_PTS';
+       }
+       return {
+         ...c,
+         type: v,
+         mntm_mode: defaultMntmMode,
+         ...(isReCost ? { recost_mode: c.recost_mode || defaultMode } : {}),
+         ...(isReSl ? { resl_mode: c.resl_mode || defaultMode } : {}),
+         ...(isReHigh ? { rehigh_mode: c.rehigh_mode || defaultMode } : {}),
+         ...(isReLow ? { relow_mode: c.relow_mode || defaultMode } : {})
+       };
+     }
+     return c;
+   });
+
+   onChange(syncReentryConditions({
+     ...leg,
+     re_asap_enabled: false,
+     lazy_leg_enabled: false
+   }, updatedConditions, v));
+ } else {
+   onChange({
+     ...leg,
+     re_asap_enabled: isAsap,
+     recost_enabled: false,
+     resl_enabled: false,
+     rehigh_enabled: false,
+     relow_enabled: false,
+     lazy_leg_enabled: isLazy,
+     lazy_leg: isLazy ? (leg.lazy_leg || { ...DEFAULT_LEG }) : leg.lazy_leg
+   });
+ }
  }}
  >
  <SelectTrigger className="h-9 w-full rounded-lg text-[12px] bg-background border-input">
@@ -835,1104 +1546,64 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
  </div>
  )}
 
- {leg.recost_enabled && (
- <div className="space-y-2">
- <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
- <div className="space-y-1">
- <Label className="text-[9px] font-medium uppercase tracking-wider text-muted-foreground block mb-1">Re-Cost Mode</Label>
- <Select
- value={leg.recost_mode ||'RECOST_PLUS_PCT'}
- onValueChange={(v) => onChange({ ...leg, recost_mode: v })}
- >
- <SelectTrigger className="h-9 rounded-lg text-[10px]">
- <SelectValue placeholder="Mode" />
- </SelectTrigger>
- <SelectContent>
- <SelectItem value="RECOST_PLUS_PCT">RECOST + %</SelectItem>
- <SelectItem value="RECOST_PLUS_PTS">RECOST + Pts</SelectItem>
- <SelectItem value="RECOST_MINUS_PCT">RECOST - %</SelectItem>
- <SelectItem value="RECOST_MINUS_PTS">RECOST - Pts</SelectItem>
- </SelectContent>
- </Select>
- </div>
- <div className="space-y-1">
- <Label className="text-[9px] font-medium uppercase tracking-wider text-muted-foreground flex items-center gap-1.5 mb-1">
- Value {leg.recost_mode && leg.recost_mode.includes('PCT') ?'(%)' :'(Pts)'}
- </Label>
- <Input
- className="h-9 rounded-lg text-[9px]"
- type="text"
- value={leg.recost_value === undefined ?'' : leg.recost_value}
- onChange={(e) => {
- const val = e.target.value;
- if (val ==='' || /^\d*\.?\d*$/.test(val)) {
- onChange({ ...leg, recost_value: val });
- }
- }}
- onBlur={(e) => onChange({ ...leg, recost_value: parseFloat(e.target.value) || 0 })}
- />
- </div>
- <div className="space-y-1">
- <Label className="text-[9px] font-medium uppercase tracking-wider text-muted-foreground block mb-1">Max Entries</Label>
- <Select
- value={(leg.max_reentry || 1).toString()}
- onValueChange={(v) => onChange({ ...leg, max_reentry: parseInt(v) })}
- >
- <SelectTrigger className="h-9 rounded-lg text-[9px]">
- <SelectValue placeholder="Entries" />
- </SelectTrigger>
- <SelectContent className="max-h-[250px]">
- {Array.from({ length: 20 }, (_, i) => i + 1).map(num => (
- <SelectItem key={`${idPrefix}-max-recost-${num}`} value={num.toString()}>
- {num} {num === 1 ?'Entry' :'Entries'}
- </SelectItem>
- ))}
- </SelectContent>
- </Select>
- </div>
- </div>
+  {/* Condition Blocks for RE COST, RE SL, RE HIGH, RE LOW */}
+  {(leg.recost_enabled || leg.resl_enabled || leg.rehigh_enabled || leg.relow_enabled) && (
+  <div className="space-y-3">
+  {conditions.map((cond, condIdx) => (
+    <ReentryConditionBlock
+      key={cond.id || `cond-${condIdx}`}
+      cond={cond}
+      condIdx={condIdx}
+      totalConditions={conditions.length}
+      idPrefix={`${idPrefix}-cond-${condIdx}`}
+      legSide={leg.side}
+      defaultStopLoss={leg.stop_loss}
+      defaultTslMove={leg.tsl_move}
+      defaultTslTrail={leg.tsl_trail}
+      isReadOnly={isReadOnly}
+      onChange={(updatedCond) => handleConditionChange(condIdx, updatedCond)}
+      onRemove={() => handleRemoveCondition(condIdx)}
+      onOperatorChange={(op) => handleOperatorChange(condIdx, op)}
+    />
+  ))}
 
- <div className="space-y-2 pt-1">
- <div className="flex items-center gap-2">
- <input
- type="checkbox"
- id={`reentry-mntm-${idPrefix}`}
- className="w-3.5 h-3.5 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
- checked={leg.recost_mntm_enabled || false}
- onChange={(e) => onChange({ ...leg, recost_mntm_enabled: e.target.checked })}
- />
- <Label htmlFor={`reentry-mntm-${idPrefix}`} className="text-[10px] cursor-pointer">Re-Entry Momentum</Label>
- </div>
-
- {leg.recost_mntm_enabled && (
- <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pl-5 animate-in slide-in-from-top-2 border-l-2 border-primary/20">
- <div className="space-y-1">
- <Label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground block mb-2">Mntm Mode</Label>
- <Select
- value={leg.recost_mntm_mode ||'RECOST_PLUS_PCT'}
- onValueChange={(v) => onChange({ ...leg, recost_mntm_mode: v })}
- >
- <SelectTrigger className="h-9 rounded-lg text-[10px]">
- <SelectValue placeholder="Mode" />
- </SelectTrigger>
- <SelectContent>
- <SelectItem value="RECOST_PLUS_PCT">RTP + %</SelectItem>
- <SelectItem value="RECOST_PLUS_PTS">RTP + Pts</SelectItem>
- <SelectItem value="RECOST_MINUS_PCT">RTP - %</SelectItem>
- <SelectItem value="RECOST_MINUS_PTS">RTP - Pts</SelectItem>
- </SelectContent>
- </Select>
- </div>
- <div className="space-y-1">
- <Label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground block mb-2">
- Value {leg.recost_mntm_mode && leg.recost_mntm_mode.includes('PCT') ?'(%)' :'(Pts)'}
- </Label>
- <Input
- className="h-9 rounded-lg text-[10px]"
- type="text"
- value={leg.recost_mntm_value === undefined ?'' : leg.recost_mntm_value}
- onChange={(e) => {
- const val = e.target.value;
- if (val ==='' || /^\d*\.?\d*$/.test(val)) {
- onChange({ ...leg, recost_mntm_value: val });
- }
- }}
- onBlur={(e) => onChange({ ...leg, recost_mntm_value: parseFloat(e.target.value) || 0 })}
- />
- </div>
- </div>
- )}
-
-  <div className="w-full lg:flex-1 space-y-1.5 pt-1">
-  <div className="flex items-center justify-between w-full lg:max-w-[280px]">
-  <Label className="text-[10px] font-medium text-gray-700">Override SL on Re-Entry</Label>
-  <Switch
-  checked={leg.reentry_sl_enabled || false}
-  onCheckedChange={(val) => {
-  const updatedLeg = { ...leg, reentry_sl_enabled: val };
-  if (!val) updatedLeg.reentry_tsl_enabled = false;
-  onChange(updatedLeg);
-  }}
-  />
-  </div>
-
-  {leg.reentry_sl_enabled && (
-  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pl-5 animate-in slide-in-from-top-2 border-l-2 border-primary/20">
-    <div className="space-y-1">
-      <Label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground block mb-2">SL Type</Label>
-      <Select
-        value={leg.reentry_sl_type || 'PERCENTAGE'}
-        onValueChange={(v) => onChange({ ...leg, reentry_sl_type: v })}
-      >
-        <SelectTrigger className="h-9 rounded-lg text-[10px]">
-          <SelectValue placeholder="SL Type" />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="PERCENTAGE">Percentage (%)</SelectItem>
-          <SelectItem value="POINTS">Points (Pts)</SelectItem>
-        </SelectContent>
-      </Select>
-    </div>
-    <div className="space-y-1">
-      <Label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground flex items-center gap-2 mb-2">
-        Value {leg.reentry_sl_type === 'POINTS' ? '(Pts)' : '(%)'}
-      </Label>
-      <Input
-        className="h-9 rounded-lg text-[10px]"
-        type="number"
-        value={leg.reentry_sl_value === 0 ? '' : (leg.reentry_sl_value !== undefined ? leg.reentry_sl_value : '')}
-        placeholder={leg.stop_loss || "0"}
-        onChange={(e) => {
-          const val = e.target.value;
-          onChange({ ...leg, reentry_sl_value: val === '' ? 0 : parseFloat(val) });
-        }}
-      />
-    </div>
-    <div className="space-y-1">
-      <Label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground block mb-2">SL Multiplier on Entry Candle</Label>
-      <div className="flex items-center gap-2">
-        <Switch
-          checked={leg.reentry_sl_multiplier_entry_candle || false}
-          onCheckedChange={(val) => onChange({ ...leg, reentry_sl_multiplier_entry_candle: val })}
-        />
-        {leg.reentry_sl_multiplier_entry_candle && (
-          <Input
-            className="h-9 rounded-lg text-[10px] flex-1"
-            type="number"
-            step="0.1"
-            placeholder="x2"
-            value={leg.reentry_sl_multiplier_value || ""}
-            onChange={(e) => onChange({ ...leg, reentry_sl_multiplier_value: parseFloat(e.target.value) })}
-          />
-        )}
-      </div>
-    </div>
-  </div>
-  )}
-
-  {leg.reentry_sl_enabled && (
-  <>
-  <div className="flex items-center justify-between w-full lg:max-w-[280px] mb-2 mt-2">
-  <Label className="text-[10px] font-medium text-gray-700">Override TSL on Re-Entry</Label>
-  <Switch
-  checked={leg.reentry_tsl_enabled || false}
-  onCheckedChange={(val) => onChange({ ...leg, reentry_tsl_enabled: val })}
-  />
-  </div>
-
-  {leg.reentry_tsl_enabled && (
-  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pl-5 animate-in slide-in-from-top-2 border-l-2 border-primary/20">
-    <div className="space-y-1">
-      <Label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground block mb-2">TSL Type</Label>
-      <Select
-        value={leg.reentry_tsl_type || 'PERCENTAGE'}
-        onValueChange={(v) => onChange({ ...leg, reentry_tsl_type: v })}
-      >
-        <SelectTrigger className="h-9 rounded-lg text-[10px]">
-          <SelectValue placeholder="TSL Type" />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="PERCENTAGE">Percentage (%)</SelectItem>
-          <SelectItem value="POINTS">Points (Pts)</SelectItem>
-        </SelectContent>
-      </Select>
-    </div>
-    <div className="space-y-1">
-      <Label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground block mb-2">Move</Label>
-      <Input
-        className="h-9 rounded-lg text-[10px]"
-        type="number"
-        value={leg.reentry_tsl_move !== undefined ? leg.reentry_tsl_move : (leg.tsl_move || 0)}
-        onChange={(e) => onChange({ ...leg, reentry_tsl_move: parseFloat(e.target.value) })}
-      />
-    </div>
-    <div className="space-y-1">
-      <Label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground block mb-2">Trail</Label>
-      <Input
-        className="h-9 rounded-lg text-[10px]"
-        type="number"
-        value={leg.reentry_tsl_trail !== undefined ? leg.reentry_tsl_trail : (leg.tsl_trail || 0)}
-        onChange={(e) => onChange({ ...leg, reentry_tsl_trail: parseFloat(e.target.value) })}
-      />
-    </div>
-
-    <div className="col-span-1 sm:col-span-3 space-y-2">
-      <div className="flex items-center gap-1.5 pt-1">
-        <input
-          type="checkbox"
-          id={`reentry-tsl-on-close-recost-${idPrefix}`}
-          className="w-3.5 h-3.5 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
-          checked={leg.reentry_tsl_on_close || false}
-          onChange={(e) => onChange({ ...leg, reentry_tsl_on_close: e.target.checked, reentry_tsl_on_close_low: false, reentry_tsl_on_close_high: false })}
-        />
-        <Label htmlFor={`reentry-tsl-on-close-recost-${idPrefix}`} className="text-[10px] cursor-pointer whitespace-nowrap">On Close</Label>
-      </div>
-
-      {leg.reentry_tsl_on_close && leg.side === 'SELL' && (
-      <div className="flex items-center gap-1.5 pt-1 pl-4">
-        <input
-          type="checkbox"
-          id={`reentry-tsl-on-close-low-recost-${idPrefix}`}
-          className="w-3.5 h-3.5 rounded text-pink-600 focus:ring-pink-500 cursor-pointer"
-          checked={leg.reentry_tsl_on_close_low || false}
-          onChange={(e) => onChange({ ...leg, reentry_tsl_on_close_low: e.target.checked })}
-        />
-        <Label htmlFor={`reentry-tsl-on-close-low-recost-${idPrefix}`} className="text-[10px] cursor-pointer whitespace-nowrap text-pink-600">On Close Low</Label>
-      </div>
+  {!isReadOnly && (
+    <div className="flex items-center gap-2 pt-1 flex-wrap">
+      {conditions.length < 5 ? (
+        <>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-8 text-[11px] font-semibold border-amber-500/40 text-amber-700 bg-amber-50/50 hover:bg-amber-100/80 gap-1.5"
+            onClick={() => handleAddCondition('OR')}
+          >
+            <Plus className="w-3.5 h-3.5 text-amber-600" />
+            Add OR Condition
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-8 text-[11px] font-semibold border-indigo-500/40 text-indigo-700 bg-indigo-50/50 hover:bg-indigo-100/80 gap-1.5"
+            onClick={() => handleAddCondition('AND')}
+          >
+            <Plus className="w-3.5 h-3.5 text-indigo-600" />
+            Add AND Condition
+          </Button>
+        </>
+      ) : (
+        <span className="text-[11px] font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1">
+          Maximum 5 conditions reached
+        </span>
       )}
-
-      {leg.reentry_tsl_on_close && leg.side === 'BUY' && (
-      <div className="flex items-center gap-1.5 pt-1 pl-4">
-        <input
-          type="checkbox"
-          id={`reentry-tsl-on-close-high-recost-${idPrefix}`}
-          className="w-3.5 h-3.5 rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer"
-          checked={leg.reentry_tsl_on_close_high || false}
-          onChange={(e) => onChange({ ...leg, reentry_tsl_on_close_high: e.target.checked })}
-        />
-        <Label htmlFor={`reentry-tsl-on-close-high-recost-${idPrefix}`} className="text-[10px] cursor-pointer whitespace-nowrap text-emerald-600">On Close High</Label>
-      </div>
-      )}
+      <span className="text-[10px] text-muted-foreground ml-auto font-mono">
+        ({conditions.length}/5)
+      </span>
     </div>
-  </div>
-  )}
-  </>
   )}
   </div>
-  </div>
-  </div>
-
- )}
-
- {leg.resl_enabled && (
- <div className="space-y-2">
- <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
- <div className="space-y-1">
- <Label className="text-[9px] font-medium uppercase tracking-wider text-muted-foreground block mb-1">RE SL Mode</Label>
- <Select
- value={leg.resl_mode ||'RESL_PLUS_PCT'}
- onValueChange={(v) => onChange({ ...leg, resl_mode: v })}
- >
- <SelectTrigger className="h-9 rounded-lg text-[10px]">
- <SelectValue placeholder="Mode" />
- </SelectTrigger>
- <SelectContent>
- <SelectItem value="RESL_PLUS_PCT">RE-SL + %</SelectItem>
- <SelectItem value="RESL_PLUS_PTS">RE-SL + Pts</SelectItem>
- <SelectItem value="RESL_MINUS_PCT">RE-SL - %</SelectItem>
- <SelectItem value="RESL_MINUS_PTS">RE-SL - Pts</SelectItem>
- </SelectContent>
- </Select>
- </div>
- <div className="space-y-1">
- <Label className="text-[9px] font-medium uppercase tracking-wider text-muted-foreground flex items-center gap-1.5 mb-1">
- Value {leg.resl_mode && leg.resl_mode.includes('PCT') ?'(%)' :'(Pts)'}
- </Label>
- <Input
- className="h-9 rounded-lg text-[9px]"
- type="text"
- value={leg.resl_value === undefined ?'' : leg.resl_value}
- onChange={(e) => {
- const val = e.target.value;
- if (val ==='' || /^\d*\.?\d*$/.test(val)) {
- onChange({ ...leg, resl_value: val });
- }
- }}
- onBlur={(e) => onChange({ ...leg, resl_value: parseFloat(e.target.value) || 0 })}
- />
- </div>
- <div className="space-y-1">
- <Label className="text-[9px] font-medium uppercase tracking-wider text-muted-foreground block mb-1">Max Entries</Label>
- <Select
- value={(leg.max_reentry || 1).toString()}
- onValueChange={(v) => onChange({ ...leg, max_reentry: parseInt(v) })}
- >
- <SelectTrigger className="h-9 rounded-lg text-[9px]">
- <SelectValue placeholder="Entries" />
- </SelectTrigger>
- <SelectContent className="max-h-[250px]">
- {Array.from({ length: 20 }, (_, i) => i + 1).map(num => (
- <SelectItem key={`${idPrefix}-max-resl-${num}`} value={num.toString()}>
- {num} {num === 1 ?'Entry' :'Entries'}
- </SelectItem>
- ))}
- </SelectContent>
- </Select>
- </div>
- </div>
-
- <div className="space-y-2 pt-1">
- <div className="flex items-center gap-2">
- <input
- type="checkbox"
- id={`resl-mntm-${idPrefix}`}
- className="w-3.5 h-3.5 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
- checked={leg.resl_mntm_enabled || false}
- onChange={(e) => onChange({ ...leg, resl_mntm_enabled: e.target.checked })}
- />
- <Label htmlFor={`resl-mntm-${idPrefix}`} className="text-[10px] cursor-pointer">Re-Entry Momentum</Label>
- </div>
-
- {leg.resl_mntm_enabled && (
- <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pl-5 animate-in slide-in-from-top-2 border-l-2 border-primary/20">
- <div className="space-y-1">
- <Label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground block mb-2">Mntm Mode</Label>
- <Select
- value={leg.resl_mntm_mode ||'RESL_PLUS_PCT'}
- onValueChange={(v) => onChange({ ...leg, resl_mntm_mode: v })}
- >
- <SelectTrigger className="h-9 rounded-lg text-[10px]">
- <SelectValue placeholder="Mode" />
- </SelectTrigger>
- <SelectContent>
- <SelectItem value="RESL_PLUS_PCT">RTP + %</SelectItem>
- <SelectItem value="RESL_PLUS_PTS">RTP + Pts</SelectItem>
- <SelectItem value="RESL_MINUS_PCT">RTP - %</SelectItem>
- <SelectItem value="RESL_MINUS_PTS">RTP - Pts</SelectItem>
- </SelectContent>
- </Select>
- </div>
- <div className="space-y-1">
- <Label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground block mb-2">
- Value {leg.resl_mntm_mode && leg.resl_mntm_mode.includes('PCT') ?'(%)' :'(Pts)'}
- </Label>
- <Input
- className="h-9 rounded-lg text-[10px]"
- type="text"
- value={leg.resl_mntm_value === undefined ?'' : leg.resl_mntm_value}
- onChange={(e) => {
- const val = e.target.value;
- if (val ==='' || /^\d*\.?\d*$/.test(val)) {
- onChange({ ...leg, resl_mntm_value: val });
- }
- }}
- onBlur={(e) => onChange({ ...leg, resl_mntm_value: parseFloat(e.target.value) || 0 })}
- />
- </div>
- </div>
- )}
-
-  <div className="flex items-center justify-between w-full lg:max-w-[280px] mb-2 mt-2">
-  <Label className="text-[10px] font-medium text-gray-700">Override SL on Re-Entry</Label>
-  <Switch
-  checked={leg.reentry_sl_enabled || false}
-  onCheckedChange={(val) => {
-  const updatedLeg = { ...leg, reentry_sl_enabled: val };
-  if (!val) updatedLeg.reentry_tsl_enabled = false;
-  onChange(updatedLeg);
-  }}
-  />
-  </div>
- {leg.reentry_sl_enabled && (
- <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pl-5 animate-in slide-in-from-top-2 border-l-2 border-primary/20">
- <div className="space-y-1">
- <Label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground block mb-2">SL Type</Label>
- <Select
- value={leg.reentry_sl_type ||'PERCENTAGE'}
- onValueChange={(v) => onChange({ ...leg, reentry_sl_type: v })}
- >
- <SelectTrigger className="h-9 rounded-lg text-[10px]">
- <SelectValue placeholder="SL Type" />
- </SelectTrigger>
- <SelectContent>
- <SelectItem value="PERCENTAGE">Percentage (%)</SelectItem>
- <SelectItem value="POINTS">Points (Pts)</SelectItem>
- </SelectContent>
- </Select>
- </div>
- <div className="space-y-1">
- <Label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground flex items-center gap-2 mb-2">
- Value {leg.reentry_sl_type ==='POINTS' ?'(Pts)' :'(%)'}
- </Label>
- <Input
- className="h-9 rounded-lg text-[10px]"
- type="number"
- value={leg.reentry_sl_value !== undefined ? leg.reentry_sl_value : (leg.stop_loss || 0)}
- onChange={(e) => onChange({ ...leg, reentry_sl_value: parseFloat(e.target.value) })}
- />
- </div>
- 
-  <div className="space-y-1">
-    <Label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground block mb-2">SL Multiplier on Entry Candle</Label>
-    <div className="flex items-center gap-2">
-      <Switch
-        checked={leg.reentry_sl_multiplier_entry_candle || false}
-        onCheckedChange={(val) => onChange({ ...leg, reentry_sl_multiplier_entry_candle: val })}
-      />
-      {leg.reentry_sl_multiplier_entry_candle && (
-        <Input
-          className="h-9 rounded-lg text-[10px] flex-1"
-          type="number"
-          step="0.1"
-          placeholder="x2"
-          value={leg.reentry_sl_multiplier_value || ""}
-          onChange={(e) => onChange({ ...leg, reentry_sl_multiplier_value: parseFloat(e.target.value) })}
-        />
-      )}
-    </div>
-  </div>
-</div>
- )}
-
- {leg.reentry_sl_enabled && (
- <>
-  <div className="flex items-center justify-between w-full lg:max-w-[280px] mb-2 mt-2">
-  <Label className="text-[10px] font-medium text-gray-700">Override TSL on Re-Entry</Label>
-  <Switch
-  checked={leg.reentry_tsl_enabled || false}
-  onCheckedChange={(val) => onChange({ ...leg, reentry_tsl_enabled: val })}
-  />
-  </div>
-
- {leg.reentry_tsl_enabled && (
- <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pl-5 animate-in slide-in-from-top-2 border-l-2 border-primary/20">
- <div className="space-y-1">
- <Label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground block mb-2">TSL Type</Label>
- <Select
- value={leg.reentry_tsl_type ||'PERCENTAGE'}
- onValueChange={(v) => onChange({ ...leg, reentry_tsl_type: v })}
- >
- <SelectTrigger className="h-9 rounded-lg text-[10px]">
- <SelectValue placeholder="TSL Type" />
- </SelectTrigger>
- <SelectContent>
- <SelectItem value="PERCENTAGE">Percentage (%)</SelectItem>
- <SelectItem value="POINTS">Points (Pts)</SelectItem>
- </SelectContent>
- </Select>
- </div>
- <div className="space-y-1">
- <Label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground block mb-2">Move</Label>
- <Input
- className="h-9 rounded-lg text-[10px]"
- type="number"
- value={leg.reentry_tsl_move !== undefined ? leg.reentry_tsl_move : (leg.tsl_move || 0)}
- onChange={(e) => onChange({ ...leg, reentry_tsl_move: parseFloat(e.target.value) })}
- />
- </div>
- <div className="space-y-1">
- <Label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground block mb-2">Trail</Label>
- <Input
- className="h-9 rounded-lg text-[10px]"
- type="number"
- value={leg.reentry_tsl_trail !== undefined ? leg.reentry_tsl_trail : (leg.tsl_trail || 0)}
- onChange={(e) => onChange({ ...leg, reentry_tsl_trail: parseFloat(e.target.value) })}
- />
- </div>
-
- <div className="flex items-center gap-1.5 pt-1">
- <input
- type="checkbox"
- id={`reentry-tsl-on-close-resl-${idPrefix}`}
- className="w-3.5 h-3.5 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
- checked={leg.reentry_tsl_on_close || false}
- onChange={(e) => onChange({ ...leg, reentry_tsl_on_close: e.target.checked, reentry_tsl_on_close_low: false, reentry_tsl_on_close_high: false })}
- />
- <Label htmlFor={`reentry-tsl-on-close-resl-${idPrefix}`} className="text-[10px] cursor-pointer whitespace-nowrap">On Close</Label>
- </div>
-
- {leg.reentry_tsl_on_close && leg.side === 'SELL' && (
- <div className="flex items-center gap-1.5 pt-1">
- <input
- type="checkbox"
- id={`reentry-tsl-on-close-low-resl-${idPrefix}`}
- className="w-3.5 h-3.5 rounded text-pink-600 focus:ring-pink-500 cursor-pointer"
- checked={leg.reentry_tsl_on_close_low || false}
- onChange={(e) => onChange({ ...leg, reentry_tsl_on_close_low: e.target.checked })}
- />
- <Label htmlFor={`reentry-tsl-on-close-low-resl-${idPrefix}`} className="text-[10px] cursor-pointer whitespace-nowrap text-pink-600">On Close Low</Label>
- </div>
- )}
-
- {leg.reentry_tsl_on_close && leg.side === 'BUY' && (
- <div className="flex items-center gap-1.5 pt-1">
- <input
- type="checkbox"
- id={`reentry-tsl-on-close-high-resl-${idPrefix}`}
- className="w-3.5 h-3.5 rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer"
- checked={leg.reentry_tsl_on_close_high || false}
- onChange={(e) => onChange({ ...leg, reentry_tsl_on_close_high: e.target.checked })}
- />
- <Label htmlFor={`reentry-tsl-on-close-high-resl-${idPrefix}`} className="text-[10px] cursor-pointer whitespace-nowrap text-emerald-600">On Close High</Label>
- </div>
- )}
- </div>
- )}
- </>
- )}
- </div>
- </div>
- )}
-
-
- {leg.rehigh_enabled && (
- <div className="space-y-2">
- <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
- <div className="space-y-1">
- <Label className="text-[9px] font-medium uppercase tracking-wider text-muted-foreground block mb-1">RE HIGH Mode</Label>
- <Select
- value={leg.rehigh_mode ||'REHIGH_MINUS_PTS'}
- onValueChange={(v) => onChange({ ...leg, rehigh_mode: v })}
- >
- <SelectTrigger className="h-9 rounded-lg text-[10px]">
- <SelectValue placeholder="Mode" />
- </SelectTrigger>
- <SelectContent>
- <SelectItem value="REHIGH_MINUS_PCT">High - %</SelectItem>
- <SelectItem value="REHIGH_MINUS_PTS">High - Pts</SelectItem>
- </SelectContent>
- </Select>
- </div>
- <div className="space-y-1">
- <Label className="text-[9px] font-medium uppercase tracking-wider text-muted-foreground flex items-center gap-1.5 mb-1">Value</Label>
- <Input
- className="h-9 rounded-lg text-[9px]"
- type="number"
- value={leg.rehigh_value === undefined || leg.rehigh_value ==='' ?'' : leg.rehigh_value}
- onChange={(e) => onChange({ ...leg, rehigh_value: e.target.value ==='' ?'' : parseFloat(e.target.value) })}
- onBlur={(e) => {
- const val = parseFloat(e.target.value);
- if (isNaN(val) || val < 1) {
- onChange({ ...leg, rehigh_value: 1 });
- }
- }}
- />
- </div>
- <div className="space-y-1">
- <Label className="text-[9px] font-medium uppercase tracking-wider text-muted-foreground block mb-1">Max Entries</Label>
- <Select
- value={(leg.max_reentry || 1).toString()}
- onValueChange={(v) => onChange({ ...leg, max_reentry: parseInt(v) })}
- >
- <SelectTrigger className="h-9 rounded-lg text-[9px]">
- <SelectValue placeholder="Entries" />
- </SelectTrigger>
- <SelectContent className="max-h-[250px]">
- {Array.from({ length: 20 }, (_, i) => i + 1).map(num => (
- <SelectItem key={`${idPrefix}-max-rehigh-${num}`} value={num.toString()}>
- {num} {num === 1 ?'Entry' :'Entries'}
- </SelectItem>
- ))}
- </SelectContent>
- </Select>
- </div>
- </div>
-
- <div className="space-y-2 pt-1">
- <div className="flex items-center gap-4">
- <div className="flex items-center gap-2">
- <input
- type="checkbox"
- id={`rehigh-rtp-on-close-${idPrefix}`}
- className="w-3.5 h-3.5 rounded text-amber-600 focus:ring-amber-500 cursor-pointer"
- checked={leg.rehigh_rtp_on_close || false}
- onChange={(e) => onChange({ ...leg, rehigh_rtp_on_close: e.target.checked })}
- />
- <Label htmlFor={`rehigh-rtp-on-close-${idPrefix}`} className="text-[10px] cursor-pointer text-amber-700">RTP on Close</Label>
- </div>
- <div className="flex items-center gap-2">
- <input
- type="checkbox"
- id={`rehigh-mntm-${idPrefix}`}
- className="w-3.5 h-3.5 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
- checked={leg.rehigh_mntm_enabled || false}
- onChange={(e) => onChange({ ...leg, rehigh_mntm_enabled: e.target.checked })}
- />
- <Label htmlFor={`rehigh-mntm-${idPrefix}`} className="text-[10px] cursor-pointer">Re-Entry Momentum</Label>
- </div>
- </div>
-
- {leg.rehigh_mntm_enabled && (
- <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pl-5 animate-in slide-in-from-top-2 border-l-2 border-primary/20">
- <div className="space-y-1">
- <Label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground block mb-2">Mntm Mode</Label>
- <Select
- value={leg.rehigh_mntm_mode ||'REHIGH_PLUS_PCT'}
- onValueChange={(v) => onChange({ ...leg, rehigh_mntm_mode: v })}
- >
- <SelectTrigger className="h-9 rounded-lg text-[10px]">
- <SelectValue placeholder="Mode" />
- </SelectTrigger>
- <SelectContent>
- <SelectItem value="REHIGH_PLUS_PCT">RTP + %</SelectItem>
- <SelectItem value="REHIGH_PLUS_PTS">RTP + Pts</SelectItem>
- <SelectItem value="REHIGH_MINUS_PCT">RTP - %</SelectItem>
- <SelectItem value="REHIGH_MINUS_PTS">RTP - Pts</SelectItem>
- </SelectContent>
- </Select>
- </div>
- <div className="space-y-1">
- <Label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground block mb-2">
- Value {leg.rehigh_mntm_mode && leg.rehigh_mntm_mode.includes('PCT') ?'(%)' :'(Pts)'}
- </Label>
- <Input
- className="h-9 rounded-lg text-[10px]"
- type="number"
- value={leg.rehigh_mntm_value === undefined ?'' : leg.rehigh_mntm_value}
- onChange={(e) => {
- const val = parseFloat(e.target.value);
- // Prevent values <= 0
- if (!isNaN(val) && val >= 0) {
- onChange({ ...leg, rehigh_mntm_value: val });
- } else if (e.target.value ==='') {
- onChange({ ...leg, rehigh_mntm_value:'' });
- }
- }}
- onBlur={(e) => {
- const val = parseFloat(e.target.value);
- if (isNaN(val)) {
- onChange({ ...leg, rehigh_mntm_value: 0 });
- }
- }}
- />
- </div>
- </div>
- )}
-
-  <div className="w-full lg:flex-1 space-y-1.5 pt-1">
-  <div className="flex items-center justify-between w-full lg:max-w-[280px]">
-  <Label className="text-[10px] font-medium text-gray-700">Override SL on Re-Entry</Label>
-  <Switch
-  checked={leg.reentry_sl_enabled || false}
-  onCheckedChange={(val) => {
-  const updatedLeg = { ...leg, reentry_sl_enabled: val };
-  if (!val) updatedLeg.reentry_tsl_enabled = false;
-  onChange(updatedLeg);
-  }}
-  />
-  </div>
-
-  {leg.reentry_sl_enabled && (
-  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pl-5 animate-in slide-in-from-top-2 border-l-2 border-primary/20">
-    <div className="space-y-1">
-      <Label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground block mb-2">SL Type</Label>
-      <Select
-        value={leg.reentry_sl_type || 'PERCENTAGE'}
-        onValueChange={(v) => onChange({ ...leg, reentry_sl_type: v })}
-      >
-        <SelectTrigger className="h-9 rounded-lg text-[10px]">
-          <SelectValue placeholder="SL Type" />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="PERCENTAGE">Percentage (%)</SelectItem>
-          <SelectItem value="POINTS">Points (Pts)</SelectItem>
-        </SelectContent>
-      </Select>
-    </div>
-    <div className="space-y-1">
-      <Label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground flex items-center gap-2 mb-2">
-        Value {leg.reentry_sl_type === 'POINTS' ? '(Pts)' : '(%)'}
-      </Label>
-      <Input
-        className="h-9 rounded-lg text-[10px]"
-        type="number"
-        value={leg.reentry_sl_value === 0 ? '' : (leg.reentry_sl_value !== undefined ? leg.reentry_sl_value : '')}
-        placeholder={leg.stop_loss || "0"}
-        onChange={(e) => {
-          const val = e.target.value;
-          onChange({ ...leg, reentry_sl_value: val === '' ? 0 : parseFloat(val) });
-        }}
-      />
-    </div>
-    <div className="space-y-1">
-      <Label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground block mb-2">SL Multiplier on Entry Candle</Label>
-      <div className="flex items-center gap-2">
-        <Switch
-          checked={leg.reentry_sl_multiplier_entry_candle || false}
-          onCheckedChange={(val) => onChange({ ...leg, reentry_sl_multiplier_entry_candle: val })}
-        />
-        {leg.reentry_sl_multiplier_entry_candle && (
-          <Input
-            className="h-9 rounded-lg text-[10px] flex-1"
-            type="number"
-            step="0.1"
-            placeholder="x2"
-            value={leg.reentry_sl_multiplier_value || ""}
-            onChange={(e) => onChange({ ...leg, reentry_sl_multiplier_value: parseFloat(e.target.value) })}
-          />
-        )}
-      </div>
-    </div>
-  </div>
   )}
-
-  {leg.reentry_sl_enabled && (
-  <>
-  <div className="flex items-center justify-between w-full lg:max-w-[280px] mb-2 mt-2">
-  <Label className="text-[10px] font-medium text-gray-700">Override TSL on Re-Entry</Label>
-  <Switch
-  checked={leg.reentry_tsl_enabled || false}
-  onCheckedChange={(val) => onChange({ ...leg, reentry_tsl_enabled: val })}
-  />
-  </div>
-
-  {leg.reentry_tsl_enabled && (
-  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pl-5 animate-in slide-in-from-top-2 border-l-2 border-primary/20">
-    <div className="space-y-1">
-      <Label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground block mb-2">TSL Type</Label>
-      <Select
-        value={leg.reentry_tsl_type || 'PERCENTAGE'}
-        onValueChange={(v) => onChange({ ...leg, reentry_tsl_type: v })}
-      >
-        <SelectTrigger className="h-9 rounded-lg text-[10px]">
-          <SelectValue placeholder="TSL Type" />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="PERCENTAGE">Percentage (%)</SelectItem>
-          <SelectItem value="POINTS">Points (Pts)</SelectItem>
-        </SelectContent>
-      </Select>
-    </div>
-    <div className="space-y-1">
-      <Label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground block mb-2">Move</Label>
-      <Input
-        className="h-9 rounded-lg text-[10px]"
-        type="number"
-        value={leg.reentry_tsl_move !== undefined ? leg.reentry_tsl_move : (leg.tsl_move || 0)}
-        onChange={(e) => onChange({ ...leg, reentry_tsl_move: parseFloat(e.target.value) })}
-      />
-    </div>
-    <div className="space-y-1">
-      <Label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground block mb-2">Trail</Label>
-      <Input
-        className="h-9 rounded-lg text-[10px]"
-        type="number"
-        value={leg.reentry_tsl_trail !== undefined ? leg.reentry_tsl_trail : (leg.tsl_trail || 0)}
-        onChange={(e) => onChange({ ...leg, reentry_tsl_trail: parseFloat(e.target.value) })}
-      />
-    </div>
-
-    <div className="col-span-1 sm:col-span-3 space-y-2">
-      <div className="flex items-center gap-1.5 pt-1">
-        <input
-          type="checkbox"
-          id={`reentry-tsl-on-close-rehigh-${idPrefix}`}
-          className="w-3.5 h-3.5 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
-          checked={leg.reentry_tsl_on_close || false}
-          onChange={(e) => onChange({ ...leg, reentry_tsl_on_close: e.target.checked, reentry_tsl_on_close_low: false, reentry_tsl_on_close_high: false })}
-        />
-        <Label htmlFor={`reentry-tsl-on-close-rehigh-${idPrefix}`} className="text-[10px] cursor-pointer whitespace-nowrap">On Close</Label>
-      </div>
-
-      {leg.reentry_tsl_on_close && leg.side === 'SELL' && (
-      <div className="flex items-center gap-1.5 pt-1 pl-4">
-        <input
-          type="checkbox"
-          id={`reentry-tsl-on-close-low-rehigh-${idPrefix}`}
-          className="w-3.5 h-3.5 rounded text-pink-600 focus:ring-pink-500 cursor-pointer"
-          checked={leg.reentry_tsl_on_close_low || false}
-          onChange={(e) => onChange({ ...leg, reentry_tsl_on_close_low: e.target.checked })}
-        />
-        <Label htmlFor={`reentry-tsl-on-close-low-rehigh-${idPrefix}`} className="text-[10px] cursor-pointer whitespace-nowrap text-pink-600">On Close Low</Label>
-      </div>
-      )}
-
-      {leg.reentry_tsl_on_close && leg.side === 'BUY' && (
-      <div className="flex items-center gap-1.5 pt-1 pl-4">
-        <input
-          type="checkbox"
-          id={`reentry-tsl-on-close-high-rehigh-${idPrefix}`}
-          className="w-3.5 h-3.5 rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer"
-          checked={leg.reentry_tsl_on_close_high || false}
-          onChange={(e) => onChange({ ...leg, reentry_tsl_on_close_high: e.target.checked })}
-        />
-        <Label htmlFor={`reentry-tsl-on-close-high-rehigh-${idPrefix}`} className="text-[10px] cursor-pointer whitespace-nowrap text-emerald-600">On Close High</Label>
-      </div>
-      )}
-    </div>
-  </div>
-  )}
-  </>
-  )}
-  </div>
-  </div>
-  </div>
-
- )}
-
- {leg.relow_enabled && (
- <div className="space-y-2">
- <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
- <div className="space-y-1">
- <Label className="text-[9px] font-medium uppercase tracking-wider text-muted-foreground block mb-1">RE LOW Mode</Label>
- <Select
- value={leg.relow_mode ||'RELOW_PLUS_PTS'}
- onValueChange={(v) => onChange({ ...leg, relow_mode: v })}
- >
- <SelectTrigger className="h-9 rounded-lg text-[10px]">
- <SelectValue placeholder="Mode" />
- </SelectTrigger>
- <SelectContent>
- <SelectItem value="RELOW_PLUS_PCT">Low + %</SelectItem>
- <SelectItem value="RELOW_PLUS_PTS">Low + Pts</SelectItem>
- </SelectContent>
- </Select>
- </div>
- <div className="space-y-1">
- <Label className="text-[9px] font-medium uppercase tracking-wider text-muted-foreground flex items-center gap-1.5 mb-1">Value</Label>
- <Input
- className="h-9 rounded-lg text-[9px]"
- type="number"
- value={leg.relow_value === undefined || leg.relow_value ==='' ?'' : leg.relow_value}
- onChange={(e) => onChange({ ...leg, relow_value: e.target.value ==='' ?'' : parseFloat(e.target.value) })}
- onBlur={(e) => {
- const val = parseFloat(e.target.value);
- if (isNaN(val) || val < 1) {
- onChange({ ...leg, relow_value: 1 });
- }
- }}
- />
- </div>
- <div className="space-y-1">
- <Label className="text-[9px] font-medium uppercase tracking-wider text-muted-foreground block mb-1">Max Entries</Label>
- <Select
- value={(leg.max_reentry || 1).toString()}
- onValueChange={(v) => onChange({ ...leg, max_reentry: parseInt(v) })}
- >
- <SelectTrigger className="h-9 rounded-lg text-[9px]">
- <SelectValue placeholder="Entries" />
- </SelectTrigger>
- <SelectContent className="max-h-[250px]">
- {Array.from({ length: 20 }, (_, i) => i + 1).map(num => (
- <SelectItem key={`${idPrefix}-max-relow-${num}`} value={num.toString()}>
- {num} {num === 1 ?'Entry' :'Entries'}
- </SelectItem>
- ))}
- </SelectContent>
- </Select>
- </div>
- </div>
-
- <div className="space-y-2 pt-1">
- <div className="flex items-center gap-4">
- <div className="flex items-center gap-2">
- <input
- type="checkbox"
- id={`relow-rtp-on-close-${idPrefix}`}
- className="w-3.5 h-3.5 rounded text-amber-600 focus:ring-amber-500 cursor-pointer"
- checked={leg.relow_rtp_on_close || false}
- onChange={(e) => onChange({ ...leg, relow_rtp_on_close: e.target.checked })}
- />
- <Label htmlFor={`relow-rtp-on-close-${idPrefix}`} className="text-[10px] cursor-pointer text-amber-700">RTP on Close</Label>
- </div>
- <div className="flex items-center gap-2">
- <input
- type="checkbox"
- id={`relow-mntm-${idPrefix}`}
- className="w-3.5 h-3.5 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
- checked={leg.relow_mntm_enabled || false}
- onChange={(e) => onChange({ ...leg, relow_mntm_enabled: e.target.checked })}
- />
- <Label htmlFor={`relow-mntm-${idPrefix}`} className="text-[10px] cursor-pointer">Re-Entry Momentum</Label>
- </div>
- </div>
-
- {leg.relow_mntm_enabled && (
- <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pl-5 animate-in slide-in-from-top-2 border-l-2 border-primary/20">
- <div className="space-y-1">
- <Label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground block mb-2">Mntm Mode</Label>
- <Select
- value={leg.relow_mntm_mode ||'RELOW_PLUS_PCT'}
- onValueChange={(v) => onChange({ ...leg, relow_mntm_mode: v })}
- >
- <SelectTrigger className="h-9 rounded-lg text-[10px]">
- <SelectValue placeholder="Mode" />
- </SelectTrigger>
- <SelectContent>
- <SelectItem value="RELOW_PLUS_PCT">RTP + %</SelectItem>
- <SelectItem value="RELOW_PLUS_PTS">RTP + Pts</SelectItem>
- <SelectItem value="RELOW_MINUS_PCT">RTP - %</SelectItem>
- <SelectItem value="RELOW_MINUS_PTS">RTP - Pts</SelectItem>
- </SelectContent>
- </Select>
- </div>
- <div className="space-y-1">
- <Label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground block mb-2">
- Value {leg.relow_mntm_mode && leg.relow_mntm_mode.includes('PCT') ?'(%)' :'(Pts)'}
- </Label>
- <Input
- className="h-9 rounded-lg text-[10px]"
- type="number"
- value={leg.relow_mntm_value === undefined ?'' : leg.relow_mntm_value}
- onChange={(e) => {
- const val = parseFloat(e.target.value);
- if (!isNaN(val) && val >= 0) {
- onChange({ ...leg, relow_mntm_value: val });
- } else if (e.target.value ==='') {
- onChange({ ...leg, relow_mntm_value:'' });
- }
- }}
- onBlur={(e) => {
- const val = parseFloat(e.target.value);
- if (isNaN(val)) {
- onChange({ ...leg, relow_mntm_value: 0 });
- }
- }}
- />
- </div>
- </div>
- )}
-
-  <div className="w-full lg:flex-1 space-y-1.5 pt-1">
-  <div className="flex items-center justify-between w-full lg:max-w-[280px]">
-  <Label className="text-[10px] font-medium text-gray-700">Override SL on Re-Entry</Label>
-  <Switch
-  checked={leg.reentry_sl_enabled || false}
-  onCheckedChange={(val) => {
-  const updatedLeg = { ...leg, reentry_sl_enabled: val };
-  if (!val) updatedLeg.reentry_tsl_enabled = false;
-  onChange(updatedLeg);
-  }}
-  />
-  </div>
-
-  {leg.reentry_sl_enabled && (
-  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pl-5 animate-in slide-in-from-top-2 border-l-2 border-primary/20">
-    <div className="space-y-1">
-      <Label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground block mb-2">SL Type</Label>
-      <Select
-        value={leg.reentry_sl_type || 'PERCENTAGE'}
-        onValueChange={(v) => onChange({ ...leg, reentry_sl_type: v })}
-      >
-        <SelectTrigger className="h-9 rounded-lg text-[10px]">
-          <SelectValue placeholder="SL Type" />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="PERCENTAGE">Percentage (%)</SelectItem>
-          <SelectItem value="POINTS">Points (Pts)</SelectItem>
-        </SelectContent>
-      </Select>
-    </div>
-    <div className="space-y-1">
-      <Label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground flex items-center gap-2 mb-2">
-        Value {leg.reentry_sl_type === 'POINTS' ? '(Pts)' : '(%)'}
-      </Label>
-      <Input
-        className="h-9 rounded-lg text-[10px]"
-        type="number"
-        value={leg.reentry_sl_value === 0 ? '' : (leg.reentry_sl_value !== undefined ? leg.reentry_sl_value : '')}
-        placeholder={leg.stop_loss || "0"}
-        onChange={(e) => {
-          const val = e.target.value;
-          onChange({ ...leg, reentry_sl_value: val === '' ? 0 : parseFloat(val) });
-        }}
-      />
-    </div>
-    <div className="space-y-1">
-      <Label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground block mb-2">SL Multiplier on Entry Candle</Label>
-      <div className="flex items-center gap-2">
-        <Switch
-          checked={leg.reentry_sl_multiplier_entry_candle || false}
-          onCheckedChange={(val) => onChange({ ...leg, reentry_sl_multiplier_entry_candle: val })}
-        />
-        {leg.reentry_sl_multiplier_entry_candle && (
-          <Input
-            className="h-9 rounded-lg text-[10px] flex-1"
-            type="number"
-            step="0.1"
-            placeholder="x2"
-            value={leg.reentry_sl_multiplier_value || ""}
-            onChange={(e) => onChange({ ...leg, reentry_sl_multiplier_value: parseFloat(e.target.value) })}
-          />
-        )}
-      </div>
-    </div>
-  </div>
-  )}
-
-  {leg.reentry_sl_enabled && (
-  <>
-  <div className="flex items-center justify-between w-full lg:max-w-[280px] mb-2 mt-2">
-  <Label className="text-[10px] font-medium text-gray-700">Override TSL on Re-Entry</Label>
-  <Switch
-  checked={leg.reentry_tsl_enabled || false}
-  onCheckedChange={(val) => onChange({ ...leg, reentry_tsl_enabled: val })}
-  />
-  </div>
-
-  {leg.reentry_tsl_enabled && (
-  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pl-5 animate-in slide-in-from-top-2 border-l-2 border-primary/20">
-    <div className="space-y-1">
-      <Label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground block mb-2">TSL Type</Label>
-      <Select
-        value={leg.reentry_tsl_type || 'PERCENTAGE'}
-        onValueChange={(v) => onChange({ ...leg, reentry_tsl_type: v })}
-      >
-        <SelectTrigger className="h-9 rounded-lg text-[10px]">
-          <SelectValue placeholder="TSL Type" />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="PERCENTAGE">Percentage (%)</SelectItem>
-          <SelectItem value="POINTS">Points (Pts)</SelectItem>
-        </SelectContent>
-      </Select>
-    </div>
-    <div className="space-y-1">
-      <Label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground block mb-2">Move</Label>
-      <Input
-        className="h-9 rounded-lg text-[10px]"
-        type="number"
-        value={leg.reentry_tsl_move !== undefined ? leg.reentry_tsl_move : (leg.tsl_move || 0)}
-        onChange={(e) => onChange({ ...leg, reentry_tsl_move: parseFloat(e.target.value) })}
-      />
-    </div>
-    <div className="space-y-1">
-      <Label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground block mb-2">Trail</Label>
-      <Input
-        className="h-9 rounded-lg text-[10px]"
-        type="number"
-        value={leg.reentry_tsl_trail !== undefined ? leg.reentry_tsl_trail : (leg.tsl_trail || 0)}
-        onChange={(e) => onChange({ ...leg, reentry_tsl_trail: parseFloat(e.target.value) })}
-      />
-    </div>
-
-    <div className="col-span-1 sm:col-span-3 space-y-2">
-      <div className="flex items-center gap-1.5 pt-1">
-        <input
-          type="checkbox"
-          id={`reentry-tsl-on-close-relow-${idPrefix}`}
-          className="w-3.5 h-3.5 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
-          checked={leg.reentry_tsl_on_close || false}
-          onChange={(e) => onChange({ ...leg, reentry_tsl_on_close: e.target.checked, reentry_tsl_on_close_low: false, reentry_tsl_on_close_high: false })}
-        />
-        <Label htmlFor={`reentry-tsl-on-close-relow-${idPrefix}`} className="text-[10px] cursor-pointer whitespace-nowrap">On Close</Label>
-      </div>
-
-      {leg.reentry_tsl_on_close && leg.side === 'SELL' && (
-      <div className="flex items-center gap-1.5 pt-1 pl-4">
-        <input
-          type="checkbox"
-          id={`reentry-tsl-on-close-low-relow-${idPrefix}`}
-          className="w-3.5 h-3.5 rounded text-pink-600 focus:ring-pink-500 cursor-pointer"
-          checked={leg.reentry_tsl_on_close_low || false}
-          onChange={(e) => onChange({ ...leg, reentry_tsl_on_close_low: e.target.checked })}
-        />
-        <Label htmlFor={`reentry-tsl-on-close-low-relow-${idPrefix}`} className="text-[10px] cursor-pointer whitespace-nowrap text-pink-600">On Close Low</Label>
-      </div>
-      )}
-
-      {leg.reentry_tsl_on_close && leg.side === 'BUY' && (
-      <div className="flex items-center gap-1.5 pt-1 pl-4">
-        <input
-          type="checkbox"
-          id={`reentry-tsl-on-close-high-relow-${idPrefix}`}
-          className="w-3.5 h-3.5 rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer"
-          checked={leg.reentry_tsl_on_close_high || false}
-          onChange={(e) => onChange({ ...leg, reentry_tsl_on_close_high: e.target.checked })}
-        />
-        <Label htmlFor={`reentry-tsl-on-close-high-relow-${idPrefix}`} className="text-[10px] cursor-pointer whitespace-nowrap text-emerald-600">On Close High</Label>
-      </div>
-      )}
-    </div>
-  </div>
-  )}
-  </>
-  )}
-  </div>
-  </div>
-  </div>
-
- )}
 
  {leg.lazy_leg_enabled && leg.lazy_leg && (
  <div className="animate-in slide-in-from-top-2">
@@ -2907,7 +2578,7 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  is_sl_price_on_candle_open: false,
  sl_based_on_candle_open: false,
  legs: [
- { strike_criteria:'STRIKE_TYPE', option_type:'CE', strike:'ATM', premium: 0, side:'BUY', lots: 1, sl_type:'PERCENTAGE', stop_loss: 10, is_sl_price_on_candle_open: false, simple_mntm_enabled: false, simple_mntm_type:'NORMAL', simple_mntm_mode:'SIMPLE_PLUS_PCT', simple_mntm_value: 0, recost_enabled: false, recost_mode:'RECOST_PLUS_PCT', recost_value: 0, max_reentry: 1, no_reentry_on_sl_candle: false, reentry_sl_enabled: false, reentry_sl_type:'PERCENTAGE', reentry_sl_value: 10, reentry_tsl_enabled: false, reentry_tsl_type:'PERCENTAGE', reentry_tsl_move: 0, reentry_tsl_trail: 0, re_asap_enabled: false, re_asap_max_entries: 1, lazy_leg_enabled: false, lazy_leg: null, tsl_enabled: false, tsl_type:'PERCENTAGE', tsl_move: 0 }
+  { strike_criteria:'STRIKE_TYPE', option_type:'CE', strike:'ATM', premium: 0, side:'BUY', lots: 1, sl_type:'PERCENTAGE', stop_loss: 10, is_sl_price_on_candle_open: false, simple_mntm_enabled: false, simple_mntm_type:'NORMAL', simple_mntm_mode:'SIMPLE_PLUS_PCT', simple_mntm_value: 0, recost_enabled: false, recost_mode:'RECOST_PLUS_PCT', recost_value: 0, max_reentry: 1, no_reentry_on_sl_candle: false, reentry_sl_enabled: false, reentry_sl_type:'PERCENTAGE', reentry_sl_value: 10, reentry_tsl_enabled: false, reentry_tsl_type:'PERCENTAGE', reentry_tsl_move: 0, reentry_tsl_trail: 0, re_asap_enabled: false, re_asap_max_entries: 1, lazy_leg_enabled: false, lazy_leg: null, tsl_enabled: false, tsl_type:'PERCENTAGE', tsl_move: 0, reentry_conditions: [] }
  ]
  });
 
@@ -4307,7 +3978,7 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  {/* Strategy Legs */}
 
  {/* Running Legs */}
- {strategyData.legs?.filter(l => !l.exited || ["WAITING_FOR_RECOST","WAITING_FOR_MNTM","WAITING_FOR_RE_ASAP","WAITING_FOR_LAZY","WAITING_FOR_RESL_MNTM","WAITING_FOR_RE_HIGH","WAITING_FOR_RE_LOW","WAITING_FOR_SIMPLE_MNTM","WAITING_FOR_FILL","WAITING_FOR_INTERNAL_FALLBACK"].includes(l.state)).length > 0 && (
+ {strategyData.legs?.filter(l => !l.exited || REENTRY_WAITING_STATES.includes(l.state)).length > 0 && (
  <div className="space-y-2">
  <div
  className="flex items-center justify-between cursor-pointer group"
@@ -4320,7 +3991,7 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  </div>
  {collapsedSections[`${id}-running`] === true && (
  <div className="space-y-2 animate-in slide-in-from-top-2 duration-200">
- {strategyData.legs.map((l, idx) => (!l.exited || ["WAITING_FOR_RECOST","WAITING_FOR_MNTM","WAITING_FOR_RE_ASAP","WAITING_FOR_LAZY","WAITING_FOR_RESL_MNTM","WAITING_FOR_RE_HIGH","WAITING_FOR_RE_LOW","WAITING_FOR_SIMPLE_MNTM","WAITING_FOR_FILL","WAITING_FOR_INTERNAL_FALLBACK"].includes(l.state)) && (
+ {strategyData.legs.map((l, idx) => (!l.exited || REENTRY_WAITING_STATES.includes(l.state)) && (
  <div key={idx} className="flex flex-col md:flex-row items-start md:items-center justify-between p-2.5 bg-white border border-border rounded-xl gap-3">
  <div className="flex flex-col">
  <div className="flex items-center gap-1 flex-wrap">
@@ -4367,7 +4038,7 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  </>
  )}
  {/* Removed peakPrice display as per user request */}
- {l.rtp != null && !["WAITING_FOR_RE_HIGH","WAITING_FOR_RE_LOW","WAITING_FOR_SIMPLE_MNTM"].includes(l.state) && (
+ {l.rtp != null && !["WAITING_FOR_RE_HIGH","WAITING_FOR_RE_LOW","WAITING_FOR_SIMPLE_MNTM","WAITING_FOR_REENTRY_COND"].includes(l.state) && (
  <>
  <span className="text-muted-foreground text-[10px] font-mono">|</span>
  <span className="text-orange-500 font-medium text-[10px] font-mono">RTP: {l.rtp.toFixed(2)}</span>
@@ -4385,7 +4056,7 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  <span className="text-pink-600 font-bold text-[10px] font-mono uppercase">Trig Low: {l.max_low_price.toFixed(2)}</span>
  </>
  )}
- {l.mtp != null && !["WAITING_FOR_RE_HIGH","WAITING_FOR_RE_LOW"].includes(l.state) && (
+ {l.mtp != null && !["WAITING_FOR_RE_HIGH","WAITING_FOR_RE_LOW","WAITING_FOR_REENTRY_COND"].includes(l.state) && (
  <>
  <span className="text-muted-foreground text-[10px] font-mono">|</span>
  <span className="text-purple-500 font-medium text-[10px] font-mono">MTP: {l.mtp.toFixed(2)}</span>
@@ -4474,6 +4145,35 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  {l.state ==="WAITING_FOR_LAZY" && (
  <span className="px-2 py-0.5 ml-2 bg-purple-100 text-purple-700 font-medium rounded text-[10px] font-mono">Initializing Lazy Leg</span>
  )}
+ {l.state ==="WAITING_FOR_REENTRY_COND" && (
+ <>
+ <span className="px-2 py-0.5 ml-2 bg-indigo-100 text-indigo-700 font-medium rounded text-[10px] font-mono whitespace-nowrap uppercase">Waiting Re-Entry</span>
+ {Array.isArray(l.reentry_conditions_state) && l.reentry_conditions_state.length > 0 ? (
+ l.reentry_conditions_state.map((c, cIdx) => (
+ <span key={c.id || cIdx} className="inline-flex items-center gap-1 text-[10px] font-mono ml-1">
+ {cIdx > 0 && <span className="font-bold text-slate-500 uppercase">{c.operator || 'OR'}</span>}
+ <span className={`px-1.5 py-0.5 rounded font-semibold ${c.met ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-700'}`}>
+ {c.type === 'RE_COST' ? 'Cost' : c.type === 'RE_SL' ? 'SL' : c.type === 'RE_HIGH' ? 'High' : 'Low'}:
+ {c.type === 'RE_HIGH' && c.max_peak_price ? ` Peak ₹${Number(c.max_peak_price).toFixed(2)} |` : ''}
+ {c.type === 'RE_LOW' && c.max_low_price ? ` Low ₹${Number(c.max_low_price).toFixed(2)} |` : ''}
+ {` RTP ₹${Number(c.rtp || 0).toFixed(2)}`}
+ {c.mtp ? ` | MTP ₹${Number(c.mtp).toFixed(2)}` : ''}
+ {c.met ? ' ✓' : ''}
+ </span>
+ </span>
+ ))
+ ) : (
+ <>
+ {l.rtp != null && (
+ <span className="text-orange-600 font-bold text-[10px] font-mono ml-1 uppercase">RTP: ₹{Number(l.rtp).toFixed(2)}</span>
+ )}
+ {l.mtp != null && (
+ <span className="text-blue-600 font-bold text-[10px] font-mono ml-1 uppercase">MTP: ₹{Number(l.mtp).toFixed(2)}</span>
+ )}
+ </>
+ )}
+ </>
+ )}
  </div>
  </div>
  <div className="flex items-center gap-4">
@@ -4495,7 +4195,7 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  {l.isExiting ?"Exiting..." :
  (l.state ==="WAITING_FOR_SIMPLE_MNTM") ?"Cancel Momentum" :
  (l.state ==="WAITING_FOR_RECOST" || l.state ==="WAITING_FOR_MNTM") ?"Cancel Re-Cost" :
- (l.state ==="WAITING_FOR_RE_ASAP" || l.state ==="WAITING_FOR_RESL_MNTM" || l.state ==="WAITING_FOR_RE_HIGH" || l.state ==="WAITING_FOR_RE_LOW") ?"Cancel Re-Entry" :
+ (l.state ==="WAITING_FOR_RE_ASAP" || l.state ==="WAITING_FOR_RESL_MNTM" || l.state ==="WAITING_FOR_RE_HIGH" || l.state ==="WAITING_FOR_RE_LOW" || l.state ==="WAITING_FOR_REENTRY_COND") ?"Cancel Re-Entry" :
  (l.state ==="WAITING_FOR_LAZY") ?"Cancel Lazy Leg" :
 "Square Off"}
  </Button>

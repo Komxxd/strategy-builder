@@ -20,6 +20,7 @@ const { handleReentryCost } = require("./strategy.reentry.cost");
 const { handleReentryReSL } = require("./strategy.reentry.resl");
 const { handleReentryHigh, modifyReentryOrder } = require("./strategy.reentry.high");
 const { handleReentryLow, modifyReentryLowOrder } = require("./strategy.reentry.low");
+const { processReentryConditionsTick } = require("./strategy.reentry.conditions");
 const { checkMomentumHit } = require("./strategy.momentum");
 const { getISTTime, getISTExchangeFormat, getBrokerFillTime } = require("./strategy.time");
 const { roundToTick, computeStopLossExitPrices, getLimitOffsetAmt } = require("./strategy.offset");
@@ -82,7 +83,7 @@ async function monitorStrategyLoop(strategyId, strategy) {
 
     try {
         // We filter out legs that are already finished, UNLESS they are in a "WAITING" state for re-entry.
-        const activeLegs = strategy.legs.filter(leg => !(leg.exited && !["WAITING_FOR_RECOST", "WAITING_FOR_MNTM", "WAITING_FOR_RE_ASAP", "WAITING_FOR_LAZY", "WAITING_FOR_RESL_MNTM", "WAITING_FOR_RE_HIGH", "WAITING_FOR_RE_LOW", "WAITING_FOR_SIMPLE_MNTM", "WAITING_FOR_FILL", "WAITING_FOR_INTERNAL_FALLBACK"].includes(leg.state)));
+        const activeLegs = strategy.legs.filter(leg => !(leg.exited && !["WAITING_FOR_RECOST", "WAITING_FOR_MNTM", "WAITING_FOR_RE_ASAP", "WAITING_FOR_LAZY", "WAITING_FOR_RESL_MNTM", "WAITING_FOR_RE_HIGH", "WAITING_FOR_RE_LOW", "WAITING_FOR_SIMPLE_MNTM", "WAITING_FOR_FILL", "WAITING_FOR_INTERNAL_FALLBACK", "WAITING_FOR_REENTRY_COND"].includes(leg.state)));
         if (activeLegs.length === 0) return;
 
         const ltpMap = globalLtpMap;
@@ -714,13 +715,31 @@ async function monitorStrategyLoop(strategyId, strategy) {
                     }
                 }
 
+                // 2b.2 Re-entry Conditions (Multiple OR / AND)
+                if (leg.state === "WAITING_FOR_REENTRY_COND" && leg.last_tick_price !== null) {
+                    if (isReentryBlockedThisMinute) {
+                        leg.last_tick_price = leg.currentLtp;
+                        continue;
+                    }
+                    await processReentryConditionsTick({
+                        leg,
+                        config,
+                        strategyId,
+                        addStrategyLog,
+                        tickPrice: leg.currentLtp,
+                        prevTick: leg.last_tick_price,
+                        currentMinute,
+                        currentTime
+                    });
+                }
+
                 // 2c. Re-initiate orphaned WAITING_FOR_FILL legs (from mode switches)
                 // When a leg is in WAITING_FOR_FILL and a virtual/live switch happens, the
                 // original async fill watcher dies (it holds a ref to the old leg object).
                 // The new leg inherits the state but has no watcher. This block re-places
                 // the order and spawns a fresh fill watcher.
                 if (leg.state === "WAITING_FOR_FILL" && leg.needsOrderReplacement) {
-                    const targetPrice = leg.mtp || leg.re_high_trigger_price || leg.re_low_trigger_price || leg.recost_trigger_price || leg.resl_trigger_price;
+                    const targetPrice = leg.mtp || leg.rtp || leg.re_high_trigger_price || leg.re_low_trigger_price || leg.recost_trigger_price || leg.resl_trigger_price;
                     if (!targetPrice || !leg.instrument) {
                         leg.needsOrderReplacement = false;
                         continue;

@@ -15,6 +15,7 @@ const { getISTTime, getISTExchangeFormat } = require("./strategy.time");
 const { addStrategyLog, activeStrategies, updateStrategyInMemory } = require("./strategy.state");
 const { roundToTick, getLimitOffsetAmt, computeStopLossExitPrices } = require("./strategy.offset");
 const { placeOrder, waitForOrderFillPrice, placeStopLossWithRetry, cancelOrder } = require("./strategy.execution");
+const { initReentryConditionsLeg } = require("./strategy.reentry.conditions");
 
 /**
  * Handles the complete "Exit" process of a single leg.
@@ -129,6 +130,27 @@ async function handleLegStopOut(leg, exitType, strategy, exchangeFillData = null
         };
         strategy.legs.push(newLeg);
         return;
+    }
+
+    /**
+     * LOGIC: RE-ENTRY CONDITIONS (Multiple OR / AND Conditions)
+     * If multiple conditions (or condition block) are defined, evaluate them.
+     */
+    if (Array.isArray(leg.leg.reentry_conditions) && leg.leg.reentry_conditions.length > 0) {
+        const maxReentry = leg.leg.reentry_conditions[0]?.max_reentry !== undefined
+            ? leg.leg.reentry_conditions[0].max_reentry
+            : (leg.leg.max_reentry || 1);
+        if (leg.reentry_count < maxReentry) {
+            initReentryConditionsLeg({
+                strategy,
+                leg,
+                config,
+                strategyId,
+                addStrategyLog,
+                slHitMinute
+            });
+            return;
+        }
     }
 
     /** 

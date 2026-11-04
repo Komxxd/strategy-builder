@@ -132,7 +132,8 @@ async function runGlobalWebsocketSync() {
             "WAITING_FOR_RE_LOW",
             "WAITING_FOR_SIMPLE_MNTM",
             "WAITING_FOR_FILL",
-            "WAITING_FOR_INTERNAL_FALLBACK"
+            "WAITING_FOR_INTERNAL_FALLBACK",
+            "WAITING_FOR_REENTRY_COND"
         ];
 
         for (const leg of strategy.legs) {
