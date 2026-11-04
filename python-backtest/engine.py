@@ -460,13 +460,13 @@ class BacktestEngine:
         initial_sl_normal = self.calculate_sl_price(leg, sl_base_price, is_reentry, is_entry_candle=False)
         initial_sl_entry = self.calculate_sl_price(leg, sl_base_price, is_reentry, is_entry_candle=True)
         initial_sl = initial_sl_normal
-        is_sl_override = is_reentry and config.get('reentry_sl_enabled', False)
-        is_tsl_override = is_sl_override and config.get('reentry_tsl_enabled', False)
+        is_sl_override = is_reentry and (config.get('reentry_sl_enabled', False) or leg.get('reentry_sl_enabled', False))
+        is_tsl_override = is_sl_override and (config.get('reentry_tsl_enabled', False) or leg.get('reentry_tsl_enabled', False))
         
-        tsl_enabled = config.get('reentry_tsl_enabled', False) if is_sl_override else config.get('tsl_enabled', False)
-        tsl_on_close = config.get('reentry_tsl_on_close', False) if is_tsl_override else config.get('tsl_on_close', False)
-        tsl_on_close_high = config.get('reentry_tsl_on_close_high', False) if is_tsl_override else config.get('tsl_on_close_high', False)
-        tsl_on_close_low = config.get('reentry_tsl_on_close_low', False) if is_tsl_override else config.get('tsl_on_close_low', False)
+        tsl_enabled = (leg.get('reentry_tsl_enabled') if leg.get('reentry_tsl_enabled') is not None else config.get('reentry_tsl_enabled', False)) if is_sl_override else config.get('tsl_enabled', False)
+        tsl_on_close = (leg.get('reentry_tsl_on_close') if leg.get('reentry_tsl_on_close') is not None else config.get('reentry_tsl_on_close', False)) if is_tsl_override else config.get('tsl_on_close', False)
+        tsl_on_close_high = (leg.get('reentry_tsl_on_close_high') if leg.get('reentry_tsl_on_close_high') is not None else config.get('reentry_tsl_on_close_high', False)) if is_tsl_override else config.get('tsl_on_close_high', False)
+        tsl_on_close_low = (leg.get('reentry_tsl_on_close_low') if leg.get('reentry_tsl_on_close_low') is not None else config.get('reentry_tsl_on_close_low', False)) if is_tsl_override else config.get('tsl_on_close_low', False)
         
         # As requested: "on close checked marked, on close high checked marked - normal trailing logic... 
         # This should match the values and outputs of when we have no check marks"
@@ -506,7 +506,7 @@ class BacktestEngine:
                 return self._build_trade_res(entry_time, entry_price, df[-1]['time'][0], df[-1]['close'][0], 'END_OF_DAY', initial_sl_normal, initial_sl=initial_sl_entry, normal_sl=initial_sl_normal), df[-1:], 'END_OF_DAY'
                 
         else:
-            tsl_type = config.get('reentry_tsl_type', 'PERCENTAGE') if is_tsl_override else config.get('tsl_type', 'PERCENTAGE')
+            tsl_type = (leg.get('reentry_tsl_type') or config.get('reentry_tsl_type', 'PERCENTAGE')) if is_tsl_override else config.get('tsl_type', 'PERCENTAGE')
             
             def safe_float(val):
                 if val is None or val == "":
@@ -517,8 +517,8 @@ class BacktestEngine:
                     return 0.0
             
             # Use explicit values to avoid 'or' fallbacks when overrides might be legitimate zeros
-            tsl_move = safe_float(config.get('reentry_tsl_move')) if is_tsl_override else safe_float(config.get('tsl_move'))
-            tsl_trail = safe_float(config.get('reentry_tsl_trail')) if is_tsl_override else safe_float(config.get('tsl_trail'))
+            tsl_move = safe_float(leg.get('reentry_tsl_move') if leg.get('reentry_tsl_move') is not None else config.get('reentry_tsl_move')) if is_tsl_override else safe_float(config.get('tsl_move'))
+            tsl_trail = safe_float(leg.get('reentry_tsl_trail') if leg.get('reentry_tsl_trail') is not None else config.get('reentry_tsl_trail')) if is_tsl_override else safe_float(config.get('tsl_trail'))
             
             # Fallback for empty/NaN override values (same as JS)
             if is_tsl_override and tsl_move <= 0:
@@ -600,6 +600,32 @@ class BacktestEngine:
             'simple_mntm_actions': simple_mntm_actions or getattr(self, '_current_simple_mntm_actions', {}) or {}
         }
 
+    def _apply_condition_overrides(self, leg, config, trig_cond):
+        if not trig_cond:
+            return
+        if 'reentry_sl_enabled' in trig_cond:
+            leg['reentry_sl_enabled'] = trig_cond.get('reentry_sl_enabled', False)
+            config['reentry_sl_enabled'] = trig_cond.get('reentry_sl_enabled', False)
+            leg['reentry_sl_type'] = trig_cond.get('reentry_sl_type', 'PERCENTAGE')
+            leg['reentry_sl_value'] = trig_cond.get('reentry_sl_value', 10)
+            leg['reentry_sl_multiplier_entry_candle'] = trig_cond.get('reentry_sl_multiplier_entry_candle', False)
+            leg['reentry_sl_multiplier_value'] = trig_cond.get('reentry_sl_multiplier_value', 2)
+        if 'reentry_tsl_enabled' in trig_cond:
+            leg['reentry_tsl_enabled'] = trig_cond.get('reentry_tsl_enabled', False)
+            config['reentry_tsl_enabled'] = trig_cond.get('reentry_tsl_enabled', False)
+            leg['reentry_tsl_type'] = trig_cond.get('reentry_tsl_type', 'PERCENTAGE')
+            leg['reentry_tsl_move'] = trig_cond.get('reentry_tsl_move', 0)
+            leg['reentry_tsl_trail'] = trig_cond.get('reentry_tsl_trail', 0)
+            leg['reentry_tsl_on_close'] = trig_cond.get('reentry_tsl_on_close', False)
+            leg['reentry_tsl_on_close_low'] = trig_cond.get('reentry_tsl_on_close_low', False)
+            leg['reentry_tsl_on_close_high'] = trig_cond.get('reentry_tsl_on_close_high', False)
+            config['reentry_tsl_type'] = leg['reentry_tsl_type']
+            config['reentry_tsl_move'] = leg['reentry_tsl_move']
+            config['reentry_tsl_trail'] = leg['reentry_tsl_trail']
+            config['reentry_tsl_on_close'] = leg['reentry_tsl_on_close']
+            config['reentry_tsl_on_close_low'] = leg['reentry_tsl_on_close_low']
+            config['reentry_tsl_on_close_high'] = leg['reentry_tsl_on_close_high']
+
     def calculate_leg_trades(self, leg, df, config, index_name, expiry, year, month, date_str, step, index_df, current_strike):
         all_trades = []
         reentry_count = 0
@@ -610,6 +636,9 @@ class BacktestEngine:
             max_reentry = int(leg.get('re_asap_max_entries', max_reentry))
         if leg.get('recost_enabled') or leg.get('resl_enabled') or leg.get('rehigh_enabled') or leg.get('relow_enabled'):
             max_reentry = max(max_reentry, int(leg.get('max_reentry', 1)))
+        if leg.get('reentry_conditions') and len(leg.get('reentry_conditions')) > 0:
+            cond_max = int(leg.get('reentry_conditions')[0].get('max_reentry', leg.get('max_reentry', 1)))
+            max_reentry = max(max_reentry, cond_max)
             
         is_exhausted = True
         master_leg_df = df
@@ -792,7 +821,293 @@ class BacktestEngine:
                     is_exhausted = False
                     break
                     
-            if leg.get('recost_enabled'):
+            if leg.get('reentry_conditions') and len(leg.get('reentry_conditions')) > 0:
+                raw_conditions = leg.get('reentry_conditions')[:5]
+                search_df = remaining_df
+                if leg.get('no_reentry_on_sl_candle'):
+                    search_df = remaining_df[1:] if remaining_df.height > 1 else remaining_df[0:0]
+
+                if search_df.height == 0:
+                    is_exhausted = False
+                    break
+
+                otp = all_trades[0]['entryPrice'] if len(all_trades) > 0 and 'entryPrice' in all_trades[0] else trade_info['entryPrice']
+                sl_hit = all_trades[0].get('tradeSlPrice') if len(all_trades) > 0 and all_trades[0].get('tradeSlPrice') is not None else trade_info['exitPrice']
+                exit_price = trade_info['exitPrice']
+                exit_time = trade_info['exitTime']
+
+                num_conds = len(raw_conditions)
+                cond_met = [False] * num_conds
+                cond_met_idx = [None] * num_conds
+                cond_met_rtp = [None] * num_conds
+                c_rtp = [None] * num_conds
+                c_peak = [exit_price] * num_conds
+                c_low = [exit_price] * num_conds
+                c_committed_rtp = [None] * num_conds
+
+                for i, c in enumerate(raw_conditions):
+                    c_type = c.get('type', 'RE_COST')
+                    if c_type == 'RE_COST':
+                        mode = c.get('recost_mode', 'RECOST_PLUS_PCT')
+                        val = float(c.get('recost_value', 0))
+                        calc_rtp = otp
+                        if mode == 'RECOST_PLUS_PCT': calc_rtp += (calc_rtp * val / 100)
+                        elif mode == 'RECOST_PLUS_PTS': calc_rtp += val
+                        elif mode == 'RECOST_MINUS_PCT': calc_rtp -= (calc_rtp * val / 100)
+                        elif mode == 'RECOST_MINUS_PTS': calc_rtp -= val
+                        c_rtp[i] = self.round_to_tick(calc_rtp)
+                    elif c_type == 'RE_SL':
+                        mode = c.get('resl_mode', 'RESL_PLUS_PCT')
+                        val = float(c.get('resl_value', 0))
+                        calc_rtp = sl_hit
+                        if mode == 'RESL_PLUS_PCT': calc_rtp += (calc_rtp * val / 100)
+                        elif mode == 'RESL_PLUS_PTS': calc_rtp += val
+                        elif mode == 'RESL_MINUS_PCT': calc_rtp -= (calc_rtp * val / 100)
+                        elif mode == 'RESL_MINUS_PTS': calc_rtp -= val
+                        c_rtp[i] = self.round_to_tick(calc_rtp)
+
+                groups = []
+                cur_group = []
+                for idx, c in enumerate(raw_conditions):
+                    if idx == 0:
+                        cur_group.append(idx)
+                    elif c.get('operator') == 'AND':
+                        cur_group.append(idx)
+                    else:
+                        groups.append(cur_group)
+                        cur_group = [idx]
+                if cur_group:
+                    groups.append(cur_group)
+
+                times = search_df['time'].to_list()
+                opens = search_df['open'].to_list()
+                highs = search_df['high'].to_list()
+                lows = search_df['low'].to_list()
+                closes = search_df['close'].to_list()
+
+                trigger_candle_idx = None
+                satisfied_group = None
+                trig_idx = None
+
+                for k in range(len(times)):
+                    cur_time = times[k]
+                    cur_open = opens[k]
+                    cur_high = highs[k]
+                    cur_low = lows[k]
+                    cur_close = closes[k]
+                    prev_tick = closes[k - 1] if k > 0 else exit_price
+                    is_exit_candle = (cur_time == exit_time)
+
+                    for i, c in enumerate(raw_conditions):
+                        if cond_met[i]:
+                            continue
+                        c_type = c.get('type', 'RE_COST')
+
+                        if c_type == 'RE_COST':
+                            rtp = c_rtp[i]
+                            mode = c.get('recost_mode', 'RECOST_PLUS_PCT')
+                            wait_dir = 'DOWN' if exit_price > rtp else 'UP'
+                            hit = False
+                            if is_exit_candle:
+                                if wait_dir == 'DOWN':
+                                    hit = (exit_price >= rtp >= cur_close)
+                                else:
+                                    hit = (exit_price <= rtp <= cur_close)
+                            else:
+                                if wait_dir == 'DOWN':
+                                    if cur_open < rtp:
+                                        hit = (cur_high >= rtp)
+                                    else:
+                                        hit = (prev_tick >= rtp and cur_low <= rtp) or (cur_close <= rtp)
+                                else:
+                                    if cur_open > rtp:
+                                        hit = (cur_low <= rtp)
+                                    else:
+                                        hit = (prev_tick <= rtp and cur_high >= rtp) or (cur_close >= rtp)
+                            if hit:
+                                cond_met[i] = True
+                                cond_met_idx[i] = k
+                                cond_met_rtp[i] = rtp
+
+                        elif c_type == 'RE_SL':
+                            rtp = c_rtp[i]
+                            mode = c.get('resl_mode', 'RESL_PLUS_PCT')
+                            wait_dir = 'DOWN' if exit_price > rtp else 'UP'
+                            hit = False
+                            if is_exit_candle:
+                                if wait_dir == 'DOWN':
+                                    hit = (exit_price >= rtp >= cur_close)
+                                else:
+                                    hit = (exit_price <= rtp <= cur_close)
+                            else:
+                                if wait_dir == 'DOWN':
+                                    if cur_open < rtp:
+                                        hit = (cur_high >= rtp)
+                                    else:
+                                        hit = (prev_tick >= rtp and cur_low <= rtp) or (cur_close <= rtp)
+                                else:
+                                    if cur_open > rtp:
+                                        hit = (cur_low <= rtp)
+                                    else:
+                                        hit = (prev_tick <= rtp and cur_high >= rtp) or (cur_close >= rtp)
+                            if hit:
+                                cond_met[i] = True
+                                cond_met_idx[i] = k
+                                cond_met_rtp[i] = rtp
+
+                        elif c_type == 'RE_HIGH':
+                            mode = c.get('rehigh_mode', 'REHIGH_MINUS_PTS')
+                            val = float(c.get('rehigh_value', 0))
+                            rtp_on_close = c.get('rehigh_rtp_on_close', False)
+                            hit = False
+
+                            if is_exit_candle:
+                                c_peak[i] = max(exit_price, cur_close)
+                                peak = c_peak[i]
+                                rtp = peak * (1 - val / 100) if mode == 'REHIGH_MINUS_PCT' else peak - val
+                                c_rtp[i] = self.round_to_tick(rtp)
+                                if rtp_on_close:
+                                    c_committed_rtp[i] = c_rtp[i]
+                            else:
+                                if cur_high > c_peak[i]:
+                                    c_peak[i] = cur_high
+                                peak = c_peak[i]
+                                rtp = peak * (1 - val / 100) if mode == 'REHIGH_MINUS_PCT' else peak - val
+                                rtp = self.round_to_tick(rtp)
+                                c_rtp[i] = rtp
+
+                                check_rtp = c_committed_rtp[i] if (rtp_on_close and c_committed_rtp[i] is not None) else rtp
+                                if rtp_on_close:
+                                    c_committed_rtp[i] = rtp
+
+                                if cur_open < check_rtp:
+                                    hit = (cur_high >= check_rtp)
+                                else:
+                                    hit = (cur_low <= check_rtp)
+
+                            if hit:
+                                cond_met[i] = True
+                                cond_met_idx[i] = k
+                                cond_met_rtp[i] = c_rtp[i]
+
+                        elif c_type == 'RE_LOW':
+                            mode = c.get('relow_mode', 'RELOW_PLUS_PTS')
+                            val = float(c.get('relow_value', 0))
+                            rtp_on_close = c.get('relow_rtp_on_close', False)
+                            hit = False
+
+                            if is_exit_candle:
+                                c_low[i] = min(exit_price, cur_close)
+                                low = c_low[i]
+                                rtp = low * (1 + val / 100) if mode == 'RELOW_PLUS_PCT' else low + val
+                                c_rtp[i] = self.round_to_tick(rtp)
+                                if rtp_on_close:
+                                    c_committed_rtp[i] = c_rtp[i]
+                            else:
+                                if cur_low < c_low[i]:
+                                    c_low[i] = cur_low
+                                low = c_low[i]
+                                rtp = low * (1 + val / 100) if mode == 'RELOW_PLUS_PCT' else low + val
+                                rtp = self.round_to_tick(rtp)
+                                c_rtp[i] = rtp
+
+                                check_rtp = c_committed_rtp[i] if (rtp_on_close and c_committed_rtp[i] is not None) else rtp
+                                if rtp_on_close:
+                                    c_committed_rtp[i] = rtp
+
+                                if cur_open > check_rtp:
+                                    hit = (cur_low <= check_rtp)
+                                else:
+                                    hit = (cur_high >= check_rtp)
+
+                            if hit:
+                                cond_met[i] = True
+                                cond_met_idx[i] = k
+                                cond_met_rtp[i] = c_rtp[i]
+
+                    for grp in groups:
+                        if all(cond_met[ci] for ci in grp):
+                            satisfied_group = grp
+                            trigger_candle_idx = k
+                            trig_idx = next((ci for ci in grp if cond_met_idx[ci] == k), grp[-1])
+                            break
+
+                    if satisfied_group is not None:
+                        break
+
+                if satisfied_group is not None and trig_idx is not None:
+                    trig_cond = raw_conditions[trig_idx]
+                    trig_rtp = cond_met_rtp[trig_idx] or c_rtp[trig_idx] or exit_price
+                    trig_type = trig_cond.get('type', 'COND')
+
+                    if trig_cond.get('mntm_enabled'):
+                        m_mode = trig_cond.get('mntm_mode', 'PLUS_PCT')
+                        m_val = float(trig_cond.get('mntm_value', 0))
+                        mtp = trig_rtp
+                        if 'PLUS_PCT' in m_mode or m_mode == 'PERCENTAGE':
+                            mtp += (mtp * m_val / 100)
+                        elif 'PLUS_PTS' in m_mode or m_mode == 'POINTS':
+                            mtp += m_val
+                        elif 'MINUS_PCT' in m_mode:
+                            mtp -= (mtp * m_val / 100)
+                        elif 'MINUS_PTS' in m_mode:
+                            mtp -= m_val
+                        mtp = self.round_to_tick(mtp)
+
+                        mtp_hit_idx = None
+                        for mk in range(trigger_candle_idx + 1, len(times)):
+                            m_open = opens[mk]
+                            m_high = highs[mk]
+                            m_low = lows[mk]
+                            if mtp > trig_rtp:
+                                if m_open <= mtp:
+                                    if m_high >= mtp:
+                                        mtp_hit_idx = mk; break
+                                else:
+                                    if m_low <= mtp:
+                                        mtp_hit_idx = mk; break
+                            else:
+                                if m_open >= mtp:
+                                    if m_low <= mtp:
+                                        mtp_hit_idx = mk; break
+                                else:
+                                    if m_high >= mtp:
+                                        mtp_hit_idx = mk; break
+
+                        if mtp_hit_idx is not None:
+                            reentry_count += 1
+                            pending_reentry_method = trig_type
+                            pending_rtp = trig_rtp
+                            pending_mtp = mtp
+                            pending_rtp_hit_time = times[trigger_candle_idx]
+                            pending_override_entry_price = mtp
+                            trade_info['next_rtp'] = trig_rtp
+                            trade_info['next_mtp'] = mtp
+                            trade_info['rtp_hit_time_triggered'] = times[trigger_candle_idx]
+                            trade_info['reentry_method_triggered'] = trig_type
+
+                            self._apply_condition_overrides(leg, config, trig_cond)
+                            df = search_df[mtp_hit_idx:]
+                            continue
+                        else:
+                            is_exhausted = False
+                            break
+                    else:
+                        reentry_count += 1
+                        pending_reentry_method = trig_type
+                        pending_rtp = trig_rtp
+                        pending_override_entry_price = trig_rtp
+                        trade_info['next_rtp'] = trig_rtp
+                        trade_info['reentry_method_triggered'] = trig_type
+
+                        self._apply_condition_overrides(leg, config, trig_cond)
+                        df = search_df[trigger_candle_idx:]
+                        continue
+                else:
+                    is_exhausted = False
+                    break
+
+            elif leg.get('recost_enabled'):
                 mode, val = leg.get('recost_mode', 'RECOST_PLUS_PCT'), float(leg.get('recost_value', 0))
                 rtp = trade_info['entryPrice']
                 if mode == 'RECOST_PLUS_PCT': rtp += (rtp * val / 100)
