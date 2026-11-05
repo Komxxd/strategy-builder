@@ -17,9 +17,13 @@ function initReentryConditionsLeg({
     const slPrice = leg.base_sl_price || leg.currentLtp || leg.exitSnapshot?.exitLtp || otp;
     const currentLtp = leg.currentLtp || slPrice || otp;
 
-    const rawConditions = (Array.isArray(leg.leg.reentry_conditions) && leg.leg.reentry_conditions.length > 0
-        ? leg.leg.reentry_conditions
-        : []).slice(0, 5);
+    const rawConditions = (
+        (Array.isArray(leg.leg?.reentry_conditions) && leg.leg.reentry_conditions.length > 0 ? leg.leg.reentry_conditions : null) ||
+        (Array.isArray(leg.reentry_conditions) && leg.reentry_conditions.length > 0 ? leg.reentry_conditions : null) ||
+        (Array.isArray(config?.legs?.[leg.legIndex]?.reentry_conditions) && config.legs[leg.legIndex].reentry_conditions.length > 0 ? config.legs[leg.legIndex].reentry_conditions : null) ||
+        (Array.isArray(leg.reentry_conditions_state) && leg.reentry_conditions_state.length > 0 ? leg.reentry_conditions_state : null) ||
+        []
+    ).slice(0, 5);
 
     const conditionsState = rawConditions.map((cond, idx) => {
         const type = cond.type || "RE_COST";
@@ -104,7 +108,7 @@ function initReentryConditionsLeg({
     );
 
     const newLeg = {
-        leg: { ...leg.leg },
+        leg: { ...leg.leg, reentry_conditions: rawConditions },
         instrument: { ...leg.instrument },
         orderId: null,
         uniqueOrderId: null,
@@ -123,6 +127,7 @@ function initReentryConditionsLeg({
         base_sl_price: slPrice,
         slHitMinute: slHitMinute,
         reentry_conditions_state: conditionsState,
+        reentry_conditions: rawConditions,
         rtp: initialRtp,
         mtp: initialMtp,
         bookedPnlPoints: 0,
@@ -580,6 +585,9 @@ async function handleReentryConditionsTrigger({
                     leg.peakPrice = leg.entryPrice;
                     leg.tslReferencePrice = fill;
                     leg.state = "ACTIVE";
+                    if (leg.leg && !leg.leg.reentry_conditions && leg.reentry_conditions) {
+                        leg.leg.reentry_conditions = leg.reentry_conditions;
+                    }
                     addStrategyLog(strategyId, `[RE-ENTRY CONDITIONS] Re-entry filled for ${leg.instrument?.symbol} at ₹${leg.entryPrice}.`, "INFO");
 
                     // Apply SL / TSL overrides to leg.leg

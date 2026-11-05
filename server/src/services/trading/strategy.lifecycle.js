@@ -136,11 +136,27 @@ async function handleLegStopOut(leg, exitType, strategy, exchangeFillData = null
      * LOGIC: RE-ENTRY CONDITIONS (Multiple OR / AND Conditions)
      * If multiple conditions (or condition block) are defined, evaluate them.
      */
-    if (Array.isArray(leg.leg.reentry_conditions) && leg.leg.reentry_conditions.length > 0) {
-        const maxReentry = leg.leg.max_reentry !== undefined
+    const reentryConds = (
+        (Array.isArray(leg.leg?.reentry_conditions) && leg.leg.reentry_conditions.length > 0 ? leg.leg.reentry_conditions : null) ||
+        (Array.isArray(leg.reentry_conditions) && leg.reentry_conditions.length > 0 ? leg.reentry_conditions : null) ||
+        (Array.isArray(config?.legs?.[leg.legIndex]?.reentry_conditions) && config.legs[leg.legIndex].reentry_conditions.length > 0 ? config.legs[leg.legIndex].reentry_conditions : null) ||
+        (Array.isArray(leg.reentry_conditions_state) && leg.reentry_conditions_state.length > 0 ? leg.reentry_conditions_state : null)
+    );
+
+    if (Array.isArray(reentryConds) && reentryConds.length > 0) {
+        const maxReentry = leg.leg?.max_reentry !== undefined
             ? leg.leg.max_reentry
-            : (leg.leg.reentry_conditions[0]?.max_reentry || 1);
+            : (leg.max_reentry !== undefined
+                ? leg.max_reentry
+                : (config?.legs?.[leg.legIndex]?.max_reentry !== undefined
+                    ? config.legs[leg.legIndex].max_reentry
+                    : (reentryConds[0]?.max_reentry || 1)));
+
         if (leg.reentry_count < maxReentry) {
+            if (!leg.leg) leg.leg = {};
+            leg.leg.reentry_conditions = reentryConds;
+            leg.reentry_conditions = reentryConds;
+
             initReentryConditionsLeg({
                 strategy,
                 leg,

@@ -407,6 +407,94 @@ const syncReentryConditions = (leg, newConditions, currentMode) => {
   };
 };
 
+const getLegReentryConditionsState = (l, strategyConfig) => {
+  if (Array.isArray(l?.reentry_conditions_state) && l.reentry_conditions_state.length > 0) {
+    return l.reentry_conditions_state;
+  }
+
+  const raw = (Array.isArray(l?.leg?.reentry_conditions) && l.leg.reentry_conditions.length > 0)
+    ? l.leg.reentry_conditions
+    : (Array.isArray(l?.reentry_conditions) && l.reentry_conditions.length > 0)
+      ? l.reentry_conditions
+      : (Array.isArray(strategyConfig?.legs?.[l?.legIndex]?.reentry_conditions) && strategyConfig.legs[l.legIndex].reentry_conditions.length > 0)
+        ? strategyConfig.legs[l.legIndex].reentry_conditions
+        : null;
+
+  if (!raw || raw.length === 0) return null;
+
+  const otp = Number(l?.base_otp || l?.original_traded_price || l?.entryPrice || l?.initialLtp || l?.currentLtp || 0);
+  const slPrice = Number(l?.base_sl_price || l?.slTriggerPrice || l?.initialSlTriggerPrice || otp);
+  const currentLtp = Number(l?.currentLtp || otp);
+  const peakPrice = Number(l?.max_peak_price || l?.peakPrice || currentLtp);
+  const lowPrice = Number(l?.max_low_price || l?.lowPrice || currentLtp);
+
+  return raw.slice(0, 5).map((cond, idx) => {
+    const type = cond.type || 'RE_COST';
+    const operator = idx === 0 ? 'OR' : (cond.operator || 'OR');
+    let rtp = currentLtp;
+
+    if (type === 'RE_COST') {
+      const mode = cond.recost_mode || 'RECOST_PLUS_PCT';
+      const val = parseFloat(cond.recost_value || 0);
+      let calcRtp = otp;
+      if (mode === 'RECOST_PLUS_PCT') calcRtp = otp + (otp * val / 100);
+      else if (mode === 'RECOST_PLUS_PTS') calcRtp = otp + val;
+      else if (mode === 'RECOST_MINUS_PCT') calcRtp = otp - (otp * val / 100);
+      else if (mode === 'RECOST_MINUS_PTS') calcRtp = otp - val;
+      rtp = Math.round(calcRtp * 20) / 20;
+    } else if (type === 'RE_SL') {
+      const mode = cond.resl_mode || 'RESL_PLUS_PCT';
+      const val = parseFloat(cond.resl_value || 0);
+      let calcRtp = slPrice;
+      if (mode === 'RESL_PLUS_PCT') calcRtp = slPrice + (slPrice * val / 100);
+      else if (mode === 'RESL_PLUS_PTS') calcRtp = slPrice + val;
+      else if (mode === 'RESL_MINUS_PCT') calcRtp = slPrice - (slPrice * val / 100);
+      else if (mode === 'RESL_MINUS_PTS') calcRtp = slPrice - val;
+      rtp = Math.round(calcRtp * 20) / 20;
+    } else if (type === 'RE_HIGH') {
+      const peak = cond.max_peak_price || peakPrice;
+      const mode = cond.rehigh_mode || 'REHIGH_MINUS_PTS';
+      const val = parseFloat(cond.rehigh_value || 0);
+      let calcRtp = peak;
+      if (mode === 'REHIGH_MINUS_PCT') calcRtp = peak - (peak * val / 100);
+      else if (mode === 'REHIGH_MINUS_PTS') calcRtp = peak - val;
+      rtp = Math.round(calcRtp * 20) / 20;
+    } else if (type === 'RE_LOW') {
+      const low = cond.max_low_price || lowPrice;
+      const mode = cond.relow_mode || 'RELOW_PLUS_PTS';
+      const val = parseFloat(cond.relow_value || 0);
+      let calcRtp = low;
+      if (mode === 'RELOW_PLUS_PCT') calcRtp = low + (low * val / 100);
+      else if (mode === 'RELOW_PLUS_PTS') calcRtp = low + val;
+      else if (mode === 'RELOW_MINUS_PCT') calcRtp = low - (low * val / 100);
+      else if (mode === 'RELOW_MINUS_PTS') calcRtp = low - val;
+      rtp = Math.round(calcRtp * 20) / 20;
+    }
+
+    let mtp = null;
+    if (cond.mntm_enabled) {
+      const mntmMode = cond.mntm_mode || 'PLUS_PCT';
+      const mntmVal = parseFloat(cond.mntm_value || 0);
+      let calcMtp = rtp;
+      if (mntmMode.includes('PLUS_PCT') || mntmMode === 'PERCENTAGE') calcMtp = rtp + (rtp * mntmVal / 100);
+      else if (mntmMode.includes('PLUS_PTS') || mntmMode === 'POINTS') calcMtp = rtp + mntmVal;
+      else if (mntmMode.includes('MINUS_PCT')) calcMtp = rtp - (rtp * mntmVal / 100);
+      else if (mntmMode.includes('MINUS_PTS')) calcMtp = rtp - mntmVal;
+      mtp = Math.round(calcMtp * 20) / 20;
+    }
+
+    return {
+      ...cond,
+      id: cond.id || `cond_${idx}`,
+      type,
+      operator,
+      rtp: cond.rtp !== undefined ? cond.rtp : rtp,
+      mtp: cond.mtp !== undefined ? cond.mtp : mtp,
+      met: cond.met || false
+    };
+  });
+};
+
 const ReentryConditionBlock = ({
   cond,
   condIdx,
@@ -4039,8 +4127,40 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  </span>
  </>
  )}
- {/* Removed peakPrice display as per user request */}
- {l.rtp != null && !["WAITING_FOR_RE_HIGH","WAITING_FOR_RE_LOW","WAITING_FOR_SIMPLE_MNTM","WAITING_FOR_REENTRY_COND"].includes(l.state) && (
+ {/* Multi-Condition RTP & MTP (or Legacy Single RTP/MTP) when in position (ACTIVE) */}
+ {l.state === "ACTIVE" && (() => {
+ const conds = getLegReentryConditionsState(l, strategyData.config);
+ if (!conds || conds.length <= 1) return null;
+ const mtpConds = conds.map((c, idx) => ({ ...c, condIndex: idx })).filter(c => c.mtp != null);
+
+ return (
+ <>
+ <span className="text-muted-foreground text-[10px] font-mono">|</span>
+ <span className="text-orange-500 font-medium text-[10px] font-mono inline-flex items-center gap-1 flex-wrap">
+ {conds.map((c, cIdx) => (
+ <React.Fragment key={c.id || cIdx}>
+ {cIdx > 0 && <span className="text-slate-500 font-bold uppercase">{c.operator || 'OR'}</span>}
+ <span>RTP{cIdx + 1} : {Number(c.rtp || 0).toFixed(2)}</span>
+ </React.Fragment>
+ ))}
+ </span>
+ {mtpConds.length > 0 && (
+ <>
+ <span className="text-muted-foreground text-[10px] font-mono">|</span>
+ <span className="text-purple-500 font-medium text-[10px] font-mono inline-flex items-center gap-1 flex-wrap">
+ {mtpConds.map((c, mIdx) => (
+ <React.Fragment key={c.id || mIdx}>
+ {mIdx > 0 && <span className="text-slate-500 font-bold uppercase">{c.operator || 'OR'}</span>}
+ <span>MTP{c.condIndex + 1} : {Number(c.mtp || 0).toFixed(2)}</span>
+ </React.Fragment>
+ ))}
+ </span>
+ </>
+ )}
+ </>
+ );
+ })()}
+ {(!getLegReentryConditionsState(l, strategyData.config) || getLegReentryConditionsState(l, strategyData.config).length <= 1) && l.rtp != null && !["WAITING_FOR_RE_HIGH","WAITING_FOR_RE_LOW","WAITING_FOR_SIMPLE_MNTM","WAITING_FOR_REENTRY_COND"].includes(l.state) && (
  <>
  <span className="text-muted-foreground text-[10px] font-mono">|</span>
  <span className="text-orange-500 font-medium text-[10px] font-mono">RTP: {l.rtp.toFixed(2)}</span>
@@ -4058,7 +4178,7 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  <span className="text-pink-600 font-bold text-[10px] font-mono uppercase">Trig Low: {l.max_low_price.toFixed(2)}</span>
  </>
  )}
- {l.mtp != null && !["WAITING_FOR_RE_HIGH","WAITING_FOR_RE_LOW","WAITING_FOR_REENTRY_COND"].includes(l.state) && (
+ {(!getLegReentryConditionsState(l, strategyData.config) || getLegReentryConditionsState(l, strategyData.config).length <= 1) && l.mtp != null && !["WAITING_FOR_RE_HIGH","WAITING_FOR_RE_LOW","WAITING_FOR_REENTRY_COND"].includes(l.state) && (
  <>
  <span className="text-muted-foreground text-[10px] font-mono">|</span>
  <span className="text-purple-500 font-medium text-[10px] font-mono">MTP: {l.mtp.toFixed(2)}</span>
@@ -4147,35 +4267,55 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  {l.state ==="WAITING_FOR_LAZY" && (
  <span className="px-2 py-0.5 ml-2 bg-purple-100 text-purple-700 font-medium rounded text-[10px] font-mono">Initializing Lazy Leg</span>
  )}
- {l.state ==="WAITING_FOR_REENTRY_COND" && (
+ {l.state ==="WAITING_FOR_REENTRY_COND" && (() => {
+ const conds = getLegReentryConditionsState(l, strategyData.config);
+ const mtpConds = conds ? conds.map((c, idx) => ({ ...c, condIndex: idx })).filter(c => c.mtp != null) : [];
+
+ return (
  <>
  <span className="px-2 py-0.5 ml-2 bg-indigo-100 text-indigo-700 font-medium rounded text-[10px] font-mono whitespace-nowrap uppercase">Waiting Re-Entry</span>
- {Array.isArray(l.reentry_conditions_state) && l.reentry_conditions_state.length > 0 ? (
- l.reentry_conditions_state.map((c, cIdx) => (
- <span key={c.id || cIdx} className="inline-flex items-center gap-1 text-[10px] font-mono ml-1">
- {cIdx > 0 && <span className="font-bold text-slate-500 uppercase">{c.operator || 'OR'}</span>}
- <span className={`px-1.5 py-0.5 rounded font-semibold ${c.met ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-700'}`}>
- {c.type === 'RE_COST' ? 'Cost' : c.type === 'RE_SL' ? 'SL' : c.type === 'RE_HIGH' ? 'High' : 'Low'}:
- {c.type === 'RE_HIGH' && c.max_peak_price ? ` Peak ₹${Number(c.max_peak_price).toFixed(2)} |` : ''}
- {c.type === 'RE_LOW' && c.max_low_price ? ` Low ₹${Number(c.max_low_price).toFixed(2)} |` : ''}
- {` RTP ₹${Number(c.rtp || 0).toFixed(2)}`}
- {c.mtp ? ` | MTP ₹${Number(c.mtp).toFixed(2)}` : ''}
- {c.met ? ' ✓' : ''}
+ {conds && conds.length > 0 ? (
+ <>
+ <span className="text-muted-foreground text-[10px] font-mono ml-1">|</span>
+ <span className="text-orange-600 font-bold text-[10px] font-mono ml-1 inline-flex items-center gap-1.5 flex-wrap">
+ {conds.map((c, cIdx) => (
+ <React.Fragment key={c.id || cIdx}>
+ {cIdx > 0 && <span className="text-slate-500 font-bold uppercase">{c.operator || 'OR'}</span>}
+ <span className={c.met ? "text-emerald-600 font-extrabold" : ""}>
+ {conds.length > 1 ? `RTP${cIdx + 1} : ${Number(c.rtp || 0).toFixed(2)}` : `RTP: ${Number(c.rtp || 0).toFixed(2)}`}{c.met ? " ✓" : ""}
  </span>
+ </React.Fragment>
+ ))}
  </span>
- ))
+ {mtpConds.length > 0 && (
+ <>
+ <span className="text-muted-foreground text-[10px] font-mono ml-1">|</span>
+ <span className="text-blue-600 font-bold text-[10px] font-mono ml-1 inline-flex items-center gap-1.5 flex-wrap">
+ {mtpConds.map((c, mIdx) => (
+ <React.Fragment key={c.id || mIdx}>
+ {mIdx > 0 && <span className="text-slate-500 font-bold uppercase">{c.operator || 'OR'}</span>}
+ <span>
+ {conds.length > 1 ? `MTP${c.condIndex + 1} : ${Number(c.mtp || 0).toFixed(2)}` : `MTP: ${Number(c.mtp || 0).toFixed(2)}`}
+ </span>
+ </React.Fragment>
+ ))}
+ </span>
+ </>
+ )}
+ </>
  ) : (
  <>
  {l.rtp != null && (
- <span className="text-orange-600 font-bold text-[10px] font-mono ml-1 uppercase">RTP: ₹{Number(l.rtp).toFixed(2)}</span>
+ <span className="text-orange-600 font-bold text-[10px] font-mono ml-1 uppercase">RTP: {Number(l.rtp).toFixed(2)}</span>
  )}
  {l.mtp != null && (
- <span className="text-blue-600 font-bold text-[10px] font-mono ml-1 uppercase">MTP: ₹{Number(l.mtp).toFixed(2)}</span>
+ <span className="text-blue-600 font-bold text-[10px] font-mono ml-1 uppercase">MTP: {Number(l.mtp).toFixed(2)}</span>
  )}
  </>
  )}
  </>
- )}
+ );
+ })()}
  </div>
  </div>
  <div className="flex items-center gap-4">
@@ -4259,6 +4399,39 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  <span className="text-red-600 font-bold text-[10px] font-mono">Exit SL: {Number(l.exitSnapshot?.slTriggerPrice ?? l.slTriggerPrice).toFixed(2)}</span>
  </>
  )}
+ {(() => {
+ const conds = getLegReentryConditionsState(l, strategyData.config);
+ if (conds && conds.length > 1) {
+ const mtpConds = conds.map((c, idx) => ({ ...c, condIndex: idx })).filter(c => c.mtp != null);
+ return (
+ <>
+ <span className="text-black/30 text-[10px] font-mono">|</span>
+ <span className="text-orange-600 font-bold text-[10px] font-mono inline-flex items-center gap-1 flex-wrap">
+ {conds.map((c, cIdx) => (
+ <React.Fragment key={c.id || cIdx}>
+ {cIdx > 0 && <span className="text-black/40 font-bold uppercase">{c.operator || 'OR'}</span>}
+ <span>RTP{cIdx + 1} : {Number(c.rtp || 0).toFixed(2)}</span>
+ </React.Fragment>
+ ))}
+ </span>
+ {mtpConds.length > 0 && (
+ <>
+ <span className="text-black/30 text-[10px] font-mono">|</span>
+ <span className="text-purple-600 font-bold text-[10px] font-mono inline-flex items-center gap-1 flex-wrap">
+ {mtpConds.map((c, mIdx) => (
+ <React.Fragment key={c.id || mIdx}>
+ {mIdx > 0 && <span className="text-black/40 font-bold uppercase">{c.operator || 'OR'}</span>}
+ <span>MTP{c.condIndex + 1} : {Number(c.mtp || 0).toFixed(2)}</span>
+ </React.Fragment>
+ ))}
+ </span>
+ </>
+ )}
+ </>
+ );
+ }
+ return (
+ <>
  {l.rtp != null && (
  <>
  <span className="text-black/30 text-[10px] font-mono">|</span>
@@ -4271,6 +4444,9 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  <span className="text-purple-600 font-bold text-[10px] font-mono">MTP: {l.mtp.toFixed(2)}</span>
  </>
  )}
+ </>
+ );
+ })()}
  {(l.max_peak_price != null || l.peakPrice != null || l.exitSnapshot?.peakPrice != null) && (
  <>
  <span className="text-black/30 text-[10px] font-mono">|</span>

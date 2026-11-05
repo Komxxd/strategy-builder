@@ -278,6 +278,7 @@ async function handleInitialEntry(strategyId, strategy) {
                 slUniqueOrderId: null,
                 slTriggerPrice: null,
                 slLimitPrice: null,
+                reentry_conditions: item.leg?.reentry_conditions || [],
                 is_sl_price_on_candle_open: !!(item.leg?.is_sl_price_on_candle_open || item.leg?.sl_price_on_candle_open || item.leg?.sl_based_on_candle_open || config?.is_sl_price_on_candle_open || config?.sl_price_on_candle_open || config?.sl_based_on_candle_open)
             };
 
