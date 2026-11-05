@@ -637,7 +637,7 @@ class BacktestEngine:
         if leg.get('recost_enabled') or leg.get('resl_enabled') or leg.get('rehigh_enabled') or leg.get('relow_enabled'):
             max_reentry = max(max_reentry, int(leg.get('max_reentry', 1)))
         if leg.get('reentry_conditions') and len(leg.get('reentry_conditions')) > 0:
-            cond_max = int(leg.get('reentry_conditions')[0].get('max_reentry', leg.get('max_reentry', 1)))
+            cond_max = int(leg.get('max_reentry') if leg.get('max_reentry') is not None else leg.get('reentry_conditions')[0].get('max_reentry', 1))
             max_reentry = max(max_reentry, cond_max)
             
         is_exhausted = True

@@ -137,9 +137,9 @@ async function handleLegStopOut(leg, exitType, strategy, exchangeFillData = null
      * If multiple conditions (or condition block) are defined, evaluate them.
      */
     if (Array.isArray(leg.leg.reentry_conditions) && leg.leg.reentry_conditions.length > 0) {
-        const maxReentry = leg.leg.reentry_conditions[0]?.max_reentry !== undefined
-            ? leg.leg.reentry_conditions[0].max_reentry
-            : (leg.leg.max_reentry || 1);
+        const maxReentry = leg.leg.max_reentry !== undefined
+            ? leg.leg.max_reentry
+            : (leg.leg.reentry_conditions[0]?.max_reentry || 1);
         if (leg.reentry_count < maxReentry) {
             initReentryConditionsLeg({
                 strategy,

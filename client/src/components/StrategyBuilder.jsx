@@ -288,7 +288,6 @@ const createDefaultReentryCondition = (type = 'RE_COST', operator = 'OR') => ({
   relow_mode: 'RELOW_PLUS_PTS',
   relow_value: 1,
   relow_rtp_on_close: false,
-  max_reentry: 1,
   mntm_enabled: false,
   mntm_mode: type === 'RE_HIGH' ? 'REHIGH_PLUS_PTS' : type === 'RE_LOW' ? 'RELOW_PLUS_PTS' : type === 'RE_SL' ? 'RESL_PLUS_PCT' : 'RECOST_PLUS_PCT',
   mntm_value: 2,
@@ -333,7 +332,6 @@ const getReentryConditions = (leg) => {
     relow_mode: leg?.relow_mode || 'RELOW_PLUS_PTS',
     relow_value: leg?.relow_value !== undefined ? leg.relow_value : 1,
     relow_rtp_on_close: leg?.relow_rtp_on_close || false,
-    max_reentry: leg?.max_reentry || 1,
     mntm_enabled: leg?.recost_mntm_enabled || leg?.resl_mntm_enabled || leg?.rehigh_mntm_enabled || leg?.relow_mntm_enabled || false,
     mntm_mode: leg?.recost_mntm_mode || leg?.resl_mntm_mode || leg?.rehigh_mntm_mode || leg?.relow_mntm_mode || (type === 'RE_HIGH' ? 'REHIGH_PLUS_PTS' : type === 'RE_LOW' ? 'RELOW_PLUS_PTS' : 'RECOST_PLUS_PCT'),
     mntm_value: leg?.recost_mntm_value !== undefined ? leg.recost_mntm_value : (leg?.resl_mntm_value !== undefined ? leg.resl_mntm_value : (leg?.rehigh_mntm_value !== undefined ? leg.rehigh_mntm_value : (leg?.relow_mntm_value !== undefined ? leg.relow_mntm_value : 2))),
@@ -393,7 +391,7 @@ const syncReentryConditions = (leg, newConditions, currentMode) => {
     relow_mntm_mode: primary.mntm_mode || leg.relow_mntm_mode,
     relow_mntm_value: primary.mntm_value !== undefined ? primary.mntm_value : leg.relow_mntm_value,
 
-    max_reentry: primary.max_reentry || leg.max_reentry || 1,
+    max_reentry: leg.max_reentry !== undefined ? leg.max_reentry : (primary.max_reentry || 1),
     reentry_sl_enabled: !!primary.reentry_sl_enabled,
     reentry_sl_type: primary.reentry_sl_type || 'PERCENTAGE',
     reentry_sl_value: primary.reentry_sl_value !== undefined ? primary.reentry_sl_value : 10,
@@ -558,7 +556,7 @@ const ReentryConditionBlock = ({
           )}
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           <div className="space-y-1">
             <Label className="text-[9px] font-medium uppercase tracking-wider text-muted-foreground block mb-1">
               {isCost ? 'Re-Cost Mode' : isSl ? 'RE SL Mode' : isHigh ? 'RE HIGH Mode' : 'RE LOW Mode'}
@@ -624,28 +622,6 @@ const ReentryConditionBlock = ({
                 handleValueChange(isHigh || isLow ? (num || 1) : num);
               }}
             />
-          </div>
-
-          <div className="space-y-1">
-            <Label className="text-[9px] font-medium uppercase tracking-wider text-muted-foreground block mb-1">
-              Max Entries
-            </Label>
-            <Select
-              disabled={isReadOnly}
-              value={(cond.max_reentry || 1).toString()}
-              onValueChange={(v) => onChange({ ...cond, max_reentry: parseInt(v, 10) })}
-            >
-              <SelectTrigger className="h-9 rounded-lg text-[10px] bg-background">
-                <SelectValue placeholder="Entries" />
-              </SelectTrigger>
-              <SelectContent className="max-h-[250px]">
-                {Array.from({ length: 20 }, (_, i) => i + 1).map((num) => (
-                  <SelectItem key={`${idPrefix}-max-${num}`} value={num.toString()}>
-                    {num} {num === 1 ? 'Entry' : 'Entries'}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
           </div>
         </div>
 
@@ -1513,7 +1489,8 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
  {/* Re-Entry Configurations */}
  {(leg.re_asap_enabled || leg.recost_enabled || leg.resl_enabled || leg.rehigh_enabled || leg.relow_enabled || leg.lazy_leg_enabled) && (
  <div className="w-full pt-2 border-t border-dashed border-gray-100 mt-2 animate-in fade-in slide-in-from-top-2">
- <div className="flex items-center gap-1.5 mb-3">
+ <div className="flex items-end justify-between gap-4 mb-3 flex-wrap">
+ <div className="flex items-center gap-1.5 pb-1">
  <input
  type="checkbox"
  id={`no-reentry-sl-candle-${idPrefix}`}
@@ -1522,6 +1499,31 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
  onChange={(e) => onChange({ ...leg, no_reentry_on_sl_candle: e.target.checked })}
  />
  <Label htmlFor={`no-reentry-sl-candle-${idPrefix}`} className="text-[10px] cursor-pointer whitespace-nowrap text-gray-700 font-medium">No Re-Entry on SL Candle</Label>
+ </div>
+
+ {(leg.recost_enabled || leg.resl_enabled || leg.rehigh_enabled || leg.relow_enabled) && (
+ <div className="space-y-1">
+ <Label className="text-[9px] font-medium uppercase tracking-wider text-muted-foreground block">
+ Max Entries
+ </Label>
+ <Select
+ disabled={isReadOnly}
+ value={(leg.max_reentry || 1).toString()}
+ onValueChange={(v) => onChange({ ...leg, max_reentry: parseInt(v, 10) })}
+ >
+ <SelectTrigger className="h-8 w-[120px] rounded-lg text-[11px] bg-background border-input">
+ <SelectValue placeholder="Entries" />
+ </SelectTrigger>
+ <SelectContent className="max-h-[250px]">
+ {Array.from({ length: 20 }, (_, i) => i + 1).map((num) => (
+ <SelectItem key={`${idPrefix}-max-${num}`} value={num.toString()}>
+ {num} {num === 1 ? 'Entry' : 'Entries'}
+ </SelectItem>
+ ))}
+ </SelectContent>
+ </Select>
+ </div>
+ )}
  </div>
  {leg.re_asap_enabled && (
  <div className="space-y-1.5">
