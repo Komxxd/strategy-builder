@@ -4202,13 +4202,13 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  <span className="text-orange-500 font-medium text-[10px] font-mono">RTP:{l.rtp.toFixed(2)}</span>
  </>
  )}
- {l.state ==="ACTIVE" && l.max_peak_price != null && l.max_peak_price > 0 && (
+ {l.state ==="ACTIVE" && !getLegReentryConditionsState(l, strategyData.config) && l.max_peak_price != null && l.max_peak_price > 0 && (
  <>
  <span className="text-muted-foreground text-[10px] font-mono">|</span>
  <span className="text-indigo-600 font-bold text-[10px] font-mono uppercase">Trig Peak:{l.max_peak_price.toFixed(2)}</span>
  </>
  )}
- {l.state ==="ACTIVE" && l.max_low_price != null && l.max_low_price > 0 && (
+ {l.state ==="ACTIVE" && !getLegReentryConditionsState(l, strategyData.config) && l.max_low_price != null && l.max_low_price > 0 && (
  <>
  <span className="text-muted-foreground text-[10px] font-mono">|</span>
  <span className="text-pink-600 font-bold text-[10px] font-mono uppercase">Trig Low:{l.max_low_price.toFixed(2)}</span>
@@ -4496,13 +4496,13 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  </>
  );
  })()}
- {(l.max_peak_price != null || l.peakPrice != null || l.exitSnapshot?.peakPrice != null) && (
+ {(!getLegReentryConditionsState(l, strategyData.config) || getLegReentryConditionsState(l, strategyData.config).length <= 1) && (l.max_peak_price != null || l.peakPrice != null || l.exitSnapshot?.peakPrice != null) && (
  <>
  <span className="text-black/30 text-[10px] font-mono">|</span>
  <span className="text-indigo-600 font-bold text-[10px] font-mono uppercase">Trig Peak:{(l.max_peak_price || l.peakPrice || l.exitSnapshot?.peakPrice).toFixed(2)}</span>
  </>
  )}
- {(l.max_low_price != null || l.exitSnapshot?.lowPrice != null) && (
+ {(!getLegReentryConditionsState(l, strategyData.config) || getLegReentryConditionsState(l, strategyData.config).length <= 1) && (l.max_low_price != null || l.exitSnapshot?.lowPrice != null) && (
  <>
  <span className="text-black/30 text-[10px] font-mono">|</span>
  <span className="text-pink-600 font-bold text-[10px] font-mono uppercase">Trig Low:{(l.max_low_price || l.exitSnapshot?.lowPrice).toFixed(2)}</span>
