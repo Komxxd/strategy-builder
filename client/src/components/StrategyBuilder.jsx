@@ -410,11 +410,14 @@ const syncReentryConditions = (leg, newConditions, currentMode) => {
 const getLegReentryConditionsState = (l, strategyConfig) => {
   if (Array.isArray(l?.reentry_conditions_state) && l.reentry_conditions_state.length > 0) {
     return l.reentry_conditions_state.map((cond, idx) => {
-      const isTriggered = l?.triggering_condition && (
-        l.triggering_condition.id === cond.id ||
-        (l.triggering_condition.type === cond.type && Number(l.triggering_condition.rtp) === Number(cond.rtp))
+      const isTriggered = (
+        (Array.isArray(l?.triggering_group) && l.triggering_group.some(gc => gc.id === cond.id || (gc.type === cond.type && Number(gc.rtp) === Number(cond.rtp)))) ||
+        (l?.triggering_condition && (
+          l.triggering_condition.id === cond.id ||
+          (l.triggering_condition.type === cond.type && Number(l.triggering_condition.rtp) === Number(cond.rtp))
+        ))
       );
-      return isTriggered ? { ...cond, met: true } : cond;
+      return (isTriggered || cond.met === true) ? { ...cond, met: true } : cond;
     });
   }
 
@@ -489,9 +492,12 @@ const getLegReentryConditionsState = (l, strategyConfig) => {
       mtp = Math.round(calcMtp * 20) / 20;
     }
 
-    const isTriggered = l?.triggering_condition && (
-      l.triggering_condition.id === cond.id ||
-      (l.triggering_condition.type === type)
+    const isTriggered = (
+      (Array.isArray(l?.triggering_group) && l.triggering_group.some(gc => gc.id === cond.id || (gc.type === type && (cond.rtp === undefined || Number(gc.rtp) === Number(rtp))))) ||
+      (l?.triggering_condition && (
+        l.triggering_condition.id === cond.id ||
+        (l.triggering_condition.type === type && (cond.rtp === undefined || Number(l.triggering_condition.rtp) === Number(rtp)))
+      ))
     );
 
     return {
@@ -501,7 +507,7 @@ const getLegReentryConditionsState = (l, strategyConfig) => {
       operator,
       rtp: cond.rtp !== undefined ? cond.rtp : rtp,
       mtp: cond.mtp !== undefined ? cond.mtp : mtp,
-      met: cond.met || isTriggered || false
+      met: cond.met === true || isTriggered || false
     };
   });
 };
@@ -4150,8 +4156,8 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  {conds.map((c, cIdx) => (
  <React.Fragment key={c.id || cIdx}>
  {cIdx > 0 && <span className="text-slate-500 font-bold uppercase">{c.operator || 'OR'}</span>}
- <span>
- C{cIdx + 1}:RTP:{Number(c.rtp || 0).toFixed(2)}{c.mtp != null ? `:MTP:${Number(c.mtp).toFixed(2)}` : ''}
+ <span className={c.met ? "text-emerald-600 font-extrabold" : ""}>
+ C{cIdx + 1}:RTP:{Number(c.rtp || 0).toFixed(2)}{c.mtp != null ? `:MTP:${Number(c.mtp).toFixed(2)}` : ''}{c.met ? " ✓" : ""}
  </span>
  </React.Fragment>
  ))}
@@ -4439,8 +4445,8 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  {conds.map((c, cIdx) => (
  <React.Fragment key={c.id || cIdx}>
  {cIdx > 0 && <span className="text-black/40 font-bold uppercase">{c.operator || 'OR'}</span>}
- <span>
- C{cIdx + 1}:RTP:{Number(c.rtp || 0).toFixed(2)}{c.mtp != null ? `:MTP:${Number(c.mtp).toFixed(2)}` : ''}
+ <span className={c.met ? "text-emerald-600 font-extrabold" : ""}>
+ C{cIdx + 1}:RTP:{Number(c.rtp || 0).toFixed(2)}{c.mtp != null ? `:MTP:${Number(c.mtp).toFixed(2)}` : ''}{c.met ? " ✓" : ""}
  </span>
  </React.Fragment>
  ))}

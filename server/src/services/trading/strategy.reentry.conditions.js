@@ -383,12 +383,21 @@ async function processReentryConditionsTick({
 
     const evalResult = evaluateReentryConditionsGroup(conditions, tickPrice);
     if (evalResult.isSatisfied && evalResult.triggeringCondition) {
+        if (evalResult.triggeringGroup) {
+            conditions.forEach(c => {
+                const inGroup = evalResult.triggeringGroup.some(gc => gc.id === c.id);
+                if (!inGroup) {
+                    c.met = false;
+                }
+            });
+        }
         await handleReentryConditionsTrigger({
             leg,
             config,
             strategyId,
             addStrategyLog,
             triggeringCondition: evalResult.triggeringCondition,
+            triggeringGroup: evalResult.triggeringGroup,
             currentTick: tickPrice
         });
     }
@@ -403,6 +412,7 @@ async function handleReentryConditionsTrigger({
     strategyId,
     addStrategyLog,
     triggeringCondition,
+    triggeringGroup,
     currentTick
 }) {
     const isVirtual = config?.is_virtual === true || leg.is_virtual_leg === true;
@@ -512,11 +522,13 @@ async function handleReentryConditionsTrigger({
         leg.uniqueOrderId = reEntryOrder.uniqueorderid;
         leg.state = "WAITING_FOR_FILL";
         leg.triggering_condition = triggeringCondition;
+        leg.triggering_group = triggeringGroup;
         leg.rtp = rtp;
         leg.mtp = triggeringCondition.mntm_enabled ? targetPrice : null;
         if (Array.isArray(leg.reentry_conditions_state)) {
             leg.reentry_conditions_state.forEach(c => {
-                if (c.id === triggeringCondition.id || (triggeringCondition.type && c.type === triggeringCondition.type && c.rtp === triggeringCondition.rtp)) {
+                const inGroup = Array.isArray(triggeringGroup) && triggeringGroup.some(gc => gc.id === c.id);
+                if (inGroup || c.id === triggeringCondition.id || (triggeringCondition.type && c.type === triggeringCondition.type && c.rtp === triggeringCondition.rtp)) {
                     c.met = true;
                 }
             });
@@ -593,6 +605,8 @@ async function handleReentryConditionsTrigger({
                     leg.peakPrice = leg.entryPrice;
                     leg.tslReferencePrice = fill;
                     leg.state = "ACTIVE";
+                    leg.triggering_condition = leg.triggering_condition || triggeringCondition;
+                    leg.triggering_group = leg.triggering_group || triggeringGroup;
                     if (leg.leg && !leg.leg.reentry_conditions && leg.reentry_conditions) {
                         leg.leg.reentry_conditions = leg.reentry_conditions;
                     }
