@@ -4142,32 +4142,20 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  {l.state === "ACTIVE" && (() => {
  const conds = getLegReentryConditionsState(l, strategyData.config);
  if (!conds || conds.length <= 1) return null;
- const mtpConds = conds.map((c, idx) => ({ ...c, condIndex: idx })).filter(c => c.mtp != null);
 
  return (
  <>
  <span className="text-muted-foreground text-[10px] font-mono">|</span>
- <span className="text-orange-500 font-medium text-[10px] font-mono inline-flex items-center gap-1 flex-wrap">
+ <span className="text-orange-500 font-medium text-[10px] font-mono inline-flex items-center gap-1.5 flex-wrap">
  {conds.map((c, cIdx) => (
  <React.Fragment key={c.id || cIdx}>
  {cIdx > 0 && <span className="text-slate-500 font-bold uppercase">{c.operator || 'OR'}</span>}
- <span>RTP{cIdx + 1} : {Number(c.rtp || 0).toFixed(2)}</span>
+ <span>
+ C{cIdx + 1} : RTP : {Number(c.rtp || 0).toFixed(2)}{c.mtp != null ? ` : MTP : ${Number(c.mtp).toFixed(2)}` : ''}
+ </span>
  </React.Fragment>
  ))}
  </span>
- {mtpConds.length > 0 && (
- <>
- <span className="text-muted-foreground text-[10px] font-mono">|</span>
- <span className="text-purple-500 font-medium text-[10px] font-mono inline-flex items-center gap-1 flex-wrap">
- {mtpConds.map((c, mIdx) => (
- <React.Fragment key={c.id || mIdx}>
- {mIdx > 0 && <span className="text-slate-500 font-bold uppercase">{c.operator || 'OR'}</span>}
- <span>MTP{c.condIndex + 1} : {Number(c.mtp || 0).toFixed(2)}</span>
- </React.Fragment>
- ))}
- </span>
- </>
- )}
  </>
  );
  })()}
@@ -4277,7 +4265,6 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  )}
  {["WAITING_FOR_FILL", "WAITING_FOR_INTERNAL_FALLBACK"].includes(l.state) && (() => {
  const conds = getLegReentryConditionsState(l, strategyData.config);
- const mtpConds = conds ? conds.map((c, idx) => ({ ...c, condIndex: idx })).filter(c => c.mtp != null) : [];
 
  if (conds && conds.length > 0) {
  return (
@@ -4288,26 +4275,14 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  <React.Fragment key={c.id || cIdx}>
  {cIdx > 0 && <span className="text-slate-500 font-bold uppercase">{c.operator || 'OR'}</span>}
  <span className={c.met ? "text-emerald-600 font-extrabold" : ""}>
- {conds.length > 1 ? `RTP${cIdx + 1} : ${Number(c.rtp || 0).toFixed(2)}` : `RTP: ${Number(c.rtp || 0).toFixed(2)}`}{c.met ? " ✓" : ""}
+ {conds.length > 1
+   ? `C${cIdx + 1} : RTP : ${Number(c.rtp || 0).toFixed(2)}${c.mtp != null ? ` : MTP : ${Number(c.mtp).toFixed(2)}` : ''}`
+   : `RTP: ${Number(c.rtp || 0).toFixed(2)}${c.mtp != null ? ` | MTP: ${Number(c.mtp).toFixed(2)}` : ''}`
+ }{c.met ? " ✓" : ""}
  </span>
  </React.Fragment>
  ))}
  </span>
- {mtpConds.length > 0 && (
- <>
- <span className="text-muted-foreground text-[10px] font-mono ml-1">|</span>
- <span className="text-blue-600 font-bold text-[10px] font-mono ml-1 inline-flex items-center gap-1.5 flex-wrap">
- {mtpConds.map((c, mIdx) => (
- <React.Fragment key={c.id || mIdx}>
- {mIdx > 0 && <span className="text-slate-500 font-bold uppercase">{c.operator || 'OR'}</span>}
- <span>
- {conds.length > 1 ? `MTP${c.condIndex + 1} : ${Number(c.mtp || 0).toFixed(2)}` : `MTP: ${Number(c.mtp || 0).toFixed(2)}`}
- </span>
- </React.Fragment>
- ))}
- </span>
- </>
- )}
  </>
  );
  }
@@ -4337,7 +4312,6 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  )}
  {l.state ==="WAITING_FOR_REENTRY_COND" && (() => {
  const conds = getLegReentryConditionsState(l, strategyData.config);
- const mtpConds = conds ? conds.map((c, idx) => ({ ...c, condIndex: idx })).filter(c => c.mtp != null) : [];
 
  return (
  <>
@@ -4350,26 +4324,14 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  <React.Fragment key={c.id || cIdx}>
  {cIdx > 0 && <span className="text-slate-500 font-bold uppercase">{c.operator || 'OR'}</span>}
  <span className={c.met ? "text-emerald-600 font-extrabold" : ""}>
- {conds.length > 1 ? `RTP${cIdx + 1} : ${Number(c.rtp || 0).toFixed(2)}` : `RTP: ${Number(c.rtp || 0).toFixed(2)}`}{c.met ? " ✓" : ""}
+ {conds.length > 1
+   ? `C${cIdx + 1} : RTP : ${Number(c.rtp || 0).toFixed(2)}${c.mtp != null ? ` : MTP : ${Number(c.mtp).toFixed(2)}` : ''}`
+   : `RTP: ${Number(c.rtp || 0).toFixed(2)}${c.mtp != null ? ` | MTP: ${Number(c.mtp).toFixed(2)}` : ''}`
+ }{c.met ? " ✓" : ""}
  </span>
  </React.Fragment>
  ))}
  </span>
- {mtpConds.length > 0 && (
- <>
- <span className="text-muted-foreground text-[10px] font-mono ml-1">|</span>
- <span className="text-blue-600 font-bold text-[10px] font-mono ml-1 inline-flex items-center gap-1.5 flex-wrap">
- {mtpConds.map((c, mIdx) => (
- <React.Fragment key={c.id || mIdx}>
- {mIdx > 0 && <span className="text-slate-500 font-bold uppercase">{c.operator || 'OR'}</span>}
- <span>
- {conds.length > 1 ? `MTP${c.condIndex + 1} : ${Number(c.mtp || 0).toFixed(2)}` : `MTP: ${Number(c.mtp || 0).toFixed(2)}`}
- </span>
- </React.Fragment>
- ))}
- </span>
- </>
- )}
  </>
  ) : (
  <>
@@ -4470,31 +4432,19 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  {(() => {
  const conds = getLegReentryConditionsState(l, strategyData.config);
  if (conds && conds.length > 1) {
- const mtpConds = conds.map((c, idx) => ({ ...c, condIndex: idx })).filter(c => c.mtp != null);
  return (
  <>
  <span className="text-black/30 text-[10px] font-mono">|</span>
- <span className="text-orange-600 font-bold text-[10px] font-mono inline-flex items-center gap-1 flex-wrap">
+ <span className="text-orange-600 font-bold text-[10px] font-mono inline-flex items-center gap-1.5 flex-wrap">
  {conds.map((c, cIdx) => (
  <React.Fragment key={c.id || cIdx}>
  {cIdx > 0 && <span className="text-black/40 font-bold uppercase">{c.operator || 'OR'}</span>}
- <span>RTP{cIdx + 1} : {Number(c.rtp || 0).toFixed(2)}</span>
+ <span>
+ C{cIdx + 1} : RTP : {Number(c.rtp || 0).toFixed(2)}{c.mtp != null ? ` : MTP : ${Number(c.mtp).toFixed(2)}` : ''}
+ </span>
  </React.Fragment>
  ))}
  </span>
- {mtpConds.length > 0 && (
- <>
- <span className="text-black/30 text-[10px] font-mono">|</span>
- <span className="text-purple-600 font-bold text-[10px] font-mono inline-flex items-center gap-1 flex-wrap">
- {mtpConds.map((c, mIdx) => (
- <React.Fragment key={c.id || mIdx}>
- {mIdx > 0 && <span className="text-black/40 font-bold uppercase">{c.operator || 'OR'}</span>}
- <span>MTP{c.condIndex + 1} : {Number(c.mtp || 0).toFixed(2)}</span>
- </React.Fragment>
- ))}
- </span>
- </>
- )}
  </>
  );
  }
