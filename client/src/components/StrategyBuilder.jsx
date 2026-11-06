@@ -4103,38 +4103,38 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  <span className="text-muted-foreground text-[10px] font-mono">|</span>
  <span className="text-primary font-medium text-[10px] font-mono">{l.entryTime ||"---"}</span>
  <span className="text-muted-foreground text-[10px] font-mono">|</span>
- <span className="text-[10px] font-mono text-muted-foreground">Entry: {(l.entryPrice || 0).toFixed(2)}</span>
+ <span className="text-[10px] font-mono text-muted-foreground">Entry:{(l.entryPrice || 0).toFixed(2)}</span>
  {((l.is_sl_price_on_candle_open || l.leg?.is_sl_price_on_candle_open || l.leg?.sl_price_on_candle_open || l.leg?.sl_based_on_candle_open) && l.entryCandleOpen != null) && (
  <>
  <span className="text-muted-foreground text-[10px] font-mono">|</span>
- <span className="text-amber-600 font-bold text-[10px] font-mono" title="Entry Candle Open Price">C.Open: {Number(l.entryCandleOpen).toFixed(2)}</span>
+ <span className="text-amber-600 font-bold text-[10px] font-mono" title="Entry Candle Open Price">C.Open:{Number(l.entryCandleOpen).toFixed(2)}</span>
  </>
  )}
  <span className="text-muted-foreground text-[10px] font-mono">|</span>
- <span className="text-[10px] font-mono animate-pulse text-blue-600 font-medium">LTP: {(l.currentLtp || 0).toFixed(2)}</span>
+ <span className="text-[10px] font-mono animate-pulse text-blue-600 font-medium">LTP:{(l.currentLtp || 0).toFixed(2)}</span>
  {l.leg?.tsl_on_close_low && l.leg?.side === 'SELL' && l.candleLow != null && (
  <>
  <span className="text-muted-foreground text-[10px] font-mono">|</span>
- <span className="text-pink-600 font-bold text-[10px] font-mono">C.Low: {l.candleLow.toFixed(2)}</span>
+ <span className="text-pink-600 font-bold text-[10px] font-mono">C.Low:{l.candleLow.toFixed(2)}</span>
  </>
  )}
  {l.leg?.tsl_on_close_high && l.leg?.side === 'BUY' && l.candleHigh != null && (
  <>
  <span className="text-muted-foreground text-[10px] font-mono">|</span>
- <span className="text-emerald-600 font-bold text-[10px] font-mono">C.High: {l.candleHigh.toFixed(2)}</span>
+ <span className="text-emerald-600 font-bold text-[10px] font-mono">C.High:{l.candleHigh.toFixed(2)}</span>
  </>
  )}
  {l.initialSlTriggerPrice != null && (
  <>
  <span className="text-muted-foreground text-[10px] font-mono">|</span>
- <span className="text-slate-500 font-medium text-[10px] font-mono">Init SL: {Number(l.initialSlTriggerPrice).toFixed(2)}</span>
+ <span className="text-slate-500 font-medium text-[10px] font-mono">Init SL:{Number(l.initialSlTriggerPrice).toFixed(2)}</span>
  </>
  )}
  {l.slTriggerPrice != null && (
  <>
  <span className="text-muted-foreground text-[10px] font-mono">|</span>
  <span className={`text-[10px] font-mono font-black ${Number(l.slTriggerPrice) !== Number(l.initialSlTriggerPrice) ?'text-indigo-600 animate-pulse' :'text-slate-800'}`}>
- Now SL: {Number(l.slTriggerPrice).toFixed(2)}
+ Now SL:{Number(l.slTriggerPrice).toFixed(2)}
  </span>
  </>
  )}
@@ -4151,7 +4151,7 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  <React.Fragment key={c.id || cIdx}>
  {cIdx > 0 && <span className="text-slate-500 font-bold uppercase">{c.operator || 'OR'}</span>}
  <span>
- C{cIdx + 1} : RTP : {Number(c.rtp || 0).toFixed(2)}{c.mtp != null ? ` : MTP : ${Number(c.mtp).toFixed(2)}` : ''}
+ C{cIdx + 1}:RTP:{Number(c.rtp || 0).toFixed(2)}{c.mtp != null ? `:MTP:${Number(c.mtp).toFixed(2)}` : ''}
  </span>
  </React.Fragment>
  ))}
@@ -4162,43 +4162,43 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  {(!getLegReentryConditionsState(l, strategyData.config) || getLegReentryConditionsState(l, strategyData.config).length <= 1) && l.rtp != null && !["WAITING_FOR_RE_HIGH","WAITING_FOR_RE_LOW","WAITING_FOR_SIMPLE_MNTM","WAITING_FOR_REENTRY_COND","WAITING_FOR_FILL","WAITING_FOR_INTERNAL_FALLBACK"].includes(l.state) && (
  <>
  <span className="text-muted-foreground text-[10px] font-mono">|</span>
- <span className="text-orange-500 font-medium text-[10px] font-mono">RTP: {l.rtp.toFixed(2)}</span>
+ <span className="text-orange-500 font-medium text-[10px] font-mono">RTP:{l.rtp.toFixed(2)}</span>
  </>
  )}
  {l.state ==="ACTIVE" && l.max_peak_price != null && l.max_peak_price > 0 && (
  <>
  <span className="text-muted-foreground text-[10px] font-mono">|</span>
- <span className="text-indigo-600 font-bold text-[10px] font-mono uppercase">Trig Peak: {l.max_peak_price.toFixed(2)}</span>
+ <span className="text-indigo-600 font-bold text-[10px] font-mono uppercase">Trig Peak:{l.max_peak_price.toFixed(2)}</span>
  </>
  )}
  {l.state ==="ACTIVE" && l.max_low_price != null && l.max_low_price > 0 && (
  <>
  <span className="text-muted-foreground text-[10px] font-mono">|</span>
- <span className="text-pink-600 font-bold text-[10px] font-mono uppercase">Trig Low: {l.max_low_price.toFixed(2)}</span>
+ <span className="text-pink-600 font-bold text-[10px] font-mono uppercase">Trig Low:{l.max_low_price.toFixed(2)}</span>
  </>
  )}
  {(!getLegReentryConditionsState(l, strategyData.config) || getLegReentryConditionsState(l, strategyData.config).length <= 1) && l.mtp != null && !["WAITING_FOR_RE_HIGH","WAITING_FOR_RE_LOW","WAITING_FOR_REENTRY_COND","WAITING_FOR_FILL","WAITING_FOR_INTERNAL_FALLBACK"].includes(l.state) && (
  <>
  <span className="text-muted-foreground text-[10px] font-mono">|</span>
- <span className="text-purple-500 font-medium text-[10px] font-mono">MTP: {l.mtp.toFixed(2)}</span>
+ <span className="text-purple-500 font-medium text-[10px] font-mono">MTP:{l.mtp.toFixed(2)}</span>
  </>
  )}
  {l.state === "WAITING_FOR_SIMPLE_MNTM" && l.leg?.simple_mntm_type === "HIGH" && (
  <>
  <span className="px-2 py-0.5 ml-2 bg-emerald-100 text-emerald-700 font-medium rounded text-[10px] font-mono whitespace-nowrap uppercase">Waiting (Peak Basis)</span>
  <span className="text-muted-foreground text-[10px] font-mono ml-1">|</span>
- <span className="text-indigo-600 font-bold text-[10px] font-mono ml-1 uppercase">Peak: ₹{(l.max_peak_price || 0).toFixed(2)}</span>
+ <span className="text-indigo-600 font-bold text-[10px] font-mono ml-1 uppercase">Peak:₹{(l.max_peak_price || 0).toFixed(2)}</span>
  <span className="text-muted-foreground text-[10px] font-mono ml-1">|</span>
- <span className="text-orange-600 font-bold text-[10px] font-mono ml-1 uppercase">Target: ₹{(l.mntmTargetPrice || 0).toFixed(2)}</span>
+ <span className="text-orange-600 font-bold text-[10px] font-mono ml-1 uppercase">Target:₹{(l.mntmTargetPrice || 0).toFixed(2)}</span>
  </>
  )}
  {l.state === "WAITING_FOR_SIMPLE_MNTM" && l.leg?.simple_mntm_type === "LOW" && (
  <>
  <span className="px-2 py-0.5 ml-2 bg-pink-100 text-pink-700 font-medium rounded text-[10px] font-mono whitespace-nowrap uppercase">Waiting (Low Basis)</span>
  <span className="text-muted-foreground text-[10px] font-mono ml-1">|</span>
- <span className="text-indigo-600 font-bold text-[10px] font-mono ml-1 uppercase">Low: ₹{(l.max_low_price || 0).toFixed(2)}</span>
+ <span className="text-indigo-600 font-bold text-[10px] font-mono ml-1 uppercase">Low:₹{(l.max_low_price || 0).toFixed(2)}</span>
  <span className="text-muted-foreground text-[10px] font-mono ml-1">|</span>
- <span className="text-orange-600 font-bold text-[10px] font-mono ml-1 uppercase">Target: ₹{(l.mntmTargetPrice || 0).toFixed(2)}</span>
+ <span className="text-orange-600 font-bold text-[10px] font-mono ml-1 uppercase">Target:₹{(l.mntmTargetPrice || 0).toFixed(2)}</span>
  </>
  )}
  {l.state === "WAITING_FOR_SIMPLE_MNTM" && (!l.leg?.simple_mntm_type || l.leg?.simple_mntm_type === "NORMAL") && (
@@ -4207,7 +4207,7 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  {l.mntmTargetPrice != null && (
  <>
  <span className="text-muted-foreground text-[10px] font-mono ml-1">|</span>
- <span className="text-blue-500 font-medium animate-pulse text-[10px] font-mono">Wait Target: ₹{l.mntmTargetPrice.toFixed(2)}</span>
+ <span className="text-blue-500 font-medium animate-pulse text-[10px] font-mono">Wait Target:₹{l.mntmTargetPrice.toFixed(2)}</span>
  </>
  )}
  </>
@@ -4215,7 +4215,7 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  {l.mntmTargetPrice != null && ["WAITING_FOR_FILL", "WAITING_FOR_INTERNAL_FALLBACK"].includes(l.state) && (
  <>
  <span className="text-muted-foreground text-[10px] font-mono">|</span>
- <span className="text-blue-500 font-medium animate-pulse text-[10px] font-mono">Wait Target: ₹{l.mntmTargetPrice.toFixed(2)}</span>
+ <span className="text-blue-500 font-medium animate-pulse text-[10px] font-mono">Wait Target:₹{l.mntmTargetPrice.toFixed(2)}</span>
  </>
  )}
  {l.state ==="WAITING_FOR_RECOST" && (
@@ -4231,13 +4231,13 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  <>
  <span className="px-2 py-0.5 ml-2 bg-emerald-100 text-emerald-700 font-medium rounded text-[10px] font-mono whitespace-nowrap uppercase">Waiting (Peak Basis)</span>
  <span className="text-muted-foreground text-[10px] font-mono ml-1">|</span>
- <span className="text-indigo-600 font-bold text-[10px] font-mono ml-1 uppercase">Peak: ₹{(l.max_peak_price || 0).toFixed(2)}</span>
+ <span className="text-indigo-600 font-bold text-[10px] font-mono ml-1 uppercase">Peak:₹{(l.max_peak_price || 0).toFixed(2)}</span>
  <span className="text-muted-foreground text-[10px] font-mono ml-1">|</span>
- <span className="text-orange-600 font-bold text-[10px] font-mono ml-1 uppercase">RTP: ₹{(l.re_high_trigger_price || 0).toFixed(2)}</span>
+ <span className="text-orange-600 font-bold text-[10px] font-mono ml-1 uppercase">RTP:₹{(l.re_high_trigger_price || 0).toFixed(2)}</span>
  {l.mtp && (
  <>
  <span className="text-muted-foreground text-[10px] font-mono ml-1">|</span>
- <span className="text-blue-600 font-bold text-[10px] font-mono ml-1 uppercase">MTP: ₹{(l.mtp || 0).toFixed(2)}</span>
+ <span className="text-blue-600 font-bold text-[10px] font-mono ml-1 uppercase">MTP:₹{(l.mtp || 0).toFixed(2)}</span>
  </>
  )}
  </>
@@ -4246,13 +4246,13 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  <>
  <span className="px-2 py-0.5 ml-2 bg-pink-100 text-pink-700 font-medium rounded text-[10px] font-mono whitespace-nowrap uppercase">Waiting (Low Basis)</span>
  <span className="text-muted-foreground text-[10px] font-mono ml-1">|</span>
- <span className="text-indigo-600 font-bold text-[10px] font-mono ml-1 uppercase">Low: ₹{(l.max_low_price || 0).toFixed(2)}</span>
+ <span className="text-indigo-600 font-bold text-[10px] font-mono ml-1 uppercase">Low:₹{(l.max_low_price || 0).toFixed(2)}</span>
  <span className="text-muted-foreground text-[10px] font-mono ml-1">|</span>
- <span className="text-orange-600 font-bold text-[10px] font-mono ml-1 uppercase">RTP: ₹{(l.re_low_trigger_price || 0).toFixed(2)}</span>
+ <span className="text-orange-600 font-bold text-[10px] font-mono ml-1 uppercase">RTP:₹{(l.re_low_trigger_price || 0).toFixed(2)}</span>
  {l.mtp && (
  <>
  <span className="text-muted-foreground text-[10px] font-mono ml-1">|</span>
- <span className="text-blue-600 font-bold text-[10px] font-mono ml-1 uppercase">MTP: ₹{(l.mtp || 0).toFixed(2)}</span>
+ <span className="text-blue-600 font-bold text-[10px] font-mono ml-1 uppercase">MTP:₹{(l.mtp || 0).toFixed(2)}</span>
  </>
  )}
  </>
@@ -4276,8 +4276,8 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  {cIdx > 0 && <span className="text-slate-500 font-bold uppercase">{c.operator || 'OR'}</span>}
  <span className={c.met ? "text-emerald-600 font-extrabold" : ""}>
  {conds.length > 1
-   ? `C${cIdx + 1} : RTP : ${Number(c.rtp || 0).toFixed(2)}${c.mtp != null ? ` : MTP : ${Number(c.mtp).toFixed(2)}` : ''}`
-   : `RTP: ${Number(c.rtp || 0).toFixed(2)}${c.mtp != null ? ` | MTP: ${Number(c.mtp).toFixed(2)}` : ''}`
+   ? `C${cIdx + 1}:RTP:${Number(c.rtp || 0).toFixed(2)}${c.mtp != null ? `:MTP:${Number(c.mtp).toFixed(2)}` : ''}`
+   : `RTP:${Number(c.rtp || 0).toFixed(2)}${c.mtp != null ? ` | MTP:${Number(c.mtp).toFixed(2)}` : ''}`
  }{c.met ? " ✓" : ""}
  </span>
  </React.Fragment>
@@ -4293,13 +4293,13 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  {l.rtp != null && (
  <>
  <span className="text-muted-foreground text-[10px] font-mono ml-1">|</span>
- <span className="text-orange-600 font-bold text-[10px] font-mono ml-1 uppercase">RTP: {Number(l.rtp).toFixed(2)}</span>
+ <span className="text-orange-600 font-bold text-[10px] font-mono ml-1 uppercase">RTP:{Number(l.rtp).toFixed(2)}</span>
  </>
  )}
  {l.mtp != null && (
  <>
  <span className="text-muted-foreground text-[10px] font-mono ml-1">|</span>
- <span className="text-blue-600 font-bold text-[10px] font-mono ml-1 uppercase">MTP: {Number(l.mtp).toFixed(2)}</span>
+ <span className="text-blue-600 font-bold text-[10px] font-mono ml-1 uppercase">MTP:{Number(l.mtp).toFixed(2)}</span>
  </>
  )}
  </>
@@ -4325,8 +4325,8 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  {cIdx > 0 && <span className="text-slate-500 font-bold uppercase">{c.operator || 'OR'}</span>}
  <span className={c.met ? "text-emerald-600 font-extrabold" : ""}>
  {conds.length > 1
-   ? `C${cIdx + 1} : RTP : ${Number(c.rtp || 0).toFixed(2)}${c.mtp != null ? ` : MTP : ${Number(c.mtp).toFixed(2)}` : ''}`
-   : `RTP: ${Number(c.rtp || 0).toFixed(2)}${c.mtp != null ? ` | MTP: ${Number(c.mtp).toFixed(2)}` : ''}`
+   ? `C${cIdx + 1}:RTP:${Number(c.rtp || 0).toFixed(2)}${c.mtp != null ? `:MTP:${Number(c.mtp).toFixed(2)}` : ''}`
+   : `RTP:${Number(c.rtp || 0).toFixed(2)}${c.mtp != null ? ` | MTP:${Number(c.mtp).toFixed(2)}` : ''}`
  }{c.met ? " ✓" : ""}
  </span>
  </React.Fragment>
@@ -4336,10 +4336,10 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  ) : (
  <>
  {l.rtp != null && (
- <span className="text-orange-600 font-bold text-[10px] font-mono ml-1 uppercase">RTP: {Number(l.rtp).toFixed(2)}</span>
+ <span className="text-orange-600 font-bold text-[10px] font-mono ml-1 uppercase">RTP:{Number(l.rtp).toFixed(2)}</span>
  )}
  {l.mtp != null && (
- <span className="text-blue-600 font-bold text-[10px] font-mono ml-1 uppercase">MTP: {Number(l.mtp).toFixed(2)}</span>
+ <span className="text-blue-600 font-bold text-[10px] font-mono ml-1 uppercase">MTP:{Number(l.mtp).toFixed(2)}</span>
  )}
  </>
  )}
@@ -4404,29 +4404,29 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  <span className="text-black/30 text-[10px] font-mono">|</span>
  <span className="text-black font-bold text-[10px] font-mono">{l.entryTime ||"---"}</span>
  <span className="text-black/30 text-[10px] font-mono">|</span>
- <span className="text-[10px] font-mono text-black">Entry: {(l.entryPrice || 0).toFixed(2)}</span>
+ <span className="text-[10px] font-mono text-black">Entry:{(l.entryPrice || 0).toFixed(2)}</span>
  {((l.is_sl_price_on_candle_open || l.leg?.is_sl_price_on_candle_open || l.leg?.sl_price_on_candle_open || l.leg?.sl_based_on_candle_open) && l.entryCandleOpen != null) && (
  <>
  <span className="text-black/30 text-[10px] font-mono">|</span>
- <span className="text-amber-700 font-bold text-[10px] font-mono" title="Entry Candle Open Price">C.Open: {Number(l.entryCandleOpen).toFixed(2)}</span>
+ <span className="text-amber-700 font-bold text-[10px] font-mono" title="Entry Candle Open Price">C.Open:{Number(l.entryCandleOpen).toFixed(2)}</span>
  </>
  )}
  <span className="text-black/30 text-[10px] font-mono">|</span>
- <span className="text-black font-bold text-[10px] font-mono">Exit: {l.exitTime || l.exitSnapshot?.exitTime ||"---"}</span>
+ <span className="text-black font-bold text-[10px] font-mono">Exit:{l.exitTime || l.exitSnapshot?.exitTime ||"---"}</span>
  <span className="text-black/30 text-[10px] font-mono">|</span>
- <span className="text-black text-[10px] font-mono">Price: {(l.exitSnapshot?.exitLtp || l.currentLtp || 0).toFixed(2)}</span>
+ <span className="text-black text-[10px] font-mono">Price:{(l.exitSnapshot?.exitLtp || l.currentLtp || 0).toFixed(2)}</span>
  <span className="text-black/30 text-[10px] font-mono">|</span>
- <span className="text-black text-[10px] font-mono font-bold">Type: {l.exitType || (l.is_virtual_monitoring ? "VIRTUAL_MONITORING" : "CLOSED")}</span>
+ <span className="text-black text-[10px] font-mono font-bold">Type:{l.exitType || (l.is_virtual_monitoring ? "VIRTUAL_MONITORING" : "CLOSED")}</span>
  {l.initialSlTriggerPrice != null && (
  <>
  <span className="text-muted-foreground text-[10px] font-mono">|</span>
- <span className="text-red-400 font-medium text-[10px] font-mono">Init SL: {Number(l.initialSlTriggerPrice).toFixed(2)}</span>
+ <span className="text-red-400 font-medium text-[10px] font-mono">Init SL:{Number(l.initialSlTriggerPrice).toFixed(2)}</span>
  </>
  )}
  {(l.exitSnapshot?.slTriggerPrice != null || l.slTriggerPrice != null) && (
  <>
  <span className="text-muted-foreground text-[10px] font-mono">|</span>
- <span className="text-red-600 font-bold text-[10px] font-mono">Exit SL: {Number(l.exitSnapshot?.slTriggerPrice ?? l.slTriggerPrice).toFixed(2)}</span>
+ <span className="text-red-600 font-bold text-[10px] font-mono">Exit SL:{Number(l.exitSnapshot?.slTriggerPrice ?? l.slTriggerPrice).toFixed(2)}</span>
  </>
  )}
  {(() => {
@@ -4440,7 +4440,7 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  <React.Fragment key={c.id || cIdx}>
  {cIdx > 0 && <span className="text-black/40 font-bold uppercase">{c.operator || 'OR'}</span>}
  <span>
- C{cIdx + 1} : RTP : {Number(c.rtp || 0).toFixed(2)}{c.mtp != null ? ` : MTP : ${Number(c.mtp).toFixed(2)}` : ''}
+ C{cIdx + 1}:RTP:{Number(c.rtp || 0).toFixed(2)}{c.mtp != null ? `:MTP:${Number(c.mtp).toFixed(2)}` : ''}
  </span>
  </React.Fragment>
  ))}
@@ -4453,13 +4453,13 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  {l.rtp != null && (
  <>
  <span className="text-black/30 text-[10px] font-mono">|</span>
- <span className="text-orange-600 font-bold text-[10px] font-mono">RTP: {l.rtp.toFixed(2)}</span>
+ <span className="text-orange-600 font-bold text-[10px] font-mono">RTP:{l.rtp.toFixed(2)}</span>
  </>
  )}
  {l.mtp != null && (
  <>
  <span className="text-black/30 text-[10px] font-mono">|</span>
- <span className="text-purple-600 font-bold text-[10px] font-mono">MTP: {l.mtp.toFixed(2)}</span>
+ <span className="text-purple-600 font-bold text-[10px] font-mono">MTP:{l.mtp.toFixed(2)}</span>
  </>
  )}
  </>
@@ -4468,13 +4468,13 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  {(l.max_peak_price != null || l.peakPrice != null || l.exitSnapshot?.peakPrice != null) && (
  <>
  <span className="text-black/30 text-[10px] font-mono">|</span>
- <span className="text-indigo-600 font-bold text-[10px] font-mono uppercase">Trig Peak: {(l.max_peak_price || l.peakPrice || l.exitSnapshot?.peakPrice).toFixed(2)}</span>
+ <span className="text-indigo-600 font-bold text-[10px] font-mono uppercase">Trig Peak:{(l.max_peak_price || l.peakPrice || l.exitSnapshot?.peakPrice).toFixed(2)}</span>
  </>
  )}
  {(l.max_low_price != null || l.exitSnapshot?.lowPrice != null) && (
  <>
  <span className="text-black/30 text-[10px] font-mono">|</span>
- <span className="text-pink-600 font-bold text-[10px] font-mono uppercase">Trig Low: {(l.max_low_price || l.exitSnapshot?.lowPrice).toFixed(2)}</span>
+ <span className="text-pink-600 font-bold text-[10px] font-mono uppercase">Trig Low:{(l.max_low_price || l.exitSnapshot?.lowPrice).toFixed(2)}</span>
  </>
  )}
  </div>
