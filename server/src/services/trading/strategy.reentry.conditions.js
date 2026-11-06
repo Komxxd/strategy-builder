@@ -513,6 +513,14 @@ async function handleReentryConditionsTrigger({
         leg.state = "WAITING_FOR_FILL";
         leg.triggering_condition = triggeringCondition;
         leg.rtp = rtp;
+        leg.mtp = triggeringCondition.mntm_enabled ? targetPrice : null;
+        if (Array.isArray(leg.reentry_conditions_state)) {
+            leg.reentry_conditions_state.forEach(c => {
+                if (c.id === triggeringCondition.id || (triggeringCondition.type && c.type === triggeringCondition.type && c.rtp === triggeringCondition.rtp)) {
+                    c.met = true;
+                }
+            });
+        }
 
         addStrategyLog(strategyId, `[RE-ENTRY CONDITIONS] Order placed for ${leg.instrument?.symbol} at ₹${finalPriceStr} (${ordertype}).`, "INFO");
 

@@ -409,7 +409,13 @@ const syncReentryConditions = (leg, newConditions, currentMode) => {
 
 const getLegReentryConditionsState = (l, strategyConfig) => {
   if (Array.isArray(l?.reentry_conditions_state) && l.reentry_conditions_state.length > 0) {
-    return l.reentry_conditions_state;
+    return l.reentry_conditions_state.map((cond, idx) => {
+      const isTriggered = l?.triggering_condition && (
+        l.triggering_condition.id === cond.id ||
+        (l.triggering_condition.type === cond.type && Number(l.triggering_condition.rtp) === Number(cond.rtp))
+      );
+      return isTriggered ? { ...cond, met: true } : cond;
+    });
   }
 
   const raw = (Array.isArray(l?.leg?.reentry_conditions) && l.leg.reentry_conditions.length > 0)
@@ -483,6 +489,11 @@ const getLegReentryConditionsState = (l, strategyConfig) => {
       mtp = Math.round(calcMtp * 20) / 20;
     }
 
+    const isTriggered = l?.triggering_condition && (
+      l.triggering_condition.id === cond.id ||
+      (l.triggering_condition.type === type)
+    );
+
     return {
       ...cond,
       id: cond.id || `cond_${idx}`,
@@ -490,7 +501,7 @@ const getLegReentryConditionsState = (l, strategyConfig) => {
       operator,
       rtp: cond.rtp !== undefined ? cond.rtp : rtp,
       mtp: cond.mtp !== undefined ? cond.mtp : mtp,
-      met: cond.met || false
+      met: cond.met || isTriggered || false
     };
   });
 };
@@ -4160,7 +4171,7 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  </>
  );
  })()}
- {(!getLegReentryConditionsState(l, strategyData.config) || getLegReentryConditionsState(l, strategyData.config).length <= 1) && l.rtp != null && !["WAITING_FOR_RE_HIGH","WAITING_FOR_RE_LOW","WAITING_FOR_SIMPLE_MNTM","WAITING_FOR_REENTRY_COND"].includes(l.state) && (
+ {(!getLegReentryConditionsState(l, strategyData.config) || getLegReentryConditionsState(l, strategyData.config).length <= 1) && l.rtp != null && !["WAITING_FOR_RE_HIGH","WAITING_FOR_RE_LOW","WAITING_FOR_SIMPLE_MNTM","WAITING_FOR_REENTRY_COND","WAITING_FOR_FILL","WAITING_FOR_INTERNAL_FALLBACK"].includes(l.state) && (
  <>
  <span className="text-muted-foreground text-[10px] font-mono">|</span>
  <span className="text-orange-500 font-medium text-[10px] font-mono">RTP: {l.rtp.toFixed(2)}</span>
@@ -4178,7 +4189,7 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  <span className="text-pink-600 font-bold text-[10px] font-mono uppercase">Trig Low: {l.max_low_price.toFixed(2)}</span>
  </>
  )}
- {(!getLegReentryConditionsState(l, strategyData.config) || getLegReentryConditionsState(l, strategyData.config).length <= 1) && l.mtp != null && !["WAITING_FOR_RE_HIGH","WAITING_FOR_RE_LOW","WAITING_FOR_REENTRY_COND"].includes(l.state) && (
+ {(!getLegReentryConditionsState(l, strategyData.config) || getLegReentryConditionsState(l, strategyData.config).length <= 1) && l.mtp != null && !["WAITING_FOR_RE_HIGH","WAITING_FOR_RE_LOW","WAITING_FOR_REENTRY_COND","WAITING_FOR_FILL","WAITING_FOR_INTERNAL_FALLBACK"].includes(l.state) && (
  <>
  <span className="text-muted-foreground text-[10px] font-mono">|</span>
  <span className="text-purple-500 font-medium text-[10px] font-mono">MTP: {l.mtp.toFixed(2)}</span>
@@ -4264,6 +4275,63 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  {l.state ==="WAITING_FOR_INTERNAL_FALLBACK" && (
  <span className="px-2 py-0.5 ml-2 bg-orange-100 text-orange-700 font-medium rounded text-[10px] font-mono uppercase">Internal Monitoring</span>
  )}
+ {["WAITING_FOR_FILL", "WAITING_FOR_INTERNAL_FALLBACK"].includes(l.state) && (() => {
+ const conds = getLegReentryConditionsState(l, strategyData.config);
+ const mtpConds = conds ? conds.map((c, idx) => ({ ...c, condIndex: idx })).filter(c => c.mtp != null) : [];
+
+ if (conds && conds.length > 0) {
+ return (
+ <>
+ <span className="text-muted-foreground text-[10px] font-mono ml-1">|</span>
+ <span className="text-orange-600 font-bold text-[10px] font-mono ml-1 inline-flex items-center gap-1.5 flex-wrap">
+ {conds.map((c, cIdx) => (
+ <React.Fragment key={c.id || cIdx}>
+ {cIdx > 0 && <span className="text-slate-500 font-bold uppercase">{c.operator || 'OR'}</span>}
+ <span className={c.met ? "text-emerald-600 font-extrabold" : ""}>
+ {conds.length > 1 ? `RTP${cIdx + 1} : ${Number(c.rtp || 0).toFixed(2)}` : `RTP: ${Number(c.rtp || 0).toFixed(2)}`}{c.met ? " ✓" : ""}
+ </span>
+ </React.Fragment>
+ ))}
+ </span>
+ {mtpConds.length > 0 && (
+ <>
+ <span className="text-muted-foreground text-[10px] font-mono ml-1">|</span>
+ <span className="text-blue-600 font-bold text-[10px] font-mono ml-1 inline-flex items-center gap-1.5 flex-wrap">
+ {mtpConds.map((c, mIdx) => (
+ <React.Fragment key={c.id || mIdx}>
+ {mIdx > 0 && <span className="text-slate-500 font-bold uppercase">{c.operator || 'OR'}</span>}
+ <span>
+ {conds.length > 1 ? `MTP${c.condIndex + 1} : ${Number(c.mtp || 0).toFixed(2)}` : `MTP: ${Number(c.mtp || 0).toFixed(2)}`}
+ </span>
+ </React.Fragment>
+ ))}
+ </span>
+ </>
+ )}
+ </>
+ );
+ }
+
+ if (l.rtp != null || l.mtp != null) {
+ return (
+ <>
+ {l.rtp != null && (
+ <>
+ <span className="text-muted-foreground text-[10px] font-mono ml-1">|</span>
+ <span className="text-orange-600 font-bold text-[10px] font-mono ml-1 uppercase">RTP: {Number(l.rtp).toFixed(2)}</span>
+ </>
+ )}
+ {l.mtp != null && (
+ <>
+ <span className="text-muted-foreground text-[10px] font-mono ml-1">|</span>
+ <span className="text-blue-600 font-bold text-[10px] font-mono ml-1 uppercase">MTP: {Number(l.mtp).toFixed(2)}</span>
+ </>
+ )}
+ </>
+ );
+ }
+ return null;
+ })()}
  {l.state ==="WAITING_FOR_LAZY" && (
  <span className="px-2 py-0.5 ml-2 bg-purple-100 text-purple-700 font-medium rounded text-[10px] font-mono">Initializing Lazy Leg</span>
  )}
