@@ -51,7 +51,7 @@ function initReentryConditionsLeg({
             else if (mode === "RESL_MINUS_PTS") calcRtp = slPrice - val;
             rtp = roundToTick(calcRtp);
         } else if (type === "RE_HIGH") {
-            peakPrice = leg.final_peak_reached || currentLtp;
+            peakPrice = slPrice || currentLtp;
             const mode = cond.rehigh_mode || "REHIGH_MINUS_PTS";
             const val = parseFloat(cond.rehigh_value || 0);
             let calcRtp = peakPrice;
@@ -59,7 +59,7 @@ function initReentryConditionsLeg({
             else if (mode === "REHIGH_MINUS_PTS") calcRtp = peakPrice - val;
             rtp = roundToTick(calcRtp);
         } else if (type === "RE_LOW") {
-            lowPrice = leg.final_low_reached || currentLtp;
+            lowPrice = slPrice || currentLtp;
             const mode = cond.relow_mode || "RELOW_PLUS_PTS";
             const val = parseFloat(cond.relow_value || 0);
             let calcRtp = lowPrice;
@@ -125,6 +125,8 @@ function initReentryConditionsLeg({
         original_traded_price: 0,
         base_otp: otp,
         base_sl_price: slPrice,
+        max_peak_price: (conditionsState.find(c => c.type === "RE_HIGH")?.max_peak_price) || null,
+        max_low_price: (conditionsState.find(c => c.type === "RE_LOW")?.max_low_price) || null,
         slHitMinute: slHitMinute,
         reentry_conditions_state: conditionsState,
         reentry_conditions: rawConditions,
@@ -285,8 +287,14 @@ async function processReentryConditionsTick({
                 addStrategyLog(strategyId, `[RE-ENTRY CONDITIONS] RE_SL condition met for ${leg.instrument?.symbol || "leg"} at ₹${tickPrice} (RTP: ₹${rtp})`, "INFO");
             }
         } else if (type === "RE_HIGH") {
+            let isNewPeak = false;
             if (!cond.max_peak_price || tickPrice > cond.max_peak_price) {
                 cond.max_peak_price = tickPrice;
+                isNewPeak = true;
+            }
+            leg.max_peak_price = cond.max_peak_price;
+            if (isNewPeak) {
+                addStrategyLog(strategyId, `[RE-ENTRY CONDITIONS] [RE-HIGH] New peak reached for ${leg.instrument?.symbol || "leg"}: ₹${cond.max_peak_price}`, "INFO");
             }
 
             const peak = cond.max_peak_price;
@@ -328,8 +336,14 @@ async function processReentryConditionsTick({
                 addStrategyLog(strategyId, `[RE-ENTRY CONDITIONS] RE_HIGH condition met for ${leg.instrument?.symbol || "leg"} at ₹${tickPrice} (Peak: ₹${peak}, RTP: ₹${checkRtp})`, "INFO");
             }
         } else if (type === "RE_LOW") {
+            let isNewLow = false;
             if (!cond.max_low_price || tickPrice < cond.max_low_price) {
                 cond.max_low_price = tickPrice;
+                isNewLow = true;
+            }
+            leg.max_low_price = cond.max_low_price;
+            if (isNewLow) {
+                addStrategyLog(strategyId, `[RE-ENTRY CONDITIONS] [RE-LOW] New low reached for ${leg.instrument?.symbol || "leg"}: ₹${cond.max_low_price}`, "INFO");
             }
 
             const low = cond.max_low_price;
@@ -615,21 +629,36 @@ async function handleReentryConditionsTrigger({
                     // Apply SL / TSL overrides to leg.leg
                     const cond = leg.triggering_condition || triggeringCondition;
                     if (cond) {
-                        if (cond.reentry_sl_enabled !== undefined) {
-                            leg.leg.reentry_sl_enabled = cond.reentry_sl_enabled;
-                            leg.leg.reentry_sl_type = cond.reentry_sl_type;
-                            leg.leg.reentry_sl_value = cond.reentry_sl_value;
-                            leg.leg.reentry_sl_multiplier_entry_candle = cond.reentry_sl_multiplier_entry_candle;
+                        if (cond.reentry_sl_enabled) {
+                            leg.leg.reentry_sl_enabled = true;
+                            leg.leg.reentry_sl_type = cond.reentry_sl_type || "PERCENTAGE";
+                            leg.leg.reentry_sl_value = parseFloat(cond.reentry_sl_value || 0);
+                            leg.leg.reentry_sl_multiplier_entry_candle = !!cond.reentry_sl_multiplier_entry_candle;
                             leg.leg.reentry_sl_multiplier_value = cond.reentry_sl_multiplier_value;
+                        } else {
+                            leg.leg.reentry_sl_enabled = false;
+                            leg.leg.reentry_sl_type = null;
+                            leg.leg.reentry_sl_value = null;
+                            leg.leg.reentry_sl_multiplier_entry_candle = false;
+                            leg.leg.reentry_sl_multiplier_value = null;
                         }
-                        if (cond.reentry_tsl_enabled !== undefined) {
-                            leg.leg.reentry_tsl_enabled = cond.reentry_tsl_enabled;
-                            leg.leg.reentry_tsl_type = cond.reentry_tsl_type;
-                            leg.leg.reentry_tsl_move = cond.reentry_tsl_move;
-                            leg.leg.reentry_tsl_trail = cond.reentry_tsl_trail;
-                            leg.leg.reentry_tsl_on_close = cond.reentry_tsl_on_close;
-                            leg.leg.reentry_tsl_on_close_low = cond.reentry_tsl_on_close_low;
-                            leg.leg.reentry_tsl_on_close_high = cond.reentry_tsl_on_close_high;
+
+                        if (cond.reentry_tsl_enabled) {
+                            leg.leg.reentry_tsl_enabled = true;
+                            leg.leg.reentry_tsl_type = cond.reentry_tsl_type || "PERCENTAGE";
+                            leg.leg.reentry_tsl_move = parseFloat(cond.reentry_tsl_move || 0);
+                            leg.leg.reentry_tsl_trail = parseFloat(cond.reentry_tsl_trail || 0);
+                            leg.leg.reentry_tsl_on_close = !!cond.reentry_tsl_on_close;
+                            leg.leg.reentry_tsl_on_close_low = !!cond.reentry_tsl_on_close_low;
+                            leg.leg.reentry_tsl_on_close_high = !!cond.reentry_tsl_on_close_high;
+                        } else {
+                            leg.leg.reentry_tsl_enabled = false;
+                            leg.leg.reentry_tsl_type = null;
+                            leg.leg.reentry_tsl_move = null;
+                            leg.leg.reentry_tsl_trail = null;
+                            leg.leg.reentry_tsl_on_close = false;
+                            leg.leg.reentry_tsl_on_close_low = false;
+                            leg.leg.reentry_tsl_on_close_high = false;
                         }
                     }
 

@@ -408,6 +408,11 @@ const syncReentryConditions = (leg, newConditions, currentMode) => {
 };
 
 const getLegReentryConditionsState = (l, strategyConfig) => {
+  // If active leg and hasn't re-entered or triggered, do NOT calculate/display re-entry conditions prematurely
+  if (l?.state === "ACTIVE" && (!l?.reentry_count || l?.reentry_count === 0) && !l?.triggering_condition) {
+    return null;
+  }
+
   if (Array.isArray(l?.reentry_conditions_state) && l.reentry_conditions_state.length > 0) {
     return l.reentry_conditions_state.map((cond, idx) => {
       const isTriggered = (
@@ -417,7 +422,12 @@ const getLegReentryConditionsState = (l, strategyConfig) => {
           (l.triggering_condition.type === cond.type && Number(l.triggering_condition.rtp) === Number(cond.rtp))
         ))
       );
-      return (isTriggered || cond.met === true) ? { ...cond, met: true } : cond;
+      return {
+        ...cond,
+        max_peak_price: cond.max_peak_price ?? (cond.type === 'RE_HIGH' ? l?.max_peak_price : undefined),
+        max_low_price: cond.max_low_price ?? (cond.type === 'RE_LOW' ? l?.max_low_price : undefined),
+        met: (isTriggered || cond.met === true)
+      };
     });
   }
 
@@ -507,9 +517,30 @@ const getLegReentryConditionsState = (l, strategyConfig) => {
       operator,
       rtp: cond.rtp !== undefined ? cond.rtp : rtp,
       mtp: cond.mtp !== undefined ? cond.mtp : mtp,
+      max_peak_price: cond.max_peak_price ?? (type === 'RE_HIGH' ? (l?.max_peak_price || peakPrice) : undefined),
+      max_low_price: cond.max_low_price ?? (type === 'RE_LOW' ? (l?.max_low_price || lowPrice) : undefined),
       met: cond.met === true || isTriggered || false
     };
   });
+};
+
+const formatConditionDisplay = (c, cIdx, totalCount) => {
+  const prefix = totalCount > 1 ? `C${cIdx + 1}:` : '';
+  let peakLowPart = '';
+  if (c.type === 'RE_HIGH') {
+    const peak = c.max_peak_price ?? c.peakPrice ?? c.peak;
+    if (peak != null) {
+      peakLowPart = `Peak:${Number(peak).toFixed(2)}:`;
+    }
+  } else if (c.type === 'RE_LOW') {
+    const low = c.max_low_price ?? c.lowPrice ?? c.low;
+    if (low != null) {
+      peakLowPart = `Low:${Number(low).toFixed(2)}:`;
+    }
+  }
+  const rtpPart = `RTP:${Number(c.rtp || 0).toFixed(2)}`;
+  const mtpPart = c.mtp != null ? `:MTP:${Number(c.mtp).toFixed(2)}` : '';
+  return `${prefix}${peakLowPart}${rtpPart}${mtpPart}`;
 };
 
 const ReentryConditionBlock = ({
@@ -4145,7 +4176,7 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  </>
  )}
  {/* Multi-Condition RTP & MTP (or Legacy Single RTP/MTP) when in position (ACTIVE) */}
- {l.state === "ACTIVE" && (() => {
+ {l.state === "ACTIVE" && (l.reentry_count > 0 || l.triggering_condition) && (() => {
  const conds = getLegReentryConditionsState(l, strategyData.config);
  if (!conds || conds.length <= 1) return null;
 
@@ -4157,7 +4188,7 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  <React.Fragment key={c.id || cIdx}>
  {cIdx > 0 && <span className="text-slate-500 font-bold uppercase">{c.operator || 'OR'}</span>}
  <span className={c.met ? "text-emerald-600 font-extrabold" : ""}>
- C{cIdx + 1}:RTP:{Number(c.rtp || 0).toFixed(2)}{c.mtp != null ? `:MTP:${Number(c.mtp).toFixed(2)}` : ''}{c.met ? " ✓" : ""}
+ {formatConditionDisplay(c, cIdx, conds.length)}{c.met ? " ✓" : ""}
  </span>
  </React.Fragment>
  ))}
@@ -4281,10 +4312,7 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  <React.Fragment key={c.id || cIdx}>
  {cIdx > 0 && <span className="text-slate-500 font-bold uppercase">{c.operator || 'OR'}</span>}
  <span className={c.met ? "text-emerald-600 font-extrabold" : ""}>
- {conds.length > 1
-   ? `C${cIdx + 1}:RTP:${Number(c.rtp || 0).toFixed(2)}${c.mtp != null ? `:MTP:${Number(c.mtp).toFixed(2)}` : ''}`
-   : `RTP:${Number(c.rtp || 0).toFixed(2)}${c.mtp != null ? ` | MTP:${Number(c.mtp).toFixed(2)}` : ''}`
- }{c.met ? " ✓" : ""}
+ {formatConditionDisplay(c, cIdx, conds.length)}{c.met ? " ✓" : ""}
  </span>
  </React.Fragment>
  ))}
@@ -4330,10 +4358,7 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  <React.Fragment key={c.id || cIdx}>
  {cIdx > 0 && <span className="text-slate-500 font-bold uppercase">{c.operator || 'OR'}</span>}
  <span className={c.met ? "text-emerald-600 font-extrabold" : ""}>
- {conds.length > 1
-   ? `C${cIdx + 1}:RTP:${Number(c.rtp || 0).toFixed(2)}${c.mtp != null ? `:MTP:${Number(c.mtp).toFixed(2)}` : ''}`
-   : `RTP:${Number(c.rtp || 0).toFixed(2)}${c.mtp != null ? ` | MTP:${Number(c.mtp).toFixed(2)}` : ''}`
- }{c.met ? " ✓" : ""}
+ {formatConditionDisplay(c, cIdx, conds.length)}{c.met ? " ✓" : ""}
  </span>
  </React.Fragment>
  ))}
@@ -4446,7 +4471,7 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  <React.Fragment key={c.id || cIdx}>
  {cIdx > 0 && <span className="text-black/40 font-bold uppercase">{c.operator || 'OR'}</span>}
  <span className={c.met ? "text-emerald-600 font-extrabold" : ""}>
- C{cIdx + 1}:RTP:{Number(c.rtp || 0).toFixed(2)}{c.mtp != null ? `:MTP:${Number(c.mtp).toFixed(2)}` : ''}{c.met ? " ✓" : ""}
+ {formatConditionDisplay(c, cIdx, conds.length)}{c.met ? " ✓" : ""}
  </span>
  </React.Fragment>
  ))}
