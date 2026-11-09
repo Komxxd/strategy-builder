@@ -390,7 +390,7 @@ async function processReentryConditionsTick({
                 checkRtp = cond.committed_rtp !== undefined ? cond.committed_rtp : rtp;
                 if (currentSeconds === 59 && cond.committed_rtp !== rtp) {
                     cond.committed_rtp = rtp;
-                    addStrategyLog(strategyId, `[RE-HIGH] Candle Close — Committing RTP: ₹${rtp} (Peak: ₹${peak})`, "INFO");
+                    addStrategyLog(strategyId, `[RE-HIGH] Candle Close for ${leg.instrument?.symbol || "leg"} — Committing RTP: ₹${rtp} (Peak: ₹${peak})`, "INFO");
                 }
             }
 
@@ -461,7 +461,7 @@ async function processReentryConditionsTick({
                 checkRtp = cond.committed_rtp !== undefined ? cond.committed_rtp : rtp;
                 if (currentSeconds === 59 && cond.committed_rtp !== rtp) {
                     cond.committed_rtp = rtp;
-                    addStrategyLog(strategyId, `[RE-LOW] Candle Close — Committing RTP: ₹${rtp} (Low: ₹${low})`, "INFO");
+                    addStrategyLog(strategyId, `[RE-LOW] Candle Close for ${leg.instrument?.symbol || "leg"} — Committing RTP: ₹${rtp} (Low: ₹${low})`, "INFO");
                 }
             }
 

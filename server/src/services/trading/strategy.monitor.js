@@ -264,7 +264,7 @@ async function monitorStrategyLoop(strategyId, strategy) {
                         if (rehighSeconds === 59) {
                             // At candle close: commit the current peak's RTP for the next minute
                             if (leg.committed_rtp !== rtp) {
-                                addStrategyLog(strategyId, `[RE-HIGH] Candle Close — Committing RTP: ₹${rtp} (Peak: ₹${peak})`, "INFO");
+                                addStrategyLog(strategyId, `[RE-HIGH] Candle Close for ${leg.instrument?.symbol || "leg"} — Committing RTP: ₹${rtp} (Peak: ₹${peak})`, "INFO");
                             }
                             leg.committed_rtp = rtp;
                         }
@@ -372,7 +372,7 @@ async function monitorStrategyLoop(strategyId, strategy) {
                         if (relowSeconds === 59) {
                             // At candle close: commit the current low's RTP for the next minute
                             if (leg.committed_rtp !== rtp) {
-                                addStrategyLog(strategyId, `[RE-LOW] Candle Close — Committing RTP: ₹${rtp} (Low: ₹${low})`, "INFO");
+                                addStrategyLog(strategyId, `[RE-LOW] Candle Close for ${leg.instrument?.symbol || "leg"} — Committing RTP: ₹${rtp} (Low: ₹${low})`, "INFO");
                             }
                             leg.committed_rtp = rtp;
                         }
