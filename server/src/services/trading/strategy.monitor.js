@@ -928,7 +928,7 @@ async function monitorStrategyLoop(strategyId, strategy) {
                                         leg.instrument,
                                         28800000,
                                         1000,
-                                        { side, ordertype, price: parseFloat(finalPriceStr), triggerprice: parseFloat(triggerPriceStr) },
+                                        { side, ordertype, price: parseFloat(finalPriceStr), triggerprice: parseFloat(triggerPriceStr), isInstantFill: isPaperTrading },
                                         fillMeta
                                     );
                                 }

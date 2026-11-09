@@ -206,7 +206,7 @@ async function monitorReentryFill(leg, config, strategyId, addStrategyLog, order
                 leg.instrument,
                 28800000, 
                 1000,
-                orderDetails,
+                { ...orderDetails, isInstantFill: isPaperTrading },
                 fillMeta
             );
         }

@@ -132,7 +132,8 @@ async function handleReentryReSL({ leg, config, strategyId, addStrategyLog, curr
                             side: side,
                             ordertype: ordertype,
                             price: parseFloat(finalPriceStr || 0),
-                            triggerprice: parseFloat(triggerPriceStr || 0)
+                            triggerprice: parseFloat(triggerPriceStr || 0),
+                            isInstantFill: isPaperTrading
                         },
                         fillMeta
                     );

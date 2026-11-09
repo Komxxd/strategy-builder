@@ -676,7 +676,8 @@ async function handleReentryConditionsTrigger({
                             side,
                             ordertype,
                             price: parseFloat(finalPriceStr || 0),
-                            triggerprice: parseFloat(triggerPriceStr || 0)
+                            triggerprice: parseFloat(triggerPriceStr || 0),
+                            isInstantFill: isPaperTrading
                         },
                         fillMeta
                     );
