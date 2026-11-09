@@ -82,6 +82,13 @@ function initReentryConditionsLeg({
             mtp = roundToTick(calcMtp);
         }
 
+        let committed_rtp = undefined;
+        if (type === "RE_HIGH" && cond.rehigh_rtp_on_close) {
+            committed_rtp = rtp;
+        } else if (type === "RE_LOW" && cond.relow_rtp_on_close) {
+            committed_rtp = rtp;
+        }
+
         return {
             ...cond,
             id: cond.id || `cond_${idx}`,
@@ -91,7 +98,7 @@ function initReentryConditionsLeg({
             mtp,
             max_peak_price: peakPrice,
             max_low_price: lowPrice,
-            committed_rtp: undefined,
+            committed_rtp,
             rtp_met: false,
             rtp_met_tick: null,
             met: false,

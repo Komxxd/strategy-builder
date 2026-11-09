@@ -347,8 +347,12 @@ async function handleLegStopOut(leg, exitType, strategy, exchangeFillData = null
         // We calculate the initial trigger price based on the high reached at the moment of SL hit.
         if (mode === 'REHIGH_MINUS_PCT') triggerPrice = peakPrice - (peakPrice * val / 100);
         else if (mode === 'REHIGH_MINUS_PTS') triggerPrice = peakPrice - val;
+        triggerPrice = roundToTick(triggerPrice);
 
-        addStrategyLog(strategyId, `[RE-HIGH] SL Hit for ${leg.instrument?.symbol}. PEAK: ₹${peakPrice} | RTP: ₹${triggerPrice} | MTP: ${leg.leg.rehigh_mntm_enabled ? 'Calculating...' : 'N/A'}`, "INFO");
+        const rtpOnClose = leg.leg.rehigh_rtp_on_close;
+        const committedRtp = rtpOnClose ? triggerPrice : undefined;
+
+        addStrategyLog(strategyId, `[RE-HIGH] SL Hit for ${leg.instrument?.symbol}. PEAK: ₹${peakPrice} | RTP: ₹${triggerPrice}${rtpOnClose ? ' (Committed on SL Hit)' : ''} | MTP: ${leg.leg.rehigh_mntm_enabled ? 'Calculating...' : 'N/A'}`, "INFO");
         const newLeg = {
             leg: { ...leg.leg },
             instrument: { ...leg.instrument },
@@ -382,6 +386,7 @@ async function handleLegStopOut(leg, exitType, strategy, exchangeFillData = null
             slTriggerPrice: null,
             slLimitPrice: null,
             rtp: triggerPrice,
+            committed_rtp: committedRtp,
             mtp: null,
             exchangeSlProcessed: false,
             is_virtual_leg: config.is_virtual === true
@@ -407,8 +412,12 @@ async function handleLegStopOut(leg, exitType, strategy, exchangeFillData = null
         else if (mode === 'RELOW_PLUS_PTS') triggerPrice = lowPrice + val;
         else if (mode === 'RELOW_MINUS_PCT') triggerPrice = lowPrice - (lowPrice * val / 100);
         else if (mode === 'RELOW_MINUS_PTS') triggerPrice = lowPrice - val;
+        triggerPrice = roundToTick(triggerPrice);
 
-        addStrategyLog(strategyId, `[RE-LOW] SL Hit for ${leg.instrument?.symbol}. LOW: ₹${lowPrice} | RTP: ₹${triggerPrice} | MTP: ${leg.leg.relow_mntm_enabled ? 'Calculating...' : 'N/A'}`, "INFO");
+        const rtpOnClose = leg.leg.relow_rtp_on_close;
+        const committedRtp = rtpOnClose ? triggerPrice : undefined;
+
+        addStrategyLog(strategyId, `[RE-LOW] SL Hit for ${leg.instrument?.symbol}. LOW: ₹${lowPrice} | RTP: ₹${triggerPrice}${rtpOnClose ? ' (Committed on SL Hit)' : ''} | MTP: ${leg.leg.relow_mntm_enabled ? 'Calculating...' : 'N/A'}`, "INFO");
         const newLeg = {
             leg: { ...leg.leg },
             instrument: { ...leg.instrument },
@@ -442,6 +451,7 @@ async function handleLegStopOut(leg, exitType, strategy, exchangeFillData = null
             slTriggerPrice: null,
             slLimitPrice: null,
             rtp: triggerPrice,
+            committed_rtp: committedRtp,
             mtp: null,
             exchangeSlProcessed: false,
             is_virtual_leg: config.is_virtual === true
