@@ -40,46 +40,18 @@ async function handleReentryLow({ leg, config, strategyId, addStrategyLog, curre
     // Recalculate offset based on the final targetPrice
     const finalOffsetAmt = isPaperTrading ? 0 : getLimitOffsetAmt(targetPrice, config);
 
-    // 3. Determine Order Type (STOPLOSS vs LIMIT)
-    let variety = config.variety || "NORMAL";
+    let variety = "NORMAL";
     let ordertype = config.ordertype || "LIMIT";
+    let triggerPriceStr = "0";
     let finalPriceStr = targetPrice.toString();
-    let triggerPriceStr = targetPrice.toString();
-
-    if (leg.leg.relow_mntm_enabled) {
-        if (side === "SELL") {
-            if (targetPrice < currentPrice) {
-                variety = "STOPLOSS";
-                ordertype = "STOPLOSS_LIMIT";
-                finalPriceStr = roundToTick(targetPrice - finalOffsetAmt).toString();
-            } else {
-                variety = "NORMAL";
-                ordertype = "LIMIT";
-                triggerPriceStr = "0"; // Normal limit doesn't need trigger
-                finalPriceStr = roundToTick(targetPrice - finalOffsetAmt).toString();
-            }
-        } else if (side === "BUY") {
-            if (targetPrice > currentPrice) {
-                variety = "STOPLOSS";
-                ordertype = "STOPLOSS_LIMIT";
-                finalPriceStr = roundToTick(targetPrice + finalOffsetAmt).toString();
-            } else {
-                variety = "NORMAL";
-                ordertype = "LIMIT";
-                triggerPriceStr = "0";
-                finalPriceStr = roundToTick(targetPrice + finalOffsetAmt).toString();
-            }
-        }
-    } else {
-        // Non-Momentum Flow: We waited for pullback, so just place a resting LIMIT order
-        variety = "NORMAL";
-        ordertype = "LIMIT";
-        triggerPriceStr = "0";
+    if (ordertype === "LIMIT") {
         if (side === "BUY") {
             finalPriceStr = roundToTick(targetPrice + finalOffsetAmt).toString();
         } else {
             finalPriceStr = roundToTick(targetPrice - finalOffsetAmt).toString();
         }
+    } else {
+        finalPriceStr = "0";
     }
 
     try {

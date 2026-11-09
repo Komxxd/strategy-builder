@@ -424,6 +424,7 @@ const getLegReentryConditionsState = (l, strategyConfig) => {
       );
       return {
         ...cond,
+        rtp_met: cond.rtp_met === true,
         max_peak_price: cond.max_peak_price ?? (cond.type === 'RE_HIGH' ? l?.max_peak_price : undefined),
         max_low_price: cond.max_low_price ?? (cond.type === 'RE_LOW' ? l?.max_low_price : undefined),
         met: (isTriggered || cond.met === true)
@@ -519,6 +520,7 @@ const getLegReentryConditionsState = (l, strategyConfig) => {
       mtp: cond.mtp !== undefined ? cond.mtp : mtp,
       max_peak_price: cond.max_peak_price ?? (type === 'RE_HIGH' ? (l?.max_peak_price || peakPrice) : undefined),
       max_low_price: cond.max_low_price ?? (type === 'RE_LOW' ? (l?.max_low_price || lowPrice) : undefined),
+      rtp_met: cond.rtp_met === true,
       met: cond.met === true || isTriggered || false
     };
   });
@@ -4187,8 +4189,8 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  {conds.map((c, cIdx) => (
  <React.Fragment key={c.id || cIdx}>
  {cIdx > 0 && <span className="text-slate-500 font-bold uppercase">{c.operator || 'OR'}</span>}
- <span className={c.met ? "text-emerald-600 font-extrabold" : ""}>
- {formatConditionDisplay(c, cIdx, conds.length)}{c.met ? " ✓" : ""}
+ <span className={c.met ? "text-emerald-600 font-extrabold" : (c.rtp_met ? "text-blue-600 font-bold" : "")}>
+ {formatConditionDisplay(c, cIdx, conds.length)}{c.met ? " ✓" : (c.rtp_met ? " [Waiting MTP]" : "")}
  </span>
  </React.Fragment>
  ))}
@@ -4262,34 +4264,40 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  <span className="px-2 py-0.5 ml-2 bg-blue-100 text-blue-700 font-medium rounded text-[10px] font-mono">Waiting Re-Entry (ASAP)</span>
  )}
  {l.state ==="WAITING_FOR_RESL_MNTM" && (
- <span className="px-2 py-0.5 ml-2 bg-purple-100 text-purple-700 font-medium rounded text-[10px] font-mono whitespace-nowrap">Waiting Re-Entry (SL Price Basis)</span>
+ <span className="px-2 py-0.5 ml-2 bg-purple-100 text-purple-700 font-medium rounded text-[10px] font-mono whitespace-nowrap">
+   {l.rtp_met ? `Waiting MTP: ₹${Number(l.mtp || 0).toFixed(2)}` : "Waiting Re-Entry (SL Price Basis)"}
+ </span>
  )}
  {l.state ==="WAITING_FOR_RE_HIGH" && (
  <>
- <span className="px-2 py-0.5 ml-2 bg-emerald-100 text-emerald-700 font-medium rounded text-[10px] font-mono whitespace-nowrap uppercase">Waiting (Peak Basis)</span>
+ <span className="px-2 py-0.5 ml-2 bg-emerald-100 text-emerald-700 font-medium rounded text-[10px] font-mono whitespace-nowrap uppercase">
+   {l.rtp_met ? `Waiting MTP: ₹${Number(l.committed_mtp || l.mtp || 0).toFixed(2)}` : "Waiting (Peak Basis)"}
+ </span>
  <span className="text-muted-foreground text-[10px] font-mono ml-1">|</span>
  <span className="text-indigo-600 font-bold text-[10px] font-mono ml-1 uppercase">Peak:₹{(l.max_peak_price || 0).toFixed(2)}</span>
  <span className="text-muted-foreground text-[10px] font-mono ml-1">|</span>
- <span className="text-orange-600 font-bold text-[10px] font-mono ml-1 uppercase">RTP:₹{(l.re_high_trigger_price || 0).toFixed(2)}</span>
+ <span className="text-orange-600 font-bold text-[10px] font-mono ml-1 uppercase">RTP:₹{(l.re_high_trigger_price || 0).toFixed(2)}{l.rtp_met ? " ✓" : ""}</span>
  {l.mtp && (
  <>
  <span className="text-muted-foreground text-[10px] font-mono ml-1">|</span>
- <span className="text-blue-600 font-bold text-[10px] font-mono ml-1 uppercase">MTP:₹{(l.mtp || 0).toFixed(2)}</span>
+ <span className={`text-[10px] font-mono ml-1 uppercase ${l.rtp_met ? "text-blue-600 font-black animate-pulse" : "text-blue-600 font-bold"}`}>MTP:₹{(l.mtp || 0).toFixed(2)}</span>
  </>
  )}
  </>
  )}
  {l.state ==="WAITING_FOR_RE_LOW" && (
  <>
- <span className="px-2 py-0.5 ml-2 bg-pink-100 text-pink-700 font-medium rounded text-[10px] font-mono whitespace-nowrap uppercase">Waiting (Low Basis)</span>
+ <span className="px-2 py-0.5 ml-2 bg-pink-100 text-pink-700 font-medium rounded text-[10px] font-mono whitespace-nowrap uppercase">
+   {l.rtp_met ? `Waiting MTP: ₹${Number(l.committed_mtp || l.mtp || 0).toFixed(2)}` : "Waiting (Low Basis)"}
+ </span>
  <span className="text-muted-foreground text-[10px] font-mono ml-1">|</span>
  <span className="text-indigo-600 font-bold text-[10px] font-mono ml-1 uppercase">Low:₹{(l.max_low_price || 0).toFixed(2)}</span>
  <span className="text-muted-foreground text-[10px] font-mono ml-1">|</span>
- <span className="text-orange-600 font-bold text-[10px] font-mono ml-1 uppercase">RTP:₹{(l.re_low_trigger_price || 0).toFixed(2)}</span>
+ <span className="text-orange-600 font-bold text-[10px] font-mono ml-1 uppercase">RTP:₹{(l.re_low_trigger_price || 0).toFixed(2)}{l.rtp_met ? " ✓" : ""}</span>
  {l.mtp && (
  <>
  <span className="text-muted-foreground text-[10px] font-mono ml-1">|</span>
- <span className="text-blue-600 font-bold text-[10px] font-mono ml-1 uppercase">MTP:₹{(l.mtp || 0).toFixed(2)}</span>
+ <span className={`text-[10px] font-mono ml-1 uppercase ${l.rtp_met ? "text-blue-600 font-black animate-pulse" : "text-blue-600 font-bold"}`}>MTP:₹{(l.mtp || 0).toFixed(2)}</span>
  </>
  )}
  </>
@@ -4311,8 +4319,8 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  {conds.map((c, cIdx) => (
  <React.Fragment key={c.id || cIdx}>
  {cIdx > 0 && <span className="text-slate-500 font-bold uppercase">{c.operator || 'OR'}</span>}
- <span className={c.met ? "text-emerald-600 font-extrabold" : ""}>
- {formatConditionDisplay(c, cIdx, conds.length)}{c.met ? " ✓" : ""}
+ <span className={c.met ? "text-emerald-600 font-extrabold" : (c.rtp_met ? "text-blue-600 font-bold" : "")}>
+ {formatConditionDisplay(c, cIdx, conds.length)}{c.met ? " ✓" : (c.rtp_met ? " [Waiting MTP]" : "")}
  </span>
  </React.Fragment>
  ))}
@@ -4357,8 +4365,8 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  {conds.map((c, cIdx) => (
  <React.Fragment key={c.id || cIdx}>
  {cIdx > 0 && <span className="text-slate-500 font-bold uppercase">{c.operator || 'OR'}</span>}
- <span className={c.met ? "text-emerald-600 font-extrabold" : ""}>
- {formatConditionDisplay(c, cIdx, conds.length)}{c.met ? " ✓" : ""}
+ <span className={c.met ? "text-emerald-600 font-extrabold" : (c.rtp_met ? "text-blue-600 font-bold" : "")}>
+ {formatConditionDisplay(c, cIdx, conds.length)}{c.met ? " ✓" : (c.rtp_met ? " [Waiting MTP]" : "")}
  </span>
  </React.Fragment>
  ))}
@@ -4470,8 +4478,8 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  {conds.map((c, cIdx) => (
  <React.Fragment key={c.id || cIdx}>
  {cIdx > 0 && <span className="text-black/40 font-bold uppercase">{c.operator || 'OR'}</span>}
- <span className={c.met ? "text-emerald-600 font-extrabold" : ""}>
- {formatConditionDisplay(c, cIdx, conds.length)}{c.met ? " ✓" : ""}
+ <span className={c.met ? "text-emerald-600 font-extrabold" : (c.rtp_met ? "text-blue-600 font-bold" : "")}>
+ {formatConditionDisplay(c, cIdx, conds.length)}{c.met ? " ✓" : (c.rtp_met ? " [Waiting MTP]" : "")}
  </span>
  </React.Fragment>
  ))}

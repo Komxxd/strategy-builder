@@ -92,6 +92,8 @@ function initReentryConditionsLeg({
             max_peak_price: peakPrice,
             max_low_price: lowPrice,
             committed_rtp: undefined,
+            rtp_met: false,
+            rtp_met_tick: null,
             met: false,
             metTick: null
         };
@@ -222,6 +224,36 @@ async function processReentryConditionsTick({
 
         const type = cond.type || "RE_COST";
 
+        // If RTP was already met on a prior tick and momentum is enabled, check if MTP is reached
+        if (cond.rtp_met) {
+            if (cond.mntm_enabled && cond.mtp != null) {
+                const targetMtp = cond.mtp;
+                const baseRtp = cond.rtp_met_tick || cond.rtp;
+                let mtpHit = false;
+                if (targetMtp > baseRtp) {
+                    if ((prevTick !== null && prevTick <= targetMtp && tickPrice >= targetMtp) || tickPrice >= targetMtp) {
+                        mtpHit = true;
+                    }
+                } else if (targetMtp < baseRtp) {
+                    if ((prevTick !== null && prevTick >= targetMtp && tickPrice <= targetMtp) || tickPrice <= targetMtp) {
+                        mtpHit = true;
+                    }
+                } else {
+                    mtpHit = true;
+                }
+
+                if (mtpHit) {
+                    cond.met = true;
+                    cond.metTick = tickPrice;
+                    addStrategyLog(strategyId, `[RE-ENTRY CONDITIONS] ${type} MTP met for ${leg.instrument?.symbol || "leg"} at ₹${tickPrice} (MTP: ₹${targetMtp}). Condition satisfied!`, "INFO");
+                }
+            } else {
+                cond.met = true;
+                cond.metTick = tickPrice;
+            }
+            continue;
+        }
+
         if (type === "RE_COST") {
             const rtp = cond.rtp;
             const mode = cond.recost_mode || "RECOST_PLUS_PCT";
@@ -250,9 +282,29 @@ async function processReentryConditionsTick({
             }
 
             if (triggered) {
-                cond.met = true;
-                cond.metTick = tickPrice;
-                addStrategyLog(strategyId, `[RE-ENTRY CONDITIONS] RE_COST condition met for ${leg.instrument?.symbol || "leg"} at ₹${tickPrice} (RTP: ₹${rtp})`, "INFO");
+                cond.rtp_met = true;
+                cond.rtp_met_tick = tickPrice;
+                if (cond.mntm_enabled && cond.mtp != null) {
+                    addStrategyLog(strategyId, `[RE-ENTRY CONDITIONS] RE_COST RTP met for ${leg.instrument?.symbol || "leg"} at ₹${tickPrice} (RTP: ₹${rtp}). Monitoring internally for MTP: ₹${cond.mtp}...`, "INFO");
+                    const targetMtp = cond.mtp;
+                    let mtpHit = false;
+                    if (targetMtp > rtp) {
+                        if (tickPrice >= targetMtp) mtpHit = true;
+                    } else if (targetMtp < rtp) {
+                        if (tickPrice <= targetMtp) mtpHit = true;
+                    } else {
+                        mtpHit = true;
+                    }
+                    if (mtpHit) {
+                        cond.met = true;
+                        cond.metTick = tickPrice;
+                        addStrategyLog(strategyId, `[RE-ENTRY CONDITIONS] RE_COST MTP met on same tick for ${leg.instrument?.symbol || "leg"} at ₹${tickPrice} (MTP: ₹${targetMtp}). Condition satisfied!`, "INFO");
+                    }
+                } else {
+                    cond.met = true;
+                    cond.metTick = tickPrice;
+                    addStrategyLog(strategyId, `[RE-ENTRY CONDITIONS] RE_COST condition met for ${leg.instrument?.symbol || "leg"} at ₹${tickPrice} (RTP: ₹${rtp})`, "INFO");
+                }
             }
         } else if (type === "RE_SL") {
             const rtp = cond.rtp;
@@ -282,9 +334,29 @@ async function processReentryConditionsTick({
             }
 
             if (triggered) {
-                cond.met = true;
-                cond.metTick = tickPrice;
-                addStrategyLog(strategyId, `[RE-ENTRY CONDITIONS] RE_SL condition met for ${leg.instrument?.symbol || "leg"} at ₹${tickPrice} (RTP: ₹${rtp})`, "INFO");
+                cond.rtp_met = true;
+                cond.rtp_met_tick = tickPrice;
+                if (cond.mntm_enabled && cond.mtp != null) {
+                    addStrategyLog(strategyId, `[RE-ENTRY CONDITIONS] RE_SL RTP met for ${leg.instrument?.symbol || "leg"} at ₹${tickPrice} (RTP: ₹${rtp}). Monitoring internally for MTP: ₹${cond.mtp}...`, "INFO");
+                    const targetMtp = cond.mtp;
+                    let mtpHit = false;
+                    if (targetMtp > rtp) {
+                        if (tickPrice >= targetMtp) mtpHit = true;
+                    } else if (targetMtp < rtp) {
+                        if (tickPrice <= targetMtp) mtpHit = true;
+                    } else {
+                        mtpHit = true;
+                    }
+                    if (mtpHit) {
+                        cond.met = true;
+                        cond.metTick = tickPrice;
+                        addStrategyLog(strategyId, `[RE-ENTRY CONDITIONS] RE_SL MTP met on same tick for ${leg.instrument?.symbol || "leg"} at ₹${tickPrice} (MTP: ₹${targetMtp}). Condition satisfied!`, "INFO");
+                    }
+                } else {
+                    cond.met = true;
+                    cond.metTick = tickPrice;
+                    addStrategyLog(strategyId, `[RE-ENTRY CONDITIONS] RE_SL condition met for ${leg.instrument?.symbol || "leg"} at ₹${tickPrice} (RTP: ₹${rtp})`, "INFO");
+                }
             }
         } else if (type === "RE_HIGH") {
             let isNewPeak = false;
@@ -331,9 +403,29 @@ async function processReentryConditionsTick({
                 : (candleOpen < checkRtp ? (tickPrice >= checkRtp) : (tickPrice <= checkRtp));
 
             if (isRtpTriggered) {
-                cond.met = true;
-                cond.metTick = tickPrice;
-                addStrategyLog(strategyId, `[RE-ENTRY CONDITIONS] RE_HIGH condition met for ${leg.instrument?.symbol || "leg"} at ₹${tickPrice} (Peak: ₹${peak}, RTP: ₹${checkRtp})`, "INFO");
+                cond.rtp_met = true;
+                cond.rtp_met_tick = tickPrice;
+                if (cond.mntm_enabled && cond.mtp != null) {
+                    addStrategyLog(strategyId, `[RE-ENTRY CONDITIONS] RE_HIGH RTP met for ${leg.instrument?.symbol || "leg"} at ₹${tickPrice} (Peak: ₹${peak}, RTP: ₹${checkRtp}). Monitoring internally for MTP: ₹${cond.mtp}...`, "INFO");
+                    const targetMtp = cond.mtp;
+                    let mtpHit = false;
+                    if (targetMtp > checkRtp) {
+                        if (tickPrice >= targetMtp) mtpHit = true;
+                    } else if (targetMtp < checkRtp) {
+                        if (tickPrice <= targetMtp) mtpHit = true;
+                    } else {
+                        mtpHit = true;
+                    }
+                    if (mtpHit) {
+                        cond.met = true;
+                        cond.metTick = tickPrice;
+                        addStrategyLog(strategyId, `[RE-ENTRY CONDITIONS] RE_HIGH MTP met on same tick for ${leg.instrument?.symbol || "leg"} at ₹${tickPrice} (MTP: ₹${targetMtp}). Condition satisfied!`, "INFO");
+                    }
+                } else {
+                    cond.met = true;
+                    cond.metTick = tickPrice;
+                    addStrategyLog(strategyId, `[RE-ENTRY CONDITIONS] RE_HIGH condition met for ${leg.instrument?.symbol || "leg"} at ₹${tickPrice} (Peak: ₹${peak}, RTP: ₹${checkRtp})`, "INFO");
+                }
             }
         } else if (type === "RE_LOW") {
             let isNewLow = false;
@@ -382,9 +474,29 @@ async function processReentryConditionsTick({
                 : (candleOpen > checkRtp ? (tickPrice <= checkRtp) : (tickPrice >= checkRtp));
 
             if (isRtpTriggered) {
-                cond.met = true;
-                cond.metTick = tickPrice;
-                addStrategyLog(strategyId, `[RE-ENTRY CONDITIONS] RE_LOW condition met for ${leg.instrument?.symbol || "leg"} at ₹${tickPrice} (Low: ₹${low}, RTP: ₹${checkRtp})`, "INFO");
+                cond.rtp_met = true;
+                cond.rtp_met_tick = tickPrice;
+                if (cond.mntm_enabled && cond.mtp != null) {
+                    addStrategyLog(strategyId, `[RE-ENTRY CONDITIONS] RE_LOW RTP met for ${leg.instrument?.symbol || "leg"} at ₹${tickPrice} (Low: ₹${low}, RTP: ₹${checkRtp}). Monitoring internally for MTP: ₹${cond.mtp}...`, "INFO");
+                    const targetMtp = cond.mtp;
+                    let mtpHit = false;
+                    if (targetMtp > checkRtp) {
+                        if (tickPrice >= targetMtp) mtpHit = true;
+                    } else if (targetMtp < checkRtp) {
+                        if (tickPrice <= targetMtp) mtpHit = true;
+                    } else {
+                        mtpHit = true;
+                    }
+                    if (mtpHit) {
+                        cond.met = true;
+                        cond.metTick = tickPrice;
+                        addStrategyLog(strategyId, `[RE-ENTRY CONDITIONS] RE_LOW MTP met on same tick for ${leg.instrument?.symbol || "leg"} at ₹${tickPrice} (MTP: ₹${targetMtp}). Condition satisfied!`, "INFO");
+                    }
+                } else {
+                    cond.met = true;
+                    cond.metTick = tickPrice;
+                    addStrategyLog(strategyId, `[RE-ENTRY CONDITIONS] RE_LOW condition met for ${leg.instrument?.symbol || "leg"} at ₹${tickPrice} (Low: ₹${low}, RTP: ₹${checkRtp})`, "INFO");
+                }
             }
         }
     }
@@ -439,65 +551,31 @@ async function handleReentryConditionsTrigger({
 
     leg.reentry_count = (leg.reentry_count || 0) + 1;
     const rtp = triggeringCondition.rtp || currentTick;
-    let targetPrice = rtp;
+    let targetPrice = triggeringCondition.mntm_enabled ? (triggeringCondition.mtp || rtp) : rtp;
 
     if (triggeringCondition.mntm_enabled) {
-        const mntmMode = triggeringCondition.mntm_mode || "PLUS_PCT";
-        const mntmVal = parseFloat(triggeringCondition.mntm_value || 0);
-        let mtp = rtp;
-        if (mntmMode.includes("PLUS_PCT") || mntmMode === "PERCENTAGE") mtp = rtp + (rtp * mntmVal / 100);
-        else if (mntmMode.includes("PLUS_PTS") || mntmMode === "POINTS") mtp = rtp + mntmVal;
-        else if (mntmMode.includes("MINUS_PCT")) mtp = rtp - (rtp * mntmVal / 100);
-        else if (mntmMode.includes("MINUS_PTS")) mtp = rtp - mntmVal;
-
-        targetPrice = roundToTick(mtp);
         leg.mtp = targetPrice;
-        addStrategyLog(strategyId, `[RE-ENTRY CONDITIONS] Momentum triggered for ${leg.instrument?.symbol || "leg"} (${triggeringCondition.type} | RTP: ₹${rtp} -> MTP: ₹${targetPrice}). Placing order...`, "INFO");
+        addStrategyLog(strategyId, `[RE-ENTRY CONDITIONS] Momentum triggered for ${leg.instrument?.symbol || "leg"} (${triggeringCondition.type} | MTP: ₹${targetPrice} reached). Placing LIMIT order...`, "INFO");
     } else {
         leg.mtp = null;
-        addStrategyLog(strategyId, `[RE-ENTRY CONDITIONS] Condition triggered for ${leg.instrument?.symbol || "leg"} (${triggeringCondition.type} | RTP: ₹${rtp}). Placing order...`, "INFO");
+        addStrategyLog(strategyId, `[RE-ENTRY CONDITIONS] Condition triggered for ${leg.instrument?.symbol || "leg"} (${triggeringCondition.type} | RTP: ₹${rtp}). Placing LIMIT order...`, "INFO");
     }
 
-    let variety = config.variety || "NORMAL";
+    let variety = "NORMAL";
     let ordertype = config.ordertype || "LIMIT";
     const offsetAmt = isPaperTrading ? 0 : getLimitOffsetAmt(targetPrice, config);
     let finalPriceStr = targetPrice.toString();
-    let triggerPriceStr = targetPrice.toString();
+    let triggerPriceStr = "0";
     const side = leg.leg.side;
 
-    if (triggeringCondition.mntm_enabled) {
-        if (side === "SELL") {
-            if (targetPrice < currentTick) {
-                variety = "STOPLOSS";
-                ordertype = "STOPLOSS_LIMIT";
-                finalPriceStr = roundToTick(targetPrice - offsetAmt).toString();
-            } else {
-                variety = "NORMAL";
-                ordertype = "LIMIT";
-                triggerPriceStr = "0";
-                finalPriceStr = roundToTick(targetPrice - offsetAmt).toString();
-            }
-        } else if (side === "BUY") {
-            if (targetPrice > currentTick) {
-                variety = "STOPLOSS";
-                ordertype = "STOPLOSS_LIMIT";
-                finalPriceStr = roundToTick(targetPrice + offsetAmt).toString();
-            } else {
-                variety = "NORMAL";
-                ordertype = "LIMIT";
-                triggerPriceStr = "0";
-                finalPriceStr = roundToTick(targetPrice + offsetAmt).toString();
-            }
-        }
-    } else {
-        variety = "NORMAL";
-        ordertype = "LIMIT";
-        triggerPriceStr = "0";
+    if (ordertype === "LIMIT") {
         if (side === "BUY") {
             finalPriceStr = roundToTick(targetPrice + offsetAmt).toString();
         } else {
             finalPriceStr = roundToTick(targetPrice - offsetAmt).toString();
         }
+    } else {
+        finalPriceStr = "0";
     }
 
     try {

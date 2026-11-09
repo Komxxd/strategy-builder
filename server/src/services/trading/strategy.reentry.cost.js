@@ -33,48 +33,21 @@ async function handleReentryCost({ leg, config, strategyId, addStrategyLog, curr
         leg.mtp = null;
     }
 
-    // Determine Stoploss vs Limit
-    let variety = config.variety || "NORMAL";
+    let variety = "NORMAL";
     let ordertype = config.ordertype || "LIMIT";
     const offsetAmt = isPaperTrading ? 0 : getLimitOffsetAmt(targetPrice, config);
     let finalPriceStr = targetPrice.toString();
-    let triggerPriceStr = targetPrice.toString();
+    let triggerPriceStr = "0";
     const side = leg.leg.side;
 
-    if (leg.leg.recost_mntm_enabled) {
-        if (side === "SELL") {
-            if (targetPrice < currentTick) {
-                variety = "STOPLOSS";
-                ordertype = "STOPLOSS_LIMIT";
-                finalPriceStr = roundToTick(targetPrice - offsetAmt).toString();
-            } else {
-                variety = "NORMAL";
-                ordertype = "LIMIT";
-                triggerPriceStr = "0"; // Normal limit doesn't need trigger
-                finalPriceStr = roundToTick(targetPrice - offsetAmt).toString();
-            }
-        } else if (side === "BUY") {
-            if (targetPrice > currentTick) {
-                variety = "STOPLOSS";
-                ordertype = "STOPLOSS_LIMIT";
-                finalPriceStr = roundToTick(targetPrice + offsetAmt).toString();
-            } else {
-                variety = "NORMAL";
-                ordertype = "LIMIT";
-                triggerPriceStr = "0";
-                finalPriceStr = roundToTick(targetPrice + offsetAmt).toString();
-            }
-        }
-    } else {
-        // Non-Momentum Flow: Condition met, place normal limit order
-        variety = "NORMAL";
-        ordertype = "LIMIT";
-        triggerPriceStr = "0";
+    if (ordertype === "LIMIT") {
         if (side === "BUY") {
             finalPriceStr = roundToTick(targetPrice + offsetAmt).toString();
         } else {
             finalPriceStr = roundToTick(targetPrice - offsetAmt).toString();
         }
+    } else {
+        finalPriceStr = "0";
     }
 
     try {

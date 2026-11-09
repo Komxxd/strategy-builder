@@ -272,7 +272,7 @@ async function monitorStrategyLoop(strategyId, strategy) {
                         leg.rtp = rtp;
                     }
 
-                    // CASE A: With Momentum (Wait for pullback, then place MTP)
+                    // CASE A: With Momentum (Wait for pullback, then internally monitor for MTP touch)
                     if (leg.leg.rehigh_mntm_enabled) {
                         // Calculate PROJECTED MTP for dashboard visibility
                         const mntmMode = leg.leg.rehigh_mntm_mode || "REHIGH_PLUS_PCT";
@@ -284,18 +284,39 @@ async function monitorStrategyLoop(strategyId, strategy) {
                         else if (mntmMode === "REHIGH_MINUS_PTS" || mntmMode === "MINUS_PTS") projectedMtp = checkRtp - mntmVal;
                         leg.mtp = roundToTick(projectedMtp);
 
-                        if (isNewPeak) {
+                        if (isNewPeak && !leg.rtp_met) {
                             addStrategyLog(strategyId, `[RE-HIGH] PEAK: ₹${peak} | RTP: ₹${checkRtp}${rtpOnClose ? ' (on close)' : ''} | MTP: ₹${leg.mtp}`, "INFO");
                         }
 
-                        const isSlCandle = (leg.slHitMinute === currentMinute);
-                        const candleOpen = leg.candleOpen ?? tickPrice;
-                        const isRtpTriggered = isSlCandle
-                            ? (tickPrice <= checkRtp)
-                            : (candleOpen < checkRtp ? (tickPrice >= checkRtp) : (tickPrice <= checkRtp));
+                        if (!leg.rtp_met) {
+                            const isSlCandle = (leg.slHitMinute === currentMinute);
+                            const candleOpen = leg.candleOpen ?? tickPrice;
+                            const isRtpTriggered = isSlCandle
+                                ? (tickPrice <= checkRtp)
+                                : (candleOpen < checkRtp ? (tickPrice >= checkRtp) : (tickPrice <= checkRtp));
 
-                        if (isRtpTriggered) {
-                            await handleReentryHigh({ leg, config, strategyId, addStrategyLog, currentTick: tickPrice, isMtpPlacement: true });
+                            if (isRtpTriggered) {
+                                leg.rtp_met = true;
+                                leg.committed_mtp = leg.mtp;
+                                addStrategyLog(strategyId, `[RE-HIGH MNTM] RTP ₹${checkRtp} reached for ${leg.instrument?.symbol}. Monitoring internally for MTP ₹${leg.mtp}...`, "INFO");
+                            }
+                        }
+
+                        if (leg.rtp_met) {
+                            const targetMtp = leg.committed_mtp || leg.mtp;
+                            let mtpHit = false;
+                            if (targetMtp > checkRtp) {
+                                if ((prevTick !== null && prevTick <= targetMtp && tickPrice >= targetMtp) || tickPrice >= targetMtp) mtpHit = true;
+                            } else if (targetMtp < checkRtp) {
+                                if ((prevTick !== null && prevTick >= targetMtp && tickPrice <= targetMtp) || tickPrice <= targetMtp) mtpHit = true;
+                            } else {
+                                mtpHit = true;
+                            }
+
+                            if (mtpHit) {
+                                addStrategyLog(strategyId, `[RE-HIGH MNTM] MTP ₹${targetMtp} reached for ${leg.instrument?.symbol}. Placing LIMIT order...`, "INFO");
+                                await handleReentryHigh({ leg, config, strategyId, addStrategyLog, currentTick: tickPrice, isMtpPlacement: false });
+                            }
                         }
                     }
                     // CASE B: Without Momentum (Wait for pullback to RTP, then place limit order)
@@ -359,7 +380,7 @@ async function monitorStrategyLoop(strategyId, strategy) {
                         leg.rtp = rtp;
                     }
 
-                    // CASE A: With Momentum
+                    // CASE A: With Momentum (Wait for pullback, then internally monitor for MTP touch)
                     if (leg.leg.relow_mntm_enabled) {
                         // Calculate PROJECTED MTP for dashboard visibility
                         const mntmMode = leg.leg.relow_mntm_mode || "RELOW_PLUS_PCT";
@@ -371,18 +392,39 @@ async function monitorStrategyLoop(strategyId, strategy) {
                         else if (mntmMode === "RELOW_MINUS_PTS" || mntmMode === "MINUS_PTS") projectedMtp = checkRtp - mntmVal;
                         leg.mtp = roundToTick(projectedMtp);
 
-                        if (isNewLow) {
+                        if (isNewLow && !leg.rtp_met) {
                             addStrategyLog(strategyId, `[RE-LOW] LOW: ₹${low} | RTP: ₹${checkRtp}${rtpOnClose ? ' (on close)' : ''} | MTP: ₹${leg.mtp}`, "INFO");
                         }
 
-                        const isSlCandle = (leg.slHitMinute === currentMinute);
-                        const candleOpen = leg.candleOpen ?? tickPrice;
-                        const isRtpTriggered = isSlCandle
-                            ? (tickPrice >= checkRtp)
-                            : (candleOpen > checkRtp ? (tickPrice <= checkRtp) : (tickPrice >= checkRtp));
+                        if (!leg.rtp_met) {
+                            const isSlCandle = (leg.slHitMinute === currentMinute);
+                            const candleOpen = leg.candleOpen ?? tickPrice;
+                            const isRtpTriggered = isSlCandle
+                                ? (tickPrice >= checkRtp)
+                                : (candleOpen > checkRtp ? (tickPrice <= checkRtp) : (tickPrice >= checkRtp));
 
-                        if (isRtpTriggered) {
-                            await handleReentryLow({ leg, config, strategyId, addStrategyLog, currentTick: tickPrice, isMtpPlacement: true });
+                            if (isRtpTriggered) {
+                                leg.rtp_met = true;
+                                leg.committed_mtp = leg.mtp;
+                                addStrategyLog(strategyId, `[RE-LOW MNTM] RTP ₹${checkRtp} reached for ${leg.instrument?.symbol}. Monitoring internally for MTP ₹${leg.mtp}...`, "INFO");
+                            }
+                        }
+
+                        if (leg.rtp_met) {
+                            const targetMtp = leg.committed_mtp || leg.mtp;
+                            let mtpHit = false;
+                            if (targetMtp > checkRtp) {
+                                if ((prevTick !== null && prevTick <= targetMtp && tickPrice >= targetMtp) || tickPrice >= targetMtp) mtpHit = true;
+                            } else if (targetMtp < checkRtp) {
+                                if ((prevTick !== null && prevTick >= targetMtp && tickPrice <= targetMtp) || tickPrice <= targetMtp) mtpHit = true;
+                            } else {
+                                mtpHit = true;
+                            }
+
+                            if (mtpHit) {
+                                addStrategyLog(strategyId, `[RE-LOW MNTM] MTP ₹${targetMtp} reached for ${leg.instrument?.symbol}. Placing LIMIT order...`, "INFO");
+                                await handleReentryLow({ leg, config, strategyId, addStrategyLog, currentTick: tickPrice, isMtpPlacement: false });
+                            }
                         }
                     }
                     // CASE B: Without Momentum
@@ -667,7 +709,38 @@ async function monitorStrategyLoop(strategyId, strategy) {
                     }
 
                     if (triggerReEntry) {
-                        await handleReentryCost({ leg, config, strategyId, addStrategyLog, currentTick });
+                        if (leg.leg.recost_mntm_enabled) {
+                            if (!leg.rtp_met) {
+                                leg.rtp_met = true;
+                                const mntmMode = leg.leg.recost_mntm_mode || "RECOST_PLUS_PCT";
+                                const mntmVal = parseFloat(leg.leg.recost_mntm_value || 0);
+                                let mtp = rtp;
+                                if (mntmMode === "RECOST_PLUS_PCT" || mntmMode === "PLUS_PCT" || mntmMode === "PERCENTAGE") mtp = rtp + (rtp * mntmVal / 100);
+                                else if (mntmMode === "RECOST_PLUS_PTS" || mntmMode === "PLUS_PTS" || mntmMode === "POINTS") mtp = rtp + mntmVal;
+                                else if (mntmMode === "RECOST_MINUS_PCT" || mntmMode === "MINUS_PCT") mtp = rtp - (rtp * mntmVal / 100);
+                                else if (mntmMode === "RECOST_MINUS_PTS" || mntmMode === "MINUS_PTS") mtp = rtp - mntmVal;
+                                leg.mtp = roundToTick(mtp);
+                                addStrategyLog(strategyId, `[RE-COST MNTM] RTP ₹${rtp} reached for ${leg.instrument?.symbol}. Monitoring internally for MTP ₹${leg.mtp}...`, "INFO");
+                            }
+                        } else {
+                            await handleReentryCost({ leg, config, strategyId, addStrategyLog, currentTick });
+                        }
+                    }
+
+                    if (leg.leg.recost_mntm_enabled && leg.rtp_met) {
+                        const targetMtp = leg.mtp;
+                        let mtpHit = false;
+                        if (targetMtp > rtp) {
+                            if ((prevTick !== null && prevTick <= targetMtp && currentTick >= targetMtp) || currentTick >= targetMtp) mtpHit = true;
+                        } else if (targetMtp < rtp) {
+                            if ((prevTick !== null && prevTick >= targetMtp && currentTick <= targetMtp) || currentTick <= targetMtp) mtpHit = true;
+                        } else {
+                            mtpHit = true;
+                        }
+                        if (mtpHit) {
+                            addStrategyLog(strategyId, `[RE-COST MNTM] MTP ₹${targetMtp} reached for ${leg.instrument?.symbol}. Placing LIMIT order...`, "INFO");
+                            await handleReentryCost({ leg, config, strategyId, addStrategyLog, currentTick });
+                        }
                     }
                 }
 
@@ -711,7 +784,38 @@ async function monitorStrategyLoop(strategyId, strategy) {
                     }
 
                     if (triggerReEntry) {
-                        await handleReentryReSL({ leg, config, strategyId, addStrategyLog, currentTick });
+                        if (leg.leg.resl_mntm_enabled) {
+                            if (!leg.rtp_met) {
+                                leg.rtp_met = true;
+                                const mntmMode = leg.leg.resl_mntm_mode || "RESL_PLUS_PCT";
+                                const mntmVal = parseFloat(leg.leg.resl_mntm_value || 0);
+                                let mtp = rtp;
+                                if (mntmMode === "RESL_PLUS_PCT" || mntmMode === "PLUS_PCT" || mntmMode === "PERCENTAGE") mtp = rtp + (rtp * mntmVal / 100);
+                                else if (mntmMode === "RESL_PLUS_PTS" || mntmMode === "PLUS_PTS" || mntmMode === "POINTS") mtp = rtp + mntmVal;
+                                else if (mntmMode === "RESL_MINUS_PCT" || mntmMode === "MINUS_PCT") mtp = rtp - (rtp * mntmVal / 100);
+                                else if (mntmMode === "RESL_MINUS_PTS" || mntmMode === "MINUS_PTS") mtp = rtp - mntmVal;
+                                leg.mtp = roundToTick(mtp);
+                                addStrategyLog(strategyId, `[RE-SL MNTM] RTP ₹${rtp} reached for ${leg.instrument?.symbol}. Monitoring internally for MTP ₹${leg.mtp}...`, "INFO");
+                            }
+                        } else {
+                            await handleReentryReSL({ leg, config, strategyId, addStrategyLog, currentTick });
+                        }
+                    }
+
+                    if (leg.leg.resl_mntm_enabled && leg.rtp_met) {
+                        const targetMtp = leg.mtp;
+                        let mtpHit = false;
+                        if (targetMtp > rtp) {
+                            if ((prevTick !== null && prevTick <= targetMtp && currentTick >= targetMtp) || currentTick >= targetMtp) mtpHit = true;
+                        } else if (targetMtp < rtp) {
+                            if ((prevTick !== null && prevTick >= targetMtp && currentTick <= targetMtp) || currentTick <= targetMtp) mtpHit = true;
+                        } else {
+                            mtpHit = true;
+                        }
+                        if (mtpHit) {
+                            addStrategyLog(strategyId, `[RE-SL MNTM] MTP ₹${targetMtp} reached for ${leg.instrument?.symbol}. Placing LIMIT order...`, "INFO");
+                            await handleReentryReSL({ leg, config, strategyId, addStrategyLog, currentTick });
+                        }
                     }
                 }
 
