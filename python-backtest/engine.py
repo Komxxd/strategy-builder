@@ -626,6 +626,57 @@ class BacktestEngine:
             config['reentry_tsl_on_close_low'] = leg['reentry_tsl_on_close_low']
             config['reentry_tsl_on_close_high'] = leg['reentry_tsl_on_close_high']
 
+    def calc_condition_mtp(self, cond, rtp):
+        if not cond or not cond.get('mntm_enabled') or rtp is None:
+            return None
+        m_mode = cond.get('mntm_mode', 'PLUS_PCT')
+        m_val = float(cond.get('mntm_value', 0))
+        mtp = rtp
+        if 'PLUS_PCT' in m_mode or m_mode == 'PERCENTAGE':
+            mtp += (mtp * m_val / 100)
+        elif 'PLUS_PTS' in m_mode or m_mode == 'POINTS':
+            mtp += m_val
+        elif 'MINUS_PCT' in m_mode:
+            mtp -= (mtp * m_val / 100)
+        elif 'MINUS_PTS' in m_mode:
+            mtp -= m_val
+        return self.round_to_tick(mtp)
+
+    def format_conditions_display(self, raw_conditions, c_rtp, c_mtp=None, c_peak=None, c_low=None, cond_met=None, cond_rtp_met=None):
+        if not raw_conditions:
+            return ""
+        total = len(raw_conditions)
+        parts = []
+        for idx, c in enumerate(raw_conditions):
+            prefix = f"C{idx + 1}: " if total > 1 else "C1: "
+            c_type = c.get('type', 'RE_COST')
+            peak_low = ""
+            if c_type == 'RE_HIGH':
+                peak = c_peak[idx] if c_peak and idx < len(c_peak) else None
+                if peak is not None and peak > 0:
+                    peak_low = f"Peak: {peak:.2f}: "
+            elif c_type == 'RE_LOW':
+                low = c_low[idx] if c_low and idx < len(c_low) else None
+                if low is not None and low > 0:
+                    peak_low = f"Low: {low:.2f}: "
+
+            rtp_val = c_rtp[idx] if c_rtp and idx < len(c_rtp) else None
+            rtp_str = f"RTP: {rtp_val:.2f}" if rtp_val is not None else "RTP: 0.00"
+
+            mtp_val = c_mtp[idx] if c_mtp and idx < len(c_mtp) else None
+            mtp_str = ""
+            if c.get('mntm_enabled') and mtp_val is not None:
+                mtp_str = f": MTP: {mtp_val:.2f}"
+
+            status = ""
+            if cond_met and idx < len(cond_met) and cond_met[idx]:
+                status = " ✓"
+            elif cond_rtp_met and idx < len(cond_rtp_met) and cond_rtp_met[idx] and c.get('mntm_enabled'):
+                status = " [Waiting MTP]"
+
+            parts.append(f"{prefix}{peak_low}{rtp_str}{mtp_str}{status}")
+        return " | ".join(parts)
+
     def calculate_leg_trades(self, leg, df, config, index_name, expiry, year, month, date_str, step, index_df, current_strike):
         all_trades = []
         reentry_count = 0
@@ -647,6 +698,7 @@ class BacktestEngine:
         pending_mtp = None
         pending_rtp_hit_time = None
         pending_override_entry_price = None
+        pending_conditions_str = None
         
         base_resl_rtp = None
         base_resl_mtp = None
@@ -665,11 +717,13 @@ class BacktestEngine:
             trade_info['reentry_rtp'] = pending_rtp
             trade_info['reentry_mtp'] = pending_mtp
             trade_info['rtp_hit_time'] = pending_rtp_hit_time
+            trade_info['reentry_conditions_str'] = pending_conditions_str
             pending_reentry_method = None
             pending_rtp = None
             pending_mtp = None
             pending_rtp_hit_time = None
             pending_override_entry_price = None
+            pending_conditions_str = None
             all_trades.append(trade_info)
             if exit_reason == 'END_OF_DAY': break
             if reentry_count >= max_reentry and not leg.get('lazy_leg_enabled'): break
@@ -832,15 +886,18 @@ class BacktestEngine:
                     break
 
                 otp = all_trades[0]['entryPrice'] if len(all_trades) > 0 and 'entryPrice' in all_trades[0] else trade_info['entryPrice']
-                sl_hit = all_trades[0].get('tradeSlPrice') if len(all_trades) > 0 and all_trades[0].get('tradeSlPrice') is not None else trade_info['exitPrice']
+                sl_hit = all_trades[0].get('exitPrice') if len(all_trades) > 0 and all_trades[0].get('exitPrice') is not None else trade_info['exitPrice']
                 exit_price = trade_info['exitPrice']
                 exit_time = trade_info['exitTime']
 
                 num_conds = len(raw_conditions)
+                cond_rtp_met = [False] * num_conds
                 cond_met = [False] * num_conds
                 cond_met_idx = [None] * num_conds
                 cond_met_rtp = [None] * num_conds
+                cond_met_price = [None] * num_conds
                 c_rtp = [None] * num_conds
+                c_mtp = [None] * num_conds
                 c_peak = [exit_price] * num_conds
                 c_low = [exit_price] * num_conds
                 c_committed_rtp = [None] * num_conds
@@ -856,6 +913,7 @@ class BacktestEngine:
                         elif mode == 'RECOST_MINUS_PCT': calc_rtp -= (calc_rtp * val / 100)
                         elif mode == 'RECOST_MINUS_PTS': calc_rtp -= val
                         c_rtp[i] = self.round_to_tick(calc_rtp)
+                        c_mtp[i] = self.calc_condition_mtp(c, c_rtp[i])
                     elif c_type == 'RE_SL':
                         mode = c.get('resl_mode', 'RESL_PLUS_PCT')
                         val = float(c.get('resl_value', 0))
@@ -865,6 +923,25 @@ class BacktestEngine:
                         elif mode == 'RESL_MINUS_PCT': calc_rtp -= (calc_rtp * val / 100)
                         elif mode == 'RESL_MINUS_PTS': calc_rtp -= val
                         c_rtp[i] = self.round_to_tick(calc_rtp)
+                        c_mtp[i] = self.calc_condition_mtp(c, c_rtp[i])
+                    elif c_type == 'RE_HIGH':
+                        mode = c.get('rehigh_mode', 'REHIGH_MINUS_PTS')
+                        val = float(c.get('rehigh_value', 0))
+                        rtp = exit_price * (1 - val / 100) if mode == 'REHIGH_MINUS_PCT' else exit_price - val
+                        c_rtp[i] = self.round_to_tick(rtp)
+                        c_mtp[i] = self.calc_condition_mtp(c, c_rtp[i])
+                        if c.get('rehigh_rtp_on_close'):
+                            c_committed_rtp[i] = c_rtp[i]
+                    elif c_type == 'RE_LOW':
+                        mode = c.get('relow_mode', 'RELOW_PLUS_PTS')
+                        val = float(c.get('relow_value', 0))
+                        rtp = exit_price * (1 + val / 100) if mode == 'RELOW_PLUS_PCT' else exit_price + val
+                        c_rtp[i] = self.round_to_tick(rtp)
+                        c_mtp[i] = self.calc_condition_mtp(c, c_rtp[i])
+                        if c.get('relow_rtp_on_close'):
+                            c_committed_rtp[i] = c_rtp[i]
+
+                trade_info['next_conditions_str'] = self.format_conditions_display(raw_conditions, c_rtp, c_mtp, c_peak, c_low)
 
                 groups = []
                 cur_group = []
@@ -888,6 +965,7 @@ class BacktestEngine:
                 trigger_candle_idx = None
                 satisfied_group = None
                 trig_idx = None
+                conditions_timeline = {}
 
                 for k in range(len(times)):
                     cur_time = times[k]
@@ -897,12 +975,43 @@ class BacktestEngine:
                     cur_close = closes[k]
                     prev_tick = closes[k - 1] if k > 0 else exit_price
                     is_exit_candle = (cur_time == exit_time)
+                    peak_or_low_changed = False
 
                     for i, c in enumerate(raw_conditions):
                         if cond_met[i]:
                             continue
                         c_type = c.get('type', 'RE_COST')
 
+                        # 1. If RTP was already met on a prior candle, check if MTP is hit on this candle
+                        if cond_rtp_met[i]:
+                            if c.get('mntm_enabled') and c_mtp[i] is not None:
+                                target_mtp = c_mtp[i]
+                                base_rtp = cond_met_rtp[i] or c_rtp[i]
+                                mtp_hit = False
+                                if target_mtp > base_rtp:
+                                    if cur_open <= target_mtp:
+                                        mtp_hit = (cur_high >= target_mtp)
+                                    else:
+                                        mtp_hit = (cur_low <= target_mtp)
+                                elif target_mtp < base_rtp:
+                                    if cur_open >= target_mtp:
+                                        mtp_hit = (cur_low <= target_mtp)
+                                    else:
+                                        mtp_hit = (cur_high >= target_mtp)
+                                else:
+                                    mtp_hit = True
+
+                                if mtp_hit:
+                                    cond_met[i] = True
+                                    cond_met_idx[i] = k
+                                    cond_met_price[i] = target_mtp
+                            else:
+                                cond_met[i] = True
+                                cond_met_idx[i] = k
+                                cond_met_price[i] = cond_met_rtp[i]
+                            continue
+
+                        # 2. Check if RTP is hit on this candle
                         if c_type == 'RE_COST':
                             rtp = c_rtp[i]
                             mode = c.get('recost_mode', 'RECOST_PLUS_PCT')
@@ -925,9 +1034,12 @@ class BacktestEngine:
                                     else:
                                         hit = (prev_tick <= rtp and cur_high >= rtp) or (cur_close >= rtp)
                             if hit:
-                                cond_met[i] = True
-                                cond_met_idx[i] = k
+                                cond_rtp_met[i] = True
                                 cond_met_rtp[i] = rtp
+                                if not (c.get('mntm_enabled') and c_mtp[i] is not None):
+                                    cond_met[i] = True
+                                    cond_met_idx[i] = k
+                                    cond_met_price[i] = rtp
 
                         elif c_type == 'RE_SL':
                             rtp = c_rtp[i]
@@ -951,9 +1063,12 @@ class BacktestEngine:
                                     else:
                                         hit = (prev_tick <= rtp and cur_high >= rtp) or (cur_close >= rtp)
                             if hit:
-                                cond_met[i] = True
-                                cond_met_idx[i] = k
+                                cond_rtp_met[i] = True
                                 cond_met_rtp[i] = rtp
+                                if not (c.get('mntm_enabled') and c_mtp[i] is not None):
+                                    cond_met[i] = True
+                                    cond_met_idx[i] = k
+                                    cond_met_price[i] = rtp
 
                         elif c_type == 'RE_HIGH':
                             mode = c.get('rehigh_mode', 'REHIGH_MINUS_PTS')
@@ -966,29 +1081,36 @@ class BacktestEngine:
                                 peak = c_peak[i]
                                 rtp = peak * (1 - val / 100) if mode == 'REHIGH_MINUS_PCT' else peak - val
                                 c_rtp[i] = self.round_to_tick(rtp)
+                                c_mtp[i] = self.calc_condition_mtp(c, c_rtp[i])
                                 if rtp_on_close:
                                     c_committed_rtp[i] = c_rtp[i]
                             else:
                                 if cur_high > c_peak[i]:
                                     c_peak[i] = cur_high
+                                    peak_or_low_changed = True
                                 peak = c_peak[i]
                                 rtp = peak * (1 - val / 100) if mode == 'REHIGH_MINUS_PCT' else peak - val
                                 rtp = self.round_to_tick(rtp)
                                 c_rtp[i] = rtp
+                                c_mtp[i] = self.calc_condition_mtp(c, c_rtp[i])
 
                                 check_rtp = c_committed_rtp[i] if (rtp_on_close and c_committed_rtp[i] is not None) else rtp
-                                if rtp_on_close:
-                                    c_committed_rtp[i] = rtp
-
                                 if cur_open < check_rtp:
                                     hit = (cur_high >= check_rtp)
                                 else:
                                     hit = (cur_low <= check_rtp)
 
+                                if rtp_on_close:
+                                    c_committed_rtp[i] = rtp
+
                             if hit:
-                                cond_met[i] = True
-                                cond_met_idx[i] = k
-                                cond_met_rtp[i] = c_rtp[i]
+                                cond_rtp_met[i] = True
+                                target_trigger_rtp = check_rtp if rtp_on_close else c_rtp[i]
+                                cond_met_rtp[i] = target_trigger_rtp
+                                if not (c.get('mntm_enabled') and c_mtp[i] is not None):
+                                    cond_met[i] = True
+                                    cond_met_idx[i] = k
+                                    cond_met_price[i] = target_trigger_rtp
 
                         elif c_type == 'RE_LOW':
                             mode = c.get('relow_mode', 'RELOW_PLUS_PTS')
@@ -1001,29 +1123,36 @@ class BacktestEngine:
                                 low = c_low[i]
                                 rtp = low * (1 + val / 100) if mode == 'RELOW_PLUS_PCT' else low + val
                                 c_rtp[i] = self.round_to_tick(rtp)
+                                c_mtp[i] = self.calc_condition_mtp(c, c_rtp[i])
                                 if rtp_on_close:
                                     c_committed_rtp[i] = c_rtp[i]
                             else:
                                 if cur_low < c_low[i]:
                                     c_low[i] = cur_low
+                                    peak_or_low_changed = True
                                 low = c_low[i]
                                 rtp = low * (1 + val / 100) if mode == 'RELOW_PLUS_PCT' else low + val
                                 rtp = self.round_to_tick(rtp)
                                 c_rtp[i] = rtp
+                                c_mtp[i] = self.calc_condition_mtp(c, c_rtp[i])
 
                                 check_rtp = c_committed_rtp[i] if (rtp_on_close and c_committed_rtp[i] is not None) else rtp
-                                if rtp_on_close:
-                                    c_committed_rtp[i] = rtp
-
                                 if cur_open > check_rtp:
                                     hit = (cur_low <= check_rtp)
                                 else:
                                     hit = (cur_high >= check_rtp)
 
+                                if rtp_on_close:
+                                    c_committed_rtp[i] = rtp
+
                             if hit:
-                                cond_met[i] = True
-                                cond_met_idx[i] = k
-                                cond_met_rtp[i] = c_rtp[i]
+                                cond_rtp_met[i] = True
+                                target_trigger_rtp = check_rtp if rtp_on_close else c_rtp[i]
+                                cond_met_rtp[i] = target_trigger_rtp
+                                if not (c.get('mntm_enabled') and c_mtp[i] is not None):
+                                    cond_met[i] = True
+                                    cond_met_idx[i] = k
+                                    cond_met_price[i] = target_trigger_rtp
 
                     for grp in groups:
                         if all(cond_met[ci] for ci in grp):
@@ -1034,76 +1163,46 @@ class BacktestEngine:
 
                     if satisfied_group is not None:
                         break
+                    else:
+                        if not is_exit_candle:
+                            any_waiting = any(cond_rtp_met[ci] and not cond_met[ci] for ci in range(num_conds))
+                            if any_waiting or peak_or_low_changed:
+                                conditions_timeline[cur_time] = self.format_conditions_display(
+                                    raw_conditions, c_rtp, c_mtp, c_peak, c_low,
+                                    cond_met=cond_met, cond_rtp_met=cond_rtp_met
+                                )
 
                 if satisfied_group is not None and trig_idx is not None:
                     trig_cond = raw_conditions[trig_idx]
                     trig_rtp = cond_met_rtp[trig_idx] or c_rtp[trig_idx] or exit_price
+                    trig_price = cond_met_price[trig_idx] or trig_rtp
                     trig_type = trig_cond.get('type', 'COND')
+                    trig_mtp = c_mtp[trig_idx] if trig_cond.get('mntm_enabled') else None
 
-                    if trig_cond.get('mntm_enabled'):
-                        m_mode = trig_cond.get('mntm_mode', 'PLUS_PCT')
-                        m_val = float(trig_cond.get('mntm_value', 0))
-                        mtp = trig_rtp
-                        if 'PLUS_PCT' in m_mode or m_mode == 'PERCENTAGE':
-                            mtp += (mtp * m_val / 100)
-                        elif 'PLUS_PTS' in m_mode or m_mode == 'POINTS':
-                            mtp += m_val
-                        elif 'MINUS_PCT' in m_mode:
-                            mtp -= (mtp * m_val / 100)
-                        elif 'MINUS_PTS' in m_mode:
-                            mtp -= m_val
-                        mtp = self.round_to_tick(mtp)
+                    reentry_count += 1
+                    pending_reentry_method = f"C{trig_idx + 1}: {trig_type}" if num_conds > 1 else f"C1: {trig_type}"
+                    pending_rtp = trig_rtp
+                    pending_mtp = trig_mtp
+                    pending_rtp_hit_time = times[cond_met_idx[trig_idx]] if cond_met_idx[trig_idx] is not None else times[trigger_candle_idx]
+                    pending_override_entry_price = trig_price
 
-                        mtp_hit_idx = None
-                        for mk in range(trigger_candle_idx + 1, len(times)):
-                            m_open = opens[mk]
-                            m_high = highs[mk]
-                            m_low = lows[mk]
-                            if mtp > trig_rtp:
-                                if m_open <= mtp:
-                                    if m_high >= mtp:
-                                        mtp_hit_idx = mk; break
-                                else:
-                                    if m_low <= mtp:
-                                        mtp_hit_idx = mk; break
-                            else:
-                                if m_open >= mtp:
-                                    if m_low <= mtp:
-                                        mtp_hit_idx = mk; break
-                                else:
-                                    if m_high >= mtp:
-                                        mtp_hit_idx = mk; break
+                    cond_met_flags = [False] * num_conds
+                    for ci in satisfied_group:
+                        cond_met_flags[ci] = True
+                    pending_conditions_str = self.format_conditions_display(
+                        raw_conditions, c_rtp, c_mtp, c_peak, c_low, cond_met=cond_met_flags
+                    )
 
-                        if mtp_hit_idx is not None:
-                            reentry_count += 1
-                            pending_reentry_method = trig_type
-                            pending_rtp = trig_rtp
-                            pending_mtp = mtp
-                            pending_rtp_hit_time = times[trigger_candle_idx]
-                            pending_override_entry_price = mtp
-                            trade_info['next_rtp'] = trig_rtp
-                            trade_info['next_mtp'] = mtp
-                            trade_info['rtp_hit_time_triggered'] = times[trigger_candle_idx]
-                            trade_info['reentry_method_triggered'] = trig_type
+                    trade_info['next_rtp'] = trig_rtp
+                    trade_info['next_mtp'] = trig_mtp
+                    trade_info['conditions_timeline'] = conditions_timeline
+                    trade_info['reentry_method_triggered'] = trig_type
 
-                            self._apply_condition_overrides(leg, config, trig_cond)
-                            df = search_df[mtp_hit_idx:]
-                            continue
-                        else:
-                            is_exhausted = False
-                            break
-                    else:
-                        reentry_count += 1
-                        pending_reentry_method = trig_type
-                        pending_rtp = trig_rtp
-                        pending_override_entry_price = trig_rtp
-                        trade_info['next_rtp'] = trig_rtp
-                        trade_info['reentry_method_triggered'] = trig_type
-
-                        self._apply_condition_overrides(leg, config, trig_cond)
-                        df = search_df[trigger_candle_idx:]
-                        continue
+                    self._apply_condition_overrides(leg, config, trig_cond)
+                    df = search_df[trigger_candle_idx:]
+                    continue
                 else:
+                    trade_info['conditions_timeline'] = conditions_timeline
                     is_exhausted = False
                     break
 
@@ -1141,7 +1240,7 @@ class BacktestEngine:
                     wait_dir = 'DOWN' if trade_info['exitPrice'] > rtp else 'UP'
                 else:
                     mode, val = leg.get('resl_mode', 'RESL_PLUS_PCT'), float(leg.get('resl_value', 0))
-                    sl_hit = trade_info['tradeSlPrice']
+                    sl_hit = trade_info['exitPrice']
                     rtp = sl_hit
                     if mode == 'RESL_PLUS_PCT': rtp += (rtp * val / 100)
                     elif mode == 'RESL_PLUS_PTS': rtp += val
@@ -1506,10 +1605,13 @@ class BacktestEngine:
                         sl_str = f" | Init SL: ₹{init_sl_val:.2f}" if init_sl_val else ""
                         # Show RTP/MTP that triggered this re-entry
                         rtp_mtp_str = ""
-                        if trade.get('reentry_rtp') is not None:
-                            rtp_mtp_str += f" | RTP: ₹{trade['reentry_rtp']:.2f}"
-                        if trade.get('reentry_mtp') is not None:
-                            rtp_mtp_str += f" | MTP: ₹{trade['reentry_mtp']:.2f}"
+                        if trade.get('reentry_conditions_str'):
+                            rtp_mtp_str = f" | {trade['reentry_conditions_str']}"
+                        else:
+                            if trade.get('reentry_rtp') is not None:
+                                rtp_mtp_str += f" | RTP: ₹{trade['reentry_rtp']:.2f}"
+                            if trade.get('reentry_mtp') is not None:
+                                rtp_mtp_str += f" | MTP: ₹{trade['reentry_mtp']:.2f}"
                         entry_action = f"{prefix} ({side}): {trade['entryPrice']:.2f}{sl_str}{rtp_mtp_str}"
                         action = f"{action} | {entry_action}" if action else entry_action
                     
@@ -1520,7 +1622,10 @@ class BacktestEngine:
                     open_price = time_df['open'][time_idx]
                     
                     diff = (trade['entryPrice'] - price) if leg.get('side') == 'SELL' else (price - trade['entryPrice'])
-                    open_diff = (trade['entryPrice'] - open_price) if leg.get('side') == 'SELL' else (open_price - trade['entryPrice'])
+                    if t == trade['entryTime']:
+                        open_diff = 0.0
+                    else:
+                        open_diff = (trade['entryPrice'] - open_price) if leg.get('side') == 'SELL' else (open_price - trade['entryPrice'])
                     
                     pnl_series.append(locked_pnl + (diff * leg.get('lots', 1)))
                     open_pnl_series.append(locked_pnl + (open_diff * leg.get('lots', 1)))
@@ -1558,7 +1663,9 @@ class BacktestEngine:
                         side = 'Buy' if leg.get('side') == 'SELL' else 'Sell'
                         # Show calculated RTP/MTP for next re-entry
                         calc_str = ""
-                        if 'rtpSeries' in trade:
+                        if trade.get('next_conditions_str'):
+                            calc_str = f" | {trade['next_conditions_str']}"
+                        elif 'rtpSeries' in trade:
                             rtp_series_val = trade['rtpSeries'].get(t)
                             if rtp_series_val is not None:
                                 calc_str += f" | Calc RTP: ₹{rtp_series_val:.2f}"
@@ -1590,7 +1697,7 @@ class BacktestEngine:
                             calc_str += f" | Calc RTP: ₹{trade['next_rtp']:.2f}"
                             trade['last_seen_rtp'] = trade['next_rtp']
                         
-                        if trade.get('next_mtp') is not None:
+                        if not trade.get('next_conditions_str') and trade.get('next_mtp') is not None:
                             calc_str += f" | Calc MTP: ₹{trade['next_mtp']:.2f}"
                         exit_action = f"Exit ({side}) [{trade['exitReason']}]: {trade['exitPrice']:.2f}{calc_str}"
                         if action:
@@ -1608,10 +1715,13 @@ class BacktestEngine:
                             init_sl_val = next_trade.get('initialSlPrice') or next_trade.get('tradeSlPrice', 0)
                             sl_str = f" | Init SL: ₹{init_sl_val:.2f}" if init_sl_val else ""
                             rtp_mtp_str = ""
-                            if next_trade.get('reentry_rtp') is not None:
-                                rtp_mtp_str += f" | RTP: ₹{next_trade['reentry_rtp']:.2f}"
-                            if next_trade.get('reentry_mtp') is not None:
-                                rtp_mtp_str += f" | MTP: ₹{next_trade['reentry_mtp']:.2f}"
+                            if next_trade.get('reentry_conditions_str'):
+                                rtp_mtp_str = f" | {next_trade['reentry_conditions_str']}"
+                            else:
+                                if next_trade.get('reentry_rtp') is not None:
+                                    rtp_mtp_str += f" | RTP: ₹{next_trade['reentry_rtp']:.2f}"
+                                if next_trade.get('reentry_mtp') is not None:
+                                    rtp_mtp_str += f" | MTP: ₹{next_trade['reentry_mtp']:.2f}"
                             entry_action = f"{prefix} ({next_side}): {next_trade['entryPrice']:.2f}{sl_str}{rtp_mtp_str}"
                             action = f"{action} | {entry_action}"
                 else:
@@ -1621,8 +1731,11 @@ class BacktestEngine:
                 pnl_series.append(locked_pnl)
                 open_pnl_series.append(locked_pnl)
                 if prev_trade:
-                    # Show RTP Hit annotation during waiting period
-                    if prev_trade.get('rtp_hit_time_triggered') == t and prev_trade.get('next_mtp') is not None:
+                    # Show conditions timeline if present
+                    if prev_trade.get('conditions_timeline', {}).get(t):
+                        cond_action = prev_trade['conditions_timeline'][t]
+                        action = f"{action} | {cond_action}" if action else cond_action
+                    elif prev_trade.get('rtp_hit_time_triggered') == t and prev_trade.get('next_mtp') is not None:
                         action = f"[RTP Hit] ₹{prev_trade['next_rtp']:.2f} | Waiting MTP: ₹{prev_trade['next_mtp']:.2f}"
                     # Show dynamic RTP updates
                     current_rtp = prev_trade.get('rtpSeries', {}).get(t)
@@ -1821,13 +1934,17 @@ class BacktestEngine:
                 safe_open_pnl = pl.Series([float(v) if v is not None else 0.0 for v in overall_df['open_pnl'].to_list()])
                 safe_close_pnl = pl.Series([float(v) if v is not None else 0.0 for v in overall_df['pnl'].to_list()])
                 
+                # At entry candles, trades are just entering; overall SL/Target must not hit on the candle open price.
+                entry_times = set(tr['entryTime'] for tr in daily_trades)
+                is_entry_candle = pl.Series([t in entry_times for t in overall_df['time']])
+                
                 if sl_amt > 0:
                     if not overall_sl_on_close:
-                        hit_mask_open = hit_mask_open | (safe_open_pnl <= -sl_amt)
+                        hit_mask_open = hit_mask_open | ((safe_open_pnl <= -sl_amt) & (~is_entry_candle))
                     hit_mask_close = hit_mask_close | (safe_close_pnl <= -sl_amt)
                 if tgt_amt > 0:
                     if not overall_tgt_on_close:
-                        hit_mask_open = hit_mask_open | (safe_open_pnl >= tgt_amt)
+                        hit_mask_open = hit_mask_open | ((safe_open_pnl >= tgt_amt) & (~is_entry_candle))
                     hit_mask_close = hit_mask_close | (safe_close_pnl >= tgt_amt)
 
                     
@@ -1865,10 +1982,18 @@ class BacktestEngine:
                 if tr['entryTime'] > overall_exit_time:
                     continue # Trade never happened
                     
-                if tr['exitTime'] >= overall_exit_time:
+                is_force_exit = False
+                if overall_hit_on == 'open':
+                    # At open, any trade that entered before this candle and was open at open gets stopped out
+                    if tr['entryTime'] < overall_exit_time and tr['exitTime'] >= overall_exit_time:
+                        is_force_exit = True
+                else:
+                    # At close, only trades that extended past this candle were still open
                     if tr['exitTime'] > overall_exit_time:
-                        tr['exitTime'] = overall_exit_time
+                        is_force_exit = True
                         
+                if is_force_exit:
+                    tr['exitTime'] = overall_exit_time
                     if overall_exit_reason:
                         tr['exitReason'] = overall_exit_reason
                     elif tr['exitTime'] >= self.exit_time:
@@ -1933,6 +2058,10 @@ class BacktestEngine:
                     if last_row.get('time') == overall_exit_time:
                         last_row['pnl'] = leg_final_pnl
                         last_row['open_pnl'] = leg_final_pnl
+                        if overall_exit_reason and overall_exit_reason not in (last_row.get('action') or ''):
+                            act = last_row.get('action') or ''
+                            sep = " | " if act else ""
+                            last_row['action'] = f"{act}{sep}[{overall_exit_reason}]".strip()
                             
                 day_chart[leg_key] = dicts
                 
