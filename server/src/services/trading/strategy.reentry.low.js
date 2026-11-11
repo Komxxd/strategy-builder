@@ -1,4 +1,4 @@
-const { placeOrder, waitForOrderFillPrice, placeStopLossWithRetry, modifyOrderLocallyOrViaWorker } = require("./strategy.execution");
+const { placeOrder, placeStopLossWithRetry, modifyOrderLocallyOrViaWorker, resolveReentryOrderFill, handleReentryPlacementError } = require("./strategy.execution");
 const { roundToTick, computeStopLossExitPrices, getLimitOffsetAmt } = require("./strategy.offset");
 const { getISTTime, getISTExchangeFormat, isWithinSecondsOfExit } = require("./strategy.time");
 const { getAuthorizedInstance } = require("../../config/smartapi");
@@ -119,15 +119,14 @@ async function handleReentryLow({ leg, config, strategyId, addStrategyLog, curre
         });
 
     } catch (err) {
-        if (err.message === "LPP_TRIGGER_REJECTION") {
-            addStrategyLog(strategyId, `[RE-LOW] MTP order rejected by LPP for ${leg.instrument?.symbol}. Switching to INTERNAL MONITORING for Target: ₹${targetPrice}.`, "WARNING");
-            leg.state = "WAITING_FOR_INTERNAL_FALLBACK";
-            leg.fallbackTargetPrice = targetPrice;
-            leg.fallbackSide = side;
-            return;
-        }
-        console.error("[RE-LOW] Order placement failed:", err.message);
-        addStrategyLog(strategyId, `[RE-LOW] Failed to place re-entry: ${err.message}`, "ERROR");
+        await handleReentryPlacementError({
+            err,
+            strategyId,
+            leg,
+            targetPrice,
+            side,
+            logPrefix: "[RE-LOW]"
+        });
     }
 }
 
@@ -177,65 +176,26 @@ async function modifyReentryLowOrder({ leg, config, strategyId, addStrategyLog, 
 async function monitorReentryFill(leg, config, strategyId, addStrategyLog, orderDetails = null) {
     const isVirtual = config?.is_virtual === true || leg.is_virtual_leg === true;
     const isPaperTrading = config?.is_paper_trading === true || isVirtual;
-    const { waitForOrderFillPrice } = require("./strategy.execution");
     
     try {
-        let fillPrice;
-        const fillMeta = {};
-        if (!isPaperTrading && orderDetails?.ordertype === 'LIMIT') {
-            const { chaseOrderFill } = require("./strategy.execution");
-            fillPrice = await chaseOrderFill({
-                orderId: leg.orderId,
-                uniqueOrderId: leg.uniqueOrderId,
-                instrument: leg.instrument,
-                config,
-                legSide: orderDetails.side,
-                lots: leg.leg.lots,
-                connectionId: config.connectionId,
-                strategyId,
-                baseLtp: orderDetails.targetPrice,
-                orderVariety: orderDetails.variety,
-                orderType: orderDetails.ordertype,
-                fillMeta
-            });
-        } else {
-            fillPrice = await waitForOrderFillPrice(
-                leg.uniqueOrderId,
-                config.connectionId,
-                isPaperTrading,
-                leg.instrument,
-                28800000, 
-                1000,
-                { ...orderDetails, isInstantFill: isPaperTrading },
-                fillMeta
-            );
-        }
-
-        if (!fillPrice && !isPaperTrading && ordertype === "LIMIT") {
-
-            addStrategyLog(strategyId, `Re-Entry Chase exhausted. Order left on exchange. Monitoring for fill...`, "WARNING");
-
-            fillPrice = await waitForOrderFillPrice(
-
-                leg.uniqueOrderId,
-
-                config.connectionId,
-
-                false,
-
-                leg.instrument,
-
-                28800000,
-
-                1000,
-
-                null,
-
-                fillMeta
-
-            );
-
-        }
+        const { fillPrice, fillMeta, halted } = await resolveReentryOrderFill({
+            leg,
+            config,
+            strategyId,
+            side: orderDetails?.side,
+            variety: orderDetails?.variety || "NORMAL",
+            ordertype: orderDetails?.ordertype,
+            targetPrice: orderDetails?.targetPrice,
+            priceStr: orderDetails?.price,
+            triggerPriceStr: orderDetails?.triggerprice,
+            isPaperTrading,
+            isInstantFill: isPaperTrading,
+            isReentryChase: false,
+            timeoutMs: 28800000,
+            pollMs: 1000,
+            logPrefix: "[RE-LOW]"
+        });
+        if (halted) return;
 
         if (fillPrice) {
             const fill = fillPrice;
@@ -251,10 +211,7 @@ async function monitorReentryFill(leg, config, strategyId, addStrategyLog, order
             addStrategyLog(strategyId, `[RE-LOW] Re-entry filled for ${leg.instrument.symbol} at ₹${fill}. Low reached: ₹${leg.final_low_reached}`, "INFO");
 
             // Redeploy SL
-            deployReentrySL(leg, config, strategyId, addStrategyLog);
-        } else if (!isPaperTrading && orderDetails?.ordertype === 'LIMIT') {
-            addStrategyLog(strategyId, `Re-Entry Chase failed for ${leg.instrument?.symbol || 'leg'}: order not filled after ${parseInt(config.chase_time_seconds) || 45}s chase.`, "WARNING");
-            return;
+            await deployReentrySL(leg, config, strategyId, addStrategyLog);
         }
     } catch (e) {
         console.error("[RE-LOW] Fill monitoring error:", e.message);

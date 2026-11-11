@@ -223,7 +223,9 @@ socket.on("execute_trade", async (tradePayload) => {
         });
 
         if (!orderResponse || orderResponse.status === false || orderResponse.status === 400) {
-            throw new Error(orderResponse.message || "Order placement rejected by exchange/broker");
+            const errMsg = orderResponse?.message || "Order placement rejected by exchange/broker";
+            const errCode = orderResponse?.errorcode ? ` [${orderResponse.errorcode}]` : "";
+            throw new Error(`${errMsg}${errCode && !errMsg.includes(String(orderResponse.errorcode)) ? errCode : ""}`);
         }
 
         console.log("Order placed successfully:", orderResponse);
@@ -275,7 +277,9 @@ socket.on("modify_trade", async (tradePayload) => {
         });
 
         if (!response || response.status === false || response.status === 400) {
-            throw new Error(response.message || "Order modification rejected by exchange/broker");
+            const errMsg = response?.message || "Order modification rejected by exchange/broker";
+            const errCode = response?.errorcode ? ` [${response.errorcode}]` : "";
+            throw new Error(`${errMsg}${errCode && !errMsg.includes(String(response.errorcode)) ? errCode : ""}`);
         }
 
         socket.emit("modify_trade_result", {

@@ -31,7 +31,8 @@ async function checkOrderFillOnce(uniqueOrderId, connectionId, expectedQuantity 
                 return { filled: true, price: avgPrice > 0 ? avgPrice : null, time: getBrokerFillTime(details.data), rejected: false, reason: "" };
             }
             if (orderStatus === "rejected" || orderStatus === "cancelled") {
-                return { filled: false, price: null, rejected: true, reason: `Order ${orderStatus}: ${details.data.text || details.data.message || ""}` };
+                const reasonText = details.data.text || details.data.message || details.data.rejectionreason || "";
+                return { filled: false, price: null, rejected: true, reason: `Order ${orderStatus}: ${reasonText}` };
             }
         }
     } catch (err) {
@@ -57,7 +58,7 @@ async function checkOrderFillOnce(uniqueOrderId, connectionId, expectedQuantity 
  * @param {object} [fillMeta] - Optional out-param. On fill, populated with { price, time } where `time` is the broker fill timestamp.
  * @returns {number|null} Fill price, or null if not filled after ${parseInt(config.chase_time_seconds) || 45}s
  */
-async function chaseOrderFill({ orderId, uniqueOrderId, instrument, config, legSide, lots, connectionId, strategyId, baseLtp, forceLive = false, orderVariety = "NORMAL", orderType = "LIMIT", isReentryChase = false, fillMeta = null }) {
+async function chaseOrderFill({ orderId, uniqueOrderId, instrument, config, legSide, lots, connectionId, strategyId, baseLtp, forceLive = false, orderVariety = "NORMAL", orderType = "LIMIT", isReentryChase = false, isExitChase = false, fillMeta = null }) {
     const { activeStrategies, addStrategyLog } = require("./strategy.state");
     const activeStrat = strategyId ? activeStrategies.get(strategyId) : null;
     const isVirtual = config?.is_virtual === true || activeStrat?.is_virtual === true;
@@ -69,7 +70,7 @@ async function chaseOrderFill({ orderId, uniqueOrderId, instrument, config, legS
         return baseLtp || 0;
     }
 
-    const { modifyOrderLocallyOrViaWorker, cancelOrder } = require("./strategy.execution");
+    const { modifyOrderLocallyOrViaWorker, cancelOrder, isMarginError } = require("./strategy.execution");
     const expectedQuantity = lots * parseInt(instrument.lotsize);
     const INITIAL_WAIT_MS = 1000;
     const CHASE_INTERVAL_MS = 1000;
@@ -98,6 +99,30 @@ async function chaseOrderFill({ orderId, uniqueOrderId, instrument, config, legS
         return result.price;
     };
 
+    const handleRejectedOrder = (rejReason) => {
+        const marginErr = isMarginError(rejReason);
+        if (fillMeta) {
+            fillMeta.rejected = true;
+            fillMeta.reason = rejReason;
+            fillMeta.isMarginError = marginErr;
+        }
+        logChase(
+            marginErr ? `MARGIN REJECTION: ${rejReason}` : `Order rejected/cancelled: ${rejReason}`,
+            marginErr ? "CRITICAL" : "ERROR"
+        );
+        if (marginErr && !isExitChase && strategyId) {
+            const { squareOffAndStopOnMarginError } = require("./strategy.lifecycle");
+            void squareOffAndStopOnMarginError(strategyId, `Margin Error for ${instrument.symbol}: ${rejReason}`);
+        }
+        return null;
+    };
+
+    const isStrategyShuttingDown = () => {
+        if (isExitChase || !strategyId) return false;
+        const st = activeStrategies.get(strategyId);
+        return Boolean(st && (st.marginErrorTriggered || st.status === "EXITED"));
+    };
+
     // Phase 1: Wait 1 second for the initial fill (order may fill at the original price)
     await new Promise(r => setTimeout(r, INITIAL_WAIT_MS));
 
@@ -107,7 +132,10 @@ async function chaseOrderFill({ orderId, uniqueOrderId, instrument, config, legS
         return onFilled(check);
     }
     if (check.rejected) {
-        logChase(`${instrument.symbol} rejected before chase started: ${check.reason}`, "ERROR");
+        return handleRejectedOrder(check.reason);
+    }
+    if (isStrategyShuttingDown()) {
+        if (fillMeta) fillMeta.aborted = true;
         return null;
     }
 
@@ -118,6 +146,10 @@ async function chaseOrderFill({ orderId, uniqueOrderId, instrument, config, legS
     // Phase 2: Chase loop — modify order every second with progressive offset
     let modifyCount = 0;
     while (Date.now() - start < MAX_CHASE_MS) {
+        if (isStrategyShuttingDown()) {
+            if (fillMeta) fillMeta.aborted = true;
+            return null;
+        }
         // 1. Modify the pending order with progressive offset
         if (baseLtp) {
             try {
@@ -148,7 +180,7 @@ async function chaseOrderFill({ orderId, uniqueOrderId, instrument, config, legS
                     modifyPayload.triggerprice = "0";
                 }
 
-                await modifyOrderLocallyOrViaWorker(config, modifyPayload);
+                await modifyOrderLocallyOrViaWorker(isExitChase ? { ...config, isExitOrder: true } : config, modifyPayload);
 
                 logChase(`#${modifyCount} ${legSide} price ↑/↓ to ₹${newPrice} (Base: ₹${baseLtp}, Offset: ${totalOffsetMultiplier}x ${offset.toFixed(2)})`);
             } catch (modErr) {
@@ -160,9 +192,8 @@ async function chaseOrderFill({ orderId, uniqueOrderId, instrument, config, legS
                         return onFilled(finalCheck);
                     }
                 }
-                if (errMsg.toLowerCase().includes("cancelled") || errMsg.toLowerCase().includes("rejected")) {
-                    logChase(`Order ${errMsg}. Stopping.`, "ERROR");
-                    return null;
+                if (isMarginError(modErr) || errMsg.toLowerCase().includes("cancelled") || errMsg.toLowerCase().includes("rejected")) {
+                    return handleRejectedOrder(errMsg);
                 }
                 logChase(`Mod error #${modifyCount}: ${errMsg}`, "ERROR");
             }
@@ -179,7 +210,10 @@ async function chaseOrderFill({ orderId, uniqueOrderId, instrument, config, legS
             return onFilled(check);
         }
         if (check.rejected) {
-            logChase(`Order rejected during chase: ${check.reason}`, "ERROR");
+            return handleRejectedOrder(check.reason);
+        }
+        if (isStrategyShuttingDown()) {
+            if (fillMeta) fillMeta.aborted = true;
             return null;
         }
     }

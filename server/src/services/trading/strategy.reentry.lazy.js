@@ -2,7 +2,7 @@ const { findClosestPremiumInstrument, getLegStrikeSelection, findOptionInstrumen
 const { calculateMomentumTarget } = require("./strategy.momentum");
 const { getISTTime, getISTExchangeFormat, isWithinSecondsOfExit } = require("./strategy.time");
 const { computeStopLossExitPrices, getLimitOffsetAmt, resolveUniversalOrderParams } = require("./strategy.offset");
-const { placeOrder } = require("./strategy.execution");
+const { placeOrder, resolveReentryOrderFill, isMarginError } = require("./strategy.execution");
 const marketService = require("../market.service");
 
 async function handleLazyLeg({ leg, config, strategyId, addStrategyLog }) {
@@ -102,64 +102,26 @@ async function handleLazyLeg({ leg, config, strategyId, addStrategyLog }) {
 
                 // Background tracker for Live Fill
                 setTimeout(async () => {
-                    const { waitForOrderFillPrice, placeStopLossWithRetry } = require("./strategy.execution");
+                    const { placeStopLossWithRetry } = require("./strategy.execution");
                     try {
-                        let fillPrice;
-                        const fillMeta = {};
-                        if (!isPaperTrading && params.ordertype === 'LIMIT') {
-                            const { chaseOrderFill } = require("./strategy.execution");
-                            fillPrice = await chaseOrderFill({
-                                orderId: leg.orderId,
-                                uniqueOrderId: leg.uniqueOrderId,
-                                instrument: leg.instrument,
-                                config,
-                                legSide: leg.leg.side,
-                                lots: leg.leg.lots,
-                                connectionId: config.connectionId,
-                                strategyId,
-                                baseLtp: instLtp,
-                                orderVariety: params.variety || "NORMAL",
-                                orderType: params.ordertype,
-                                fillMeta
-                            });
-                        } else {
-                            fillPrice = await waitForOrderFillPrice(
-                                leg.uniqueOrderId,
-                                config.connectionId,
-                                false,
-                                leg.instrument,
-                                60000,
-                                2000,
-                                { ...params, side: leg.leg.side, isInstantFill: true },
-                                fillMeta
-                            );
-                        }
-
-                        if (!fillPrice && !isPaperTrading && ordertype === "LIMIT") {
-
-                            addStrategyLog(strategyId, `Re-Entry Chase exhausted. Order left on exchange. Monitoring for fill...`, "WARNING");
-
-                            fillPrice = await waitForOrderFillPrice(
-
-                                leg.uniqueOrderId,
-
-                                config.connectionId,
-
-                                false,
-
-                                leg.instrument,
-
-                                28800000,
-
-                                1000,
-
-                                null,
-
-                                fillMeta
-
-                            );
-
-                        }
+                        const { fillPrice, fillMeta, halted } = await resolveReentryOrderFill({
+                            leg,
+                            config,
+                            strategyId,
+                            side: leg.leg.side,
+                            variety: params.variety || "NORMAL",
+                            ordertype: params.ordertype,
+                            targetPrice: instLtp,
+                            priceStr: params.price,
+                            triggerPriceStr: params.triggerprice,
+                            isPaperTrading: false,
+                            isInstantFill: true,
+                            isReentryChase: false,
+                            timeoutMs: 60000,
+                            pollMs: 2000,
+                            logPrefix: "[LAZY LEG LIVE]"
+                        });
+                        if (halted) return;
 
                         if (fillPrice) {
                             leg.entryPrice = fillPrice;
@@ -191,9 +153,6 @@ async function handleLazyLeg({ leg, config, strategyId, addStrategyLog }) {
                                 leg.initialSlTriggerPrice = prices?.trigger;
                                 leg.slLimitPrice = prices?.limit;
                             }
-                        } else if (!isPaperTrading && params.ordertype === 'LIMIT') {
-                            addStrategyLog(strategyId, `Re-Entry Chase failed for ${leg.instrument?.symbol || 'leg'}: order not filled after ${parseInt(config.chase_time_seconds) || 45}s chase.`, "WARNING");
-                            return;
                         }
                     } catch (e) {
                          addStrategyLog(strategyId, `[LAZY LEG LIVE] Fill tracking failed for ${leg.instrument?.symbol}: ${e.message}`, "ERROR");
@@ -203,6 +162,12 @@ async function handleLazyLeg({ leg, config, strategyId, addStrategyLog }) {
         }
     } catch (e) {
         console.error("Lazy Leg Handler Error", e);
+        if (isMarginError(e)) {
+            leg.state = "COMPLETED";
+            leg.exited = true;
+            const { squareOffAndStopOnMarginError } = require("./strategy.lifecycle");
+            await squareOffAndStopOnMarginError(strategyId, `Margin Error in Lazy Leg for ${leg.instrument?.symbol || "leg"}: ${e.message}`);
+        }
     }
 }
 

@@ -52,6 +52,49 @@ function validateLotLimit(config) {
     }
 }
 
+/**
+ * Returns true if an error object or broker message indicates an insufficient funds / margin rejection.
+ */
+function isMarginError(errorOrMessage) {
+    if (!errorOrMessage) return false;
+    if (typeof errorOrMessage === "object" && errorOrMessage.isMarginError === true) return true;
+    const raw = typeof errorOrMessage === "string"
+        ? errorOrMessage
+        : `${errorOrMessage.message || ""} ${errorOrMessage.errorcode || errorOrMessage.code || ""}`;
+    const msg = raw.toLowerCase();
+    if (!msg.trim()) return false;
+    if (msg.startsWith("margin_rejection:") || msg.startsWith("margin_error:")) return true;
+
+    const marginPatterns = [
+        /insufficient\s*(fund|funds|margin|balance|collateral)/i,
+        /collateral\s*(insufficient|shortfall|shortage)/i,
+        /not\s*(enough|sufficient)\s*(fund|funds|margin|balance)/i,
+        /no\s*sufficient\s*(fund|funds|margin)/i,
+        /margin\s*(exceed|exceeded|exceeds|shortfall|shortage|insufficient|unavailable|not available|less|short|low|deficit|call)/i,
+        /(exceed|exceeds|exceeded)\s*(the\s*)?(available\s*)?(margin|fund|funds|collateral|exposure)/i,
+        /rms\s*:\s*margin/i,
+        /rms.*?(insufficient|shortfall|exceed|margin)/i,
+        /(shortfall|shortage)\s*(of|in)?\s*(margin|fund|funds|balance|collateral)/i,
+        /(shortfall|shortage).*?(required|available|rms|rs\.?|inr|₹)/i,
+        /(less|short|low)\s*margin/i,
+        /funds?\s*(shortfall|shortage|exceed|insufficient|unavailable|not available)/i,
+        /required\s*(margin|fund|funds)?.*available/i,
+        /available\s*(margin|fund|funds|balance)\s*(is\s*)?(less|insufficient|zero|exceeded)/i,
+    ];
+    return marginPatterns.some((re) => re.test(msg));
+}
+
+/**
+ * Fires async square-off & stop handler on margin errors without deadlocking exit orders.
+ */
+function triggerMarginShutdownIfNeeded(strategyId, symbol, errorMsg, isExitOrder = false) {
+    if (isExitOrder || !strategyId || strategyId === "system") return;
+    const strat = activeStrategies.get(strategyId);
+    if (!strat || strat.marginErrorTriggered) return;
+    const { squareOffAndStopOnMarginError } = require("./strategy.lifecycle");
+    void squareOffAndStopOnMarginError(strategyId, `Margin Error for ${symbol || "leg"}: ${errorMsg}`);
+}
+
 
 /**
  * Helper function to cancel an order either via Worker Node or Locally
@@ -108,6 +151,15 @@ async function modifyOrderLocallyOrViaWorker(config, modifyParams) {
         return { status: true, message: "PAPER TRADE MODIFIED" };
     }
 
+    const handleModifyError = (err) => {
+        const errMsg = err?.message || "";
+        if (isMarginError(err) && !config?.isExitOrder) {
+            triggerMarginShutdownIfNeeded(strategyId, modifyParams?.tradingsymbol, errMsg, false);
+            err.isMarginError = true;
+        }
+        throw err;
+    };
+
     if (connId) {
         const workerId = await workerSocketService.getAssignedWorkerForUser(connId);
         if (workerId) {
@@ -122,21 +174,31 @@ async function modifyOrderLocallyOrViaWorker(config, modifyParams) {
                 order_details: modifyParams
             };
             
-            return await orderDispatcher.dispatchTrade(workerId, connId, () =>
-                workerSocketService.modifyTradeOnWorker(workerId, tradePayload)
-            );
+            try {
+                return await orderDispatcher.dispatchTrade(workerId, connId, () =>
+                    workerSocketService.modifyTradeOnWorker(workerId, tradePayload)
+                );
+            } catch (err) {
+                return handleModifyError(err);
+            }
         }
     }
 
     const channelKey = `local_${connId}`;
-    return await orderDispatcher.dispatchTrade(channelKey, connId, async () => {
-        const api = await getAuthorizedInstance(connId);
-        const res = await api.modifyOrder(modifyParams);
-        if (res && (res.status === false || res.status === 400)) {
-            throw new Error(res.message || "Order modification rejected by exchange/broker");
-        }
-        return res;
-    });
+    try {
+        return await orderDispatcher.dispatchTrade(channelKey, connId, async () => {
+            const api = await getAuthorizedInstance(connId);
+            const res = await api.modifyOrder(modifyParams);
+            if (!res || res.status === false || res.status === 400) {
+                const errMsg = res?.message || "Order modification rejected by exchange/broker";
+                const errCode = res?.errorcode ? ` [${res.errorcode}]` : "";
+                throw new Error(`${errMsg}${errCode && !errMsg.includes(String(res.errorcode)) ? errCode : ""}`);
+            }
+            return res;
+        });
+    } catch (err) {
+        return handleModifyError(err);
+    }
 }
 
 /**
@@ -227,11 +289,13 @@ async function placeOrder(config, instrument, connectionId) {
             return await api.placeOrder(orderParams);
         }, { symbol: instrument.symbol, side: orderParams.transactiontype });
 
-        if (response.status && response.data) {
+        if (response?.status && response?.data) {
             console.log(`[${new Date().toISOString()}] Local Order placed successfully:`, response.data.orderid);
             return response.data; // contains orderid and uniqueorderid
         }
-        throw new Error(response.message || "Order placement failed");
+        const errMsg = response?.message || "Order placement failed";
+        const errCode = response?.errorcode ? ` [${response.errorcode}]` : "";
+        throw new Error(`${errMsg}${errCode && !errMsg.includes(String(response.errorcode)) ? errCode : ""}`);
     } catch (err) {
         const errorMsg = err.message || "";
         const isLppError = errorMsg.includes("AB1008") || errorMsg.toLowerCase().includes("limit price") || errorMsg.toLowerCase().includes("lpp");
@@ -247,6 +311,13 @@ async function placeOrder(config, instrument, connectionId) {
             }
         }
 
+        if (isMarginError(err)) {
+            triggerMarginShutdownIfNeeded(strategyId, instrument?.symbol, errorMsg, Boolean(config?.isExitOrder));
+            const marginErr = new Error(`MARGIN_REJECTION: ${errorMsg}`);
+            marginErr.isMarginError = true;
+            throw marginErr;
+        }
+
         console.error(`[placeOrder] API Error for ${instrument.symbol}:`, errorMsg);
         throw err;
     }
@@ -258,6 +329,14 @@ async function placeOrder(config, instrument, connectionId) {
  * @param {object} [fillMeta] - Optional out-param. On a live fill, populated with { price, time } where `time` is the broker fill timestamp.
  */
 async function waitForOrderFillPrice(uniqueOrderId, connectionId, isPaperTrading = false, instrument = null, timeoutMs = 60000, pollMs = 2000, paperConfig = null, fillMeta = null) {
+    const stratId = fillMeta?.strategyId || paperConfig?.strategyId || null;
+    const shouldAbortPoll = () => {
+        if (!stratId) return false;
+        const st = activeStrategies.get(stratId);
+        if (!st) return false;
+        return st.status === "EXITED" || (st.marginErrorTriggered && !fillMeta?.isExitWait);
+    };
+
     if (isPaperTrading) {
         const { globalLtpMap } = require("./strategy.state");
         const start = Date.now();
@@ -275,6 +354,7 @@ async function waitForOrderFillPrice(uniqueOrderId, connectionId, isPaperTrading
         const instrumentKey = instrument ? `${instrument.exch_seg}_${instrument.token}` : null;
 
         while (Date.now() - start < timeoutMs) {
+            if (shouldAbortPoll()) return null;
             const currentLtp = globalLtpMap[instrumentKey];
 
             if (currentLtp !== undefined) {
@@ -303,6 +383,10 @@ async function waitForOrderFillPrice(uniqueOrderId, connectionId, isPaperTrading
 
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
+        if (shouldAbortPoll()) {
+            if (fillMeta) fillMeta.aborted = true;
+            return null;
+        }
         try {
             const api = await getAuthorizedInstance(connectionId);
             const details = await api.indOrderDetails(uniqueOrderId);
@@ -319,11 +403,24 @@ async function waitForOrderFillPrice(uniqueOrderId, connectionId, isPaperTrading
                 }
 
                 if (orderStatus === "rejected" || orderStatus === "cancelled") {
-                    throw new Error(`Order ${orderStatus}: ${details.data.text || details.data.message || ""}`);
+                    const rejText = details.data.text || details.data.message || details.data.rejectionreason || "";
+                    const rejReason = `Order ${orderStatus}: ${rejText}`;
+                    const marginErr = isMarginError(rejReason);
+                    if (fillMeta) {
+                        fillMeta.rejected = true;
+                        fillMeta.reason = rejReason;
+                        fillMeta.isMarginError = marginErr;
+                    }
+                    if (marginErr && !fillMeta?.isExitWait) {
+                        triggerMarginShutdownIfNeeded(stratId, instrument?.symbol, rejReason, false);
+                    }
+                    const rejErr = new Error(rejReason);
+                    if (marginErr) rejErr.isMarginError = true;
+                    throw rejErr;
                 }
             }
         } catch (err) {
-            if (err.message.includes("Order rejected") || err.message.includes("Order cancelled")) {
+            if (err.isMarginError || err.message.includes("Order rejected") || err.message.includes("Order cancelled")) {
                 throw err;
             }
             console.error("Error polling order details:", err.message);
@@ -385,6 +482,11 @@ async function placeStopLossExitOrder({ baseConfig, legSide, entryPrice, instrum
  * this function will try up to 3 times before giving up.
  */
 async function placeStopLossWithRetry({ baseConfig, legSide, entryPrice, instrument, lots, slType, slValue, slLimitMargin, slLimitMarginType = 'POINTS', connectionId, strategyId, overrideSlTriggerPrice, isDeferred = false, isCandleOpenSl = false, candleOpenPrice, actualEntryPrice }) {
+    const activeStrat = strategyId ? activeStrategies.get(strategyId) : null;
+    if (activeStrat && (activeStrat.marginErrorTriggered || activeStrat.status === "CLOSING" || activeStrat.status === "EXITED")) {
+        return null;
+    }
+
     if (baseConfig?.no_sl_on_entry_candle && !isDeferred) {
         if (strategyId) {
             const { addStrategyLog } = require("./strategy.state");
@@ -410,6 +512,11 @@ async function placeStopLossWithRetry({ baseConfig, legSide, entryPrice, instrum
     } catch (err) {
         const lastError = err.message;
         console.error(`[SL Placement] Failed for ${instrument.symbol}:`, lastError);
+        if (isMarginError(err) && strategyId) {
+            triggerMarginShutdownIfNeeded(strategyId, instrument.symbol, lastError, false);
+            err.isMarginError = true;
+            throw err;
+        }
         marketSocketService.sendAlertToUser(userId, `SL placement failed for ${instrument.symbol}: ${lastError}`, "error", strategyId);
         if (strategyId) addStrategyLog(strategyId, `SL placement FAILED for ${instrument.symbol}: ${lastError}`, "ERROR");
     }
@@ -448,34 +555,73 @@ async function placeExitOrder({ config, leg, instrument, exitType }) {
     if (!leg.entryPrice) {
         const isPaperTrading = config?.is_paper_trading === true || isVirtual;
         if (leg.orderId && !isPaperTrading) {
-            console.log(`[Exit] Leg ${instrument.symbol} has orderId ${leg.orderId} but no entry price. Attempting cancellation...`);
-            try {
-                // Try to cancel as NORMAL first
-                try {
-                    await cancelOrder(config, "NORMAL", leg.orderId);
-                    console.log(`[Exit] Successfully cancelled pending NORMAL entry order ${leg.orderId}`);
-                } catch (e) {
-                    // If NORMAL fails, try STOPLOSS (used by RTP/MTP/Re-Entry orders)
-                    console.log(`[Exit] NORMAL cancellation failed for ${leg.orderId}, trying STOPLOSS variety...`);
-                    await cancelOrder(config, "STOPLOSS", leg.orderId);
-                    console.log(`[Exit] Successfully cancelled pending STOPLOSS entry order ${leg.orderId}`);
+            const tryRecoverFill = async (sourceLabel) => {
+                if (!leg.uniqueOrderId) return false;
+                const expectedQty = leg.leg.lots * parseInt(instrument.lotsize || 1) * (parseFloat(config.quantity_multiplier) || 1);
+                const check = await checkOrderFillOnce(leg.uniqueOrderId, config.connectionId, expectedQty);
+                if (check.filled) {
+                    const recoveredPrice = check.price || leg.initialLtp || leg.rtp || null;
+                    if (recoveredPrice) {
+                        leg.entryPrice = recoveredPrice;
+                        leg.entryTime = check.time || getISTExchangeFormat();
+                        leg.original_traded_price = leg.original_traded_price || recoveredPrice;
+                        leg.base_otp = leg.base_otp || recoveredPrice;
+                        leg.state = "ACTIVE";
+                        if (strategyId) addStrategyLog(strategyId, `[Exit] Detected broker fill (${sourceLabel}) at ₹${recoveredPrice} for ${instrument.symbol}. Squaring off position...`, "WARNING");
+                        return true;
+                    }
                 }
-                
+                return check.rejected ? "REJECTED" : false;
+            };
+
+            const preState = await tryRecoverFill("pre-cancel");
+            if (preState === "REJECTED") {
                 leg.exited = true;
                 leg.isExiting = false;
-                leg.exitType = exitType || "CANCELLED_NO_ENTRY";
+                leg.exitType = exitType || "REJECTED_NO_ENTRY";
                 leg.exitTime = getISTExchangeFormat();
                 return null;
-            } catch (e) {
-                const errMsg = e.message || "";
-                if (errMsg.includes("Order already filled") || errMsg.includes("filled")) {
-                    console.warn(`[Exit] Cancellation failed for ${leg.orderId} because it already filled. Proceeding with LIMIT exit.`);
-                } else {
-                    console.error(`[Exit] CRITICAL: Failed to cancel pending entry order ${leg.orderId}: ${errMsg}. Marking as exited to prevent ghost positions.`);
+            }
+
+            if (preState !== true) {
+                console.log(`[Exit] Leg ${instrument.symbol} has orderId ${leg.orderId} but no entry price. Attempting cancellation...`);
+                try {
+                    // Try to cancel as NORMAL first
+                    try {
+                        await cancelOrder(config, "NORMAL", leg.orderId);
+                        console.log(`[Exit] Successfully cancelled pending NORMAL entry order ${leg.orderId}`);
+                    } catch (e) {
+                        // If NORMAL fails, try STOPLOSS (used by RTP/MTP/Re-Entry orders)
+                        console.log(`[Exit] NORMAL cancellation failed for ${leg.orderId}, trying STOPLOSS variety...`);
+                        await cancelOrder(config, "STOPLOSS", leg.orderId);
+                        console.log(`[Exit] Successfully cancelled pending STOPLOSS entry order ${leg.orderId}`);
+                    }
+
                     leg.exited = true;
                     leg.isExiting = false;
-                    leg.exitType = "CANCEL_FAILED_SKIPPED";
-                    return null; // Do NOT place an exit order if we couldn't even cancel the entry!
+                    leg.exitType = exitType || "CANCELLED_NO_ENTRY";
+                    leg.exitTime = getISTExchangeFormat();
+                    return null;
+                } catch (e) {
+                    const errMsg = e.message || "";
+                    const postState = await tryRecoverFill("post-cancel");
+                    if (postState === true) {
+                        console.warn(`[Exit] Order ${leg.orderId} filled right before cancel. Proceeding with LIMIT exit.`);
+                    } else if (postState === "REJECTED") {
+                        leg.exited = true;
+                        leg.isExiting = false;
+                        leg.exitType = exitType || "CANCELLED_OR_REJECTED";
+                        leg.exitTime = getISTExchangeFormat();
+                        return null;
+                    } else if (errMsg.includes("Order already filled") || errMsg.includes("filled")) {
+                        console.warn(`[Exit] Cancellation failed for ${leg.orderId} because it already filled. Proceeding with LIMIT exit.`);
+                    } else {
+                        console.error(`[Exit] CRITICAL: Failed to cancel pending entry order ${leg.orderId}: ${errMsg}. Marking as exited to prevent ghost positions.`);
+                        leg.exited = true;
+                        leg.isExiting = false;
+                        leg.exitType = "CANCEL_FAILED_SKIPPED";
+                        return null; // Do NOT place an exit order if we couldn't even cancel the entry!
+                    }
                 }
             }
         } else {
@@ -620,7 +766,8 @@ async function placeExitOrder({ config, leg, instrument, exitType }) {
                 variety: "NORMAL",
                 ordertype: "LIMIT",
                 price: finalPrice,
-                lots: leg.leg.lots
+                lots: leg.leg.lots,
+                isExitOrder: true
             };
             orderData = await placeOrder(closeConfig, instrument, config.connectionId);
         }
@@ -638,7 +785,7 @@ async function placeExitOrder({ config, leg, instrument, exitType }) {
             orderId: orderData.orderid,
             uniqueOrderId: orderData.uniqueorderid,
             instrument,
-            config,
+            config: { ...config, isExitOrder: true },
             legSide: exitSide,
             lots: leg.leg.lots,
             connectionId: config.connectionId,
@@ -646,6 +793,7 @@ async function placeExitOrder({ config, leg, instrument, exitType }) {
             baseLtp: exitBaseLtp,
             orderVariety: useSlOrder ? "STOPLOSS" : "NORMAL",
             orderType: "LIMIT",
+            isExitChase: true,
             fillMeta
         });
 
@@ -686,10 +834,163 @@ async function placeExitOrder({ config, leg, instrument, exitType }) {
     }
 }
 
+/**
+ * Shared fill tracker for re-entry and replacement orders.
+ * Chases LIMIT orders (or waits on STOPLOSS/MARKET orders), aborts cleanly on exchange
+ * rejection/cancellation, and triggers square-off + strategy shutdown on margin errors.
+ */
+async function resolveReentryOrderFill({
+    leg,
+    config,
+    strategyId,
+    side,
+    variety = "NORMAL",
+    ordertype = "LIMIT",
+    targetPrice,
+    priceStr = "0",
+    triggerPriceStr = "0",
+    isPaperTrading = false,
+    isInstantFill = false,
+    isReentryChase = false,
+    timeoutMs = 28800000,
+    pollMs = 1000,
+    logPrefix = "[RE-ENTRY]"
+}) {
+    const fillMeta = { strategyId };
+    const handleMargin = async (reason) => {
+        const { squareOffAndStopOnMarginError } = require("./strategy.lifecycle");
+        await squareOffAndStopOnMarginError(strategyId, `Margin Error for ${leg.instrument?.symbol}: ${reason}`);
+        return { fillPrice: null, fillMeta, halted: true };
+    };
+
+    try {
+        let fillPrice = null;
+        if (!isPaperTrading && ordertype === "LIMIT") {
+            fillPrice = await chaseOrderFill({
+                orderId: leg.orderId,
+                uniqueOrderId: leg.uniqueOrderId,
+                instrument: leg.instrument,
+                config,
+                legSide: side,
+                lots: leg.leg.lots,
+                connectionId: config.connectionId,
+                strategyId,
+                baseLtp: targetPrice,
+                orderVariety: variety,
+                orderType: ordertype,
+                isReentryChase,
+                fillMeta
+            });
+        } else {
+            fillPrice = await waitForOrderFillPrice(
+                leg.uniqueOrderId,
+                config.connectionId,
+                isPaperTrading,
+                leg.instrument,
+                timeoutMs,
+                pollMs,
+                {
+                    strategyId,
+                    side,
+                    ordertype,
+                    targetPrice,
+                    price: parseFloat(priceStr || 0),
+                    triggerprice: parseFloat(triggerPriceStr || 0),
+                    isInstantFill
+                },
+                fillMeta
+            );
+        }
+
+        if (fillMeta.isMarginError || isMarginError(fillMeta.reason)) {
+            return await handleMargin(fillMeta.reason);
+        }
+
+        if (!fillPrice && !isPaperTrading && ordertype === "LIMIT" && !fillMeta.rejected && !fillMeta.aborted && isReentryChase) {
+            const strat = strategyId ? activeStrategies.get(strategyId) : null;
+            if (!strat?.marginErrorTriggered && strat?.status !== "CLOSING" && strat?.status !== "EXITED") {
+                addStrategyLog(strategyId, `Re-Entry Chase exhausted. Order left on exchange. Monitoring for fill...`, "WARNING");
+                fillPrice = await waitForOrderFillPrice(
+                    leg.uniqueOrderId,
+                    config.connectionId,
+                    false,
+                    leg.instrument,
+                    timeoutMs,
+                    pollMs,
+                    { strategyId },
+                    fillMeta
+                );
+            }
+        }
+
+        if (fillMeta.isMarginError || isMarginError(fillMeta.reason)) {
+            return await handleMargin(fillMeta.reason);
+        }
+
+        if (fillMeta.rejected) {
+            addStrategyLog(strategyId, `${logPrefix} Order rejected/cancelled on exchange for ${leg.instrument?.symbol}: ${fillMeta.reason}`, "ERROR");
+            leg.state = "COMPLETED";
+            leg.exited = true;
+            return { fillPrice: null, fillMeta, halted: true };
+        }
+
+        const strat = strategyId ? activeStrategies.get(strategyId) : null;
+        if (!fillPrice && (fillMeta.aborted || strat?.marginErrorTriggered || strat?.status === "CLOSING" || strat?.status === "EXITED")) {
+            if (strat?.marginErrorPromise) await strat.marginErrorPromise;
+            return { fillPrice: null, fillMeta, halted: true };
+        }
+
+        if (!fillPrice && !isPaperTrading && ordertype === "LIMIT" && !isReentryChase) {
+            addStrategyLog(strategyId, `Re-Entry Chase failed for ${leg.instrument?.symbol || "leg"}: order not filled after ${parseInt(config.chase_time_seconds) || 45}s chase.`, "WARNING");
+            return { fillPrice: null, fillMeta, halted: false };
+        }
+
+        return { fillPrice: fillPrice || null, fillMeta, halted: false };
+    } catch (err) {
+        if (isMarginError(err) || fillMeta.isMarginError) {
+            return await handleMargin(err.message);
+        }
+        throw err;
+    }
+}
+
+/**
+ * Uniformly handles errors thrown during re-entry / fallback order placement.
+ * Handles LPP internal fallback, squares off and stops strategy on margin errors,
+ * and stops infinite 1s retry loops on non-transient errors.
+ */
+async function handleReentryPlacementError({ err, strategyId, leg, targetPrice, side, logPrefix = "[RE-ENTRY]", keepRetryOnUnknownError = false }) {
+    if (err?.message === "LPP_TRIGGER_REJECTION") {
+        addStrategyLog(strategyId, `${logPrefix} Order rejected by LPP for ${leg.instrument?.symbol}. Switching to INTERNAL MONITORING for Target: ₹${targetPrice}.`, "WARNING");
+        leg.state = "WAITING_FOR_INTERNAL_FALLBACK";
+        leg.fallbackTargetPrice = targetPrice;
+        leg.fallbackSide = side;
+        leg.needsOrderReplacement = false;
+        return;
+    }
+
+    if (isMarginError(err)) {
+        leg.needsOrderReplacement = false;
+        leg.state = "COMPLETED";
+        leg.exited = true;
+        const { squareOffAndStopOnMarginError } = require("./strategy.lifecycle");
+        await squareOffAndStopOnMarginError(strategyId, `Margin Error for ${leg.instrument?.symbol}: ${err.message}`);
+        return;
+    }
+
+    addStrategyLog(strategyId, `${logPrefix} Failed to place order for ${leg.instrument?.symbol}: ${err.message}`, "ERROR");
+    if (!keepRetryOnUnknownError) {
+        leg.needsOrderReplacement = false;
+        leg.state = "COMPLETED";
+        leg.exited = true;
+    }
+}
+
 
 module.exports = {
-    LOT_LIMITS, roundToTick, placeOrder, getLimitOffsetAmt, computeStopLossExitPrices,
+    LOT_LIMITS, roundToTick, isMarginError, placeOrder, getLimitOffsetAmt, computeStopLossExitPrices,
     resolveUniversalOrderParams, waitForOrderFillPrice, checkOrderFillOnce,
-    chaseOrderFill, placeStopLossExitOrder, placeStopLossWithRetry, placeExitOrder,
+    chaseOrderFill, resolveReentryOrderFill, handleReentryPlacementError,
+    placeStopLossExitOrder, placeStopLossWithRetry, placeExitOrder,
     cancelOrder, modifyOrderLocallyOrViaWorker
 };

@@ -24,11 +24,11 @@ const { processReentryConditionsTick } = require("./strategy.reentry.conditions"
 const { checkMomentumHit } = require("./strategy.momentum");
 const { getISTTime, getISTExchangeFormat, getBrokerFillTime } = require("./strategy.time");
 const { roundToTick, computeStopLossExitPrices, getLimitOffsetAmt } = require("./strategy.offset");
-const { placeOrder, chaseOrderFill, placeStopLossExitOrder, cancelOrder, modifyOrderLocallyOrViaWorker, waitForOrderFillPrice, placeStopLossWithRetry } = require("./strategy.execution");
+const { placeOrder, chaseOrderFill, placeStopLossExitOrder, cancelOrder, modifyOrderLocallyOrViaWorker, waitForOrderFillPrice, placeStopLossWithRetry, resolveReentryOrderFill, handleReentryPlacementError, isMarginError } = require("./strategy.execution");
 const { placeExitOrder } = require("./strategy.execution");
 const { checkOrderFillOnce } = require("./strategy.chase");
 const marketSocketService = require("../marketSocket.service");
-const { handleLegStopOut, pauseStrategy } = require("./strategy.lifecycle");
+const { handleLegStopOut, pauseStrategy, squareOffAndStopOnMarginError } = require("./strategy.lifecycle");
 const { checkOverallPnlLimits, evaluateLegLimits } = require("./strategy.pnl");
 
 /**
@@ -89,6 +89,7 @@ async function monitorStrategyLoop(strategyId, strategy) {
         const ltpMap = globalLtpMap;
 
         for (const leg of activeLegs) {
+            if (strategy.marginErrorTriggered || strategy.status === "CLOSING" || strategy.status === "EXITED") return;
             const currentMinute = currentTime.substring(0, 5);
             const isReentryBlockedThisMinute = leg.leg.no_reentry_on_sl_candle && leg.slHitMinute === currentMinute;
 
@@ -164,7 +165,7 @@ async function monitorStrategyLoop(strategyId, strategy) {
                                 try {
                                     const isVirtual = config?.is_virtual === true || leg.is_virtual_leg === true;
                                     const isPaperTrading = config?.is_paper_trading === true || isVirtual;
-                                    const fillMeta = {};
+                                    const fillMeta = { strategyId };
                                     const fill = await waitForOrderFillPrice(leg.uniqueOrderId, config.connectionId, isPaperTrading, leg.instrument, 28800000, 1000, null, fillMeta);
                                     if (fill) {
                                         leg.entryPrice = fill;
@@ -209,9 +210,14 @@ async function monitorStrategyLoop(strategyId, strategy) {
                                                 leg.exchangeSlProcessed = false;
                                             }
                                         }
+                                    } else if (fillMeta.isMarginError) {
+                                        await squareOffAndStopOnMarginError(strategyId, `Margin Error for ${leg.instrument?.symbol}: ${fillMeta.reason}`);
                                     }
                                 } catch (e) {
                                     console.error("[FALLBACK] Strike 2 fill monitoring failed:", e.message);
+                                    if (isMarginError(e)) {
+                                        await squareOffAndStopOnMarginError(strategyId, `Margin Error for ${leg.instrument?.symbol}: ${e.message}`);
+                                    }
                                 }
                             }, 1000);
 
@@ -219,6 +225,11 @@ async function monitorStrategyLoop(strategyId, strategy) {
                             if (err.message.includes("LPP_LIMIT_REJECTION")) {
                                 addStrategyLog(strategyId, `[CRITICAL] Strike 2 LPP Rejection for ${leg.instrument.symbol}. Strategy closed.`, "ERROR");
                                 // stopStrategy is already called by placeOrder for LIMIT LPP
+                            } else if (isMarginError(err)) {
+                                leg.state = "COMPLETED";
+                                leg.exited = true;
+                                await squareOffAndStopOnMarginError(strategyId, `Margin Error for ${leg.instrument?.symbol}: ${err.message}`);
+                                break;
                             } else {
                                 addStrategyLog(strategyId, `[FALLBACK] Strike 2 failed for ${leg.instrument.symbol}: ${err.message}`, "ERROR");
                                 leg.state = "COMPLETED"; // Terminate leg if unknown error
@@ -592,7 +603,7 @@ async function monitorStrategyLoop(strategyId, strategy) {
 
                                     setTimeout(async () => {
                                         try {
-                                            const fillMeta = {};
+                                            const fillMeta = { strategyId };
                                             const fillPrice = await waitForOrderFillPrice(
                                                 leg.uniqueOrderId,
                                                 config.connectionId,
@@ -601,6 +612,7 @@ async function monitorStrategyLoop(strategyId, strategy) {
                                                 28800000,
                                                 1000,
                                                 {
+                                                    strategyId,
                                                     side: leg.leg.side,
                                                     ordertype: ordertype,
                                                     price: parseFloat(finalPrice),
@@ -656,14 +668,28 @@ async function monitorStrategyLoop(strategyId, strategy) {
                                                     leg.initialSlTriggerPrice = prices?.trigger;
                                                     leg.slLimitPrice = prices?.limit;
                                                 }
+                                            } else if (fillMeta.isMarginError) {
+                                                await squareOffAndStopOnMarginError(strategyId, `Margin Error for ${leg.instrument?.symbol}: ${fillMeta.reason}`);
                                             }
                                         } catch (err) {
                                             console.error("[SIMPLE MNTM FILL ERROR]", err.message);
+                                            if (isMarginError(err)) {
+                                                await squareOffAndStopOnMarginError(strategyId, `Margin Error for ${leg.instrument?.symbol}: ${err.message}`);
+                                            }
                                         }
                                     }, 500);
                                 }
                             } catch (err) {
-                                addStrategyLog(strategyId, `[ERROR] Failed to place order for ${leg.instrument.symbol}: ${err.message}`, "ERROR");
+                                await handleReentryPlacementError({
+                                    err,
+                                    strategyId,
+                                    leg,
+                                    targetPrice: target,
+                                    side: leg.leg.side,
+                                    logPrefix: "[SIMPLE MNTM]",
+                                    keepRetryOnUnknownError: true
+                                });
+                                if (strategy.marginErrorTriggered) break;
                             }
                         }
                     }
@@ -902,62 +928,24 @@ async function monitorStrategyLoop(strategyId, strategy) {
                         // Start fill watcher in background
                         setTimeout(async () => {
                             try {
-                                let fillPrice;
-                                const fillMeta = {};
-                                if (!isPaperTrading && ordertype === 'LIMIT') {
-                                    const { chaseOrderFill } = require("./strategy.execution");
-                                    fillPrice = await chaseOrderFill({
-                                        orderId: leg.orderId,
-                                        uniqueOrderId: leg.uniqueOrderId,
-                                        instrument: leg.instrument,
-                                        config,
-                                        legSide: side,
-                                        lots: leg.leg.lots,
-                                        connectionId: config.connectionId,
-                                        strategyId,
-                                        baseLtp: targetPrice,
-                                        orderVariety: config.variety || "NORMAL",
-                                        orderType: ordertype,
-                                        fillMeta
-                                    });
-                                } else {
-                                    fillPrice = await waitForOrderFillPrice(
-                                        leg.uniqueOrderId,
-                                        config.connectionId,
-                                        isPaperTrading,
-                                        leg.instrument,
-                                        28800000,
-                                        1000,
-                                        { side, ordertype, price: parseFloat(finalPriceStr), triggerprice: parseFloat(triggerPriceStr), isInstantFill: isPaperTrading },
-                                        fillMeta
-                                    );
-                                }
-
-                                if (!fillPrice && !isPaperTrading && ordertype === "LIMIT") {
-
-                                    addStrategyLog(strategyId, `Re-Entry Chase exhausted. Order left on exchange. Monitoring for fill...`, "WARNING");
-
-                                    fillPrice = await waitForOrderFillPrice(
-
-                                        leg.uniqueOrderId,
-
-                                        config.connectionId,
-
-                                        false,
-
-                                        leg.instrument,
-
-                                        28800000,
-
-                                        1000,
-
-                                        null,
-
-                                        fillMeta
-
-                                    );
-
-                                }
+                                const { fillPrice, fillMeta, halted } = await resolveReentryOrderFill({
+                                    leg,
+                                    config,
+                                    strategyId,
+                                    side,
+                                    variety: config.variety || "NORMAL",
+                                    ordertype,
+                                    targetPrice,
+                                    priceStr: finalPriceStr,
+                                    triggerPriceStr: triggerPriceStr,
+                                    isPaperTrading,
+                                    isInstantFill: isPaperTrading,
+                                    isReentryChase: false,
+                                    timeoutMs: 28800000,
+                                    pollMs: 1000,
+                                    logPrefix: "[RE-INIT]"
+                                });
+                                if (halted) return;
 
                                 if (fillPrice) {
                                     const fill = fillPrice;
@@ -1015,17 +1003,15 @@ async function monitorStrategyLoop(strategyId, strategy) {
                             }
                         }, 1000);
                     } catch (err) {
-                        if (err.message === "LPP_TRIGGER_REJECTION") {
-                            addStrategyLog(strategyId, `[RE-INIT] Order rejected by LPP for ${leg.instrument?.symbol}. Switching to INTERNAL MONITORING for Target: ₹${targetPrice}.`, "WARNING");
-                            leg.state = "WAITING_FOR_INTERNAL_FALLBACK";
-                            leg.fallbackTargetPrice = targetPrice;
-                            leg.fallbackSide = side;
-                            leg.needsOrderReplacement = false;
-                        } else {
-                            console.error("[RE-INIT] Order re-placement failed:", err.message);
-                            addStrategyLog(strategyId, `[RE-INIT] Failed to re-place order for ${leg.instrument?.symbol}: ${err.message}`, "ERROR");
-                            // Don't clear the flag — retry on next tick
-                        }
+                        await handleReentryPlacementError({
+                            err,
+                            strategyId,
+                            leg,
+                            targetPrice,
+                            side,
+                            logPrefix: "[RE-INIT]",
+                            keepRetryOnUnknownError: true
+                        });
                     }
                     continue;
                 }
@@ -1311,6 +1297,11 @@ async function monitorStrategyLoop(strategyId, strategy) {
                             }
                             
                             if (orderStatus === "cancelled" || orderStatus === "rejected") {
+                                const slRejReason = orderData?.text || orderData?.message || orderData?.rejectionreason || "";
+                                if (orderStatus === "rejected" && isMarginError(slRejReason)) {
+                                    await squareOffAndStopOnMarginError(strategyId, `Margin Error on SL order for ${leg.instrument?.symbol}: ${slRejReason}`);
+                                    break;
+                                }
                                 addStrategyLog(strategyId, `[TSL RECOVERY] Original SL order was ${orderStatus}. Placing a new SL order at ₹${newTrigger} to restore protection.`, "WARNING");
                                 
                                 const { placeOrder } = require("./strategy.execution");

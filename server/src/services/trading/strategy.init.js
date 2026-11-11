@@ -3,9 +3,9 @@ const { getLegStrikeSelection, findClosestPremiumInstrument, findOptionInstrumen
 const { calculateMomentumTarget, checkMomentumHit } = require("./strategy.momentum");
 const { getISTTime, getISTExchangeFormat } = require("./strategy.time");
 const { getLimitOffsetAmt, roundToTick, computeStopLossExitPrices, resolveUniversalOrderParams } = require("./strategy.offset");
-const { placeOrder, chaseOrderFill, waitForOrderFillPrice, placeStopLossWithRetry } = require("./strategy.execution");
+const { placeOrder, chaseOrderFill, waitForOrderFillPrice, placeStopLossWithRetry, isMarginError } = require("./strategy.execution");
 const marketSocketService = require("../marketSocket.service");
-const { pauseStrategy } = require("./strategy.lifecycle");
+const { pauseStrategy, squareOffAndStopOnMarginError } = require("./strategy.lifecycle");
 
 async function resolveEntryCandleOpenPrice(leg, config, strategyId) {
     const isEnabled = leg.is_sl_price_on_candle_open || leg.sl_price_on_candle_open || leg.sl_based_on_candle_open || leg.leg?.is_sl_price_on_candle_open || leg.leg?.sl_price_on_candle_open || leg.leg?.sl_based_on_candle_open || config?.is_sl_price_on_candle_open || config?.sl_price_on_candle_open || config?.sl_based_on_candle_open;
@@ -146,7 +146,7 @@ async function handleInitialEntry(strategyId, strategy) {
 
         strategy.legs = []; 
 
-        const placedLegs = await Promise.all(resolvedLegs.map(async (item, idx) => {
+        const placementPromise = Promise.allSettled(resolvedLegs.map(async (item, idx) => {
             let finalPrice = (config.price || "0").toString();
             let orderData = null;
             const isSimpleMntm = item.leg.simple_mntm_enabled === true;
@@ -308,9 +308,33 @@ async function handleInitialEntry(strategyId, strategy) {
             strategy.legs.push(leg);
             return leg;
         }));
+        strategy._pendingEntryPlacementPromise = placementPromise;
+        let placementResults;
+        try {
+            placementResults = await placementPromise;
+        } finally {
+            if (strategy._pendingEntryPlacementPromise === placementPromise) {
+                strategy._pendingEntryPlacementPromise = null;
+            }
+        }
 
-        await Promise.all(placedLegs.map(async (leg) => {
+        const rejectedPlacements = placementResults.filter(r => r.status === "rejected");
+        const marginFailure = rejectedPlacements.find(r => isMarginError(r.reason));
+        if (marginFailure || strategy.marginErrorTriggered) {
+            await squareOffAndStopOnMarginError(
+                strategyId,
+                marginFailure ? `Margin Error during initial entry: ${marginFailure.reason.message}` : "Margin Error during initial entry"
+            );
+            return;
+        }
+        if (rejectedPlacements.length > 0) {
+            throw rejectedPlacements[0].reason;
+        }
+        const placedLegs = placementResults.map(r => r.value);
+
+        await Promise.allSettled(placedLegs.map(async (leg) => {
             if (isVirtualStrategy) return;
+            if (strategy.marginErrorTriggered || strategy.status === "EXITED" || strategy.status === "CLOSING") return;
             
             if (leg.uniqueOrderId) {
                 addStrategyLog(strategyId, `[Success] Angel one API returned a full response for ${leg.instrument.symbol}.`, "INFO");
@@ -340,6 +364,10 @@ async function handleInitialEntry(strategyId, strategy) {
                         return;
                     }
                 } catch (err) {
+                    if (isMarginError(err)) {
+                        await squareOffAndStopOnMarginError(strategyId, `Margin Error during entry retry for ${leg.instrument.symbol}: ${err.message}`);
+                        return;
+                    }
                     addStrategyLog(strategyId, `[CRITICAL] Retry failed for ${leg.instrument.symbol}: ${err.message}`, "ERROR");
                     leg.state = "ERROR";
                     return;
@@ -357,7 +385,7 @@ async function handleInitialEntry(strategyId, strategy) {
                             const { waitForOrderFillPrice } = require("./strategy.execution");
                             const isVirtual = config?.is_virtual === true || leg.is_virtual_leg === true;
                             const isPaperTrading = config?.is_paper_trading === true || isVirtual;
-                            const fillMeta = {};
+                            const fillMeta = { strategyId };
                             const fillPrice = await waitForOrderFillPrice(
                                 leg.uniqueOrderId,
                                 config.connectionId,
@@ -366,6 +394,7 @@ async function handleInitialEntry(strategyId, strategy) {
                                 28800000, // 8 hours timeout for live momentum limit orders
                                 2000,
                                 {
+                                    strategyId,
                                     side: leg.leg.side,
                                     ordertype: config.ordertype,
                                     price: parseFloat(leg.original_traded_price || config.price || 0),
@@ -383,6 +412,11 @@ async function handleInitialEntry(strategyId, strategy) {
                                 leg.tslReferencePrice = fillPrice;
                                 leg.state = "ACTIVE";
                                 addStrategyLog(strategyId, `${leg.instrument.symbol} order filled at ₹${fillPrice}.`, "INFO");
+
+                                if (strategy.marginErrorTriggered || strategy.status === "CLOSING" || strategy.status === "EXITED") {
+                                    if (strategy.marginErrorPromise) await strategy.marginErrorPromise;
+                                    return;
+                                }
 
                                 if (config.variety === "STOPLOSS" && leg.leg.sl_enabled !== false) {
                                     const { placeStopLossWithRetry } = require("./strategy.execution");
@@ -414,16 +448,23 @@ async function handleInitialEntry(strategyId, strategy) {
                                     leg.initialSlTriggerPrice = prices?.trigger || null;
                                     leg.slLimitPrice = prices?.limit || null;
                                 }
-                            } else {
+                            } else if (fillMeta.isMarginError) {
+                                await squareOffAndStopOnMarginError(strategyId, `Margin Error for ${leg.instrument.symbol}: ${fillMeta.reason}`);
+                            } else if (!fillMeta.aborted) {
                                 addStrategyLog(strategyId, `Warning: Fill price not detected for ${leg.instrument.symbol}. Position will NOT be protected with a Stop-Loss.`, "ERROR");
                             }
-                        } catch (e) { console.error("Error background simple mntm", e); }
+                        } catch (e) {
+                            console.error("Error background simple mntm", e);
+                            if (isMarginError(e)) {
+                                await squareOffAndStopOnMarginError(strategyId, `Margin Error for ${leg.instrument.symbol}: ${e.message}`);
+                            }
+                        }
                     }, 0);
                     return;
                 }
 
                 let fillPrice;
-                const fillMeta = {};
+                const fillMeta = { strategyId };
                 if (!config.is_paper_trading && config.ordertype === 'LIMIT' && !leg.simpleMntmEnabled) {
                     fillPrice = await chaseOrderFill({
                         orderId: leg.orderId,
@@ -448,6 +489,7 @@ async function handleInitialEntry(strategyId, strategy) {
                         60000,
                         2000,
                         {
+                            strategyId,
                             side: leg.leg.side,
                             ordertype: config.ordertype,
                             price: parseFloat(leg.original_traded_price || config.price || 0),
@@ -466,14 +508,24 @@ async function handleInitialEntry(strategyId, strategy) {
                     leg.tslReferencePrice = fillPrice;
                     leg.state = "ACTIVE";
                     addStrategyLog(strategyId, `${leg.instrument.symbol} order filled at ₹${fillPrice}.`, "INFO");
+                } else if (fillMeta.isMarginError || strategy.marginErrorTriggered) {
+                    if (fillMeta.isMarginError) {
+                        await squareOffAndStopOnMarginError(strategyId, `Margin Error for ${leg.instrument.symbol}: ${fillMeta.reason}`);
+                    }
+                    return;
                 } else if (!config.is_paper_trading && config.ordertype === 'LIMIT' && !leg.simpleMntmEnabled) {
                     const { stopStrategy } = require("./strategy.lifecycle");
-                    stopStrategy(strategyId, `Entry Chase failed for ${leg.instrument?.symbol || 'leg'}: ${leg.instrument.symbol} order not filled after ${parseInt(config.chase_time_seconds) || 45}s chase.`);
+                    const stopMsg = fillMeta.rejected
+                        ? `Entry order rejected/cancelled for ${leg.instrument?.symbol || 'leg'}: ${fillMeta.reason}`
+                        : `Entry Chase failed for ${leg.instrument?.symbol || 'leg'}: ${leg.instrument.symbol} order not filled after ${parseInt(config.chase_time_seconds) || 45}s chase.`;
+                    stopStrategy(strategyId, stopMsg);
                     return;
-                } else {
+                } else if (!fillMeta.aborted) {
                     addStrategyLog(strategyId, `Warning: Fill price not detected for ${leg.instrument.symbol}. Position will NOT be protected with a Stop-Loss.`, "ERROR");
                 }
             }
+
+            if (strategy.marginErrorTriggered || strategy.status === "CLOSING" || strategy.status === "EXITED") return;
 
             if (config.variety === "STOPLOSS" && leg.entryPrice && leg.leg.sl_enabled !== false) {
                 let slValueToUse = leg.leg.stop_loss;
@@ -517,6 +569,11 @@ async function handleInitialEntry(strategyId, strategy) {
             }
         }));
 
+        if (strategy.marginErrorTriggered || strategy.status === "CLOSING" || strategy.status === "EXITED") {
+            if (strategy.marginErrorPromise) await strategy.marginErrorPromise;
+            return;
+        }
+
         strategy.status = "IN_POSITION";
         if (isVirtualStrategy) strategy.is_virtual = true;
         updateStrategyInMemory(strategyId, {
@@ -529,6 +586,10 @@ async function handleInitialEntry(strategyId, strategy) {
 
     } catch (err) {
         console.error(`[${strategyId}] Initial entry failed:`, err.message);
+        if (isMarginError(err) || strategy.marginErrorTriggered) {
+            await squareOffAndStopOnMarginError(strategyId, `Margin Error during initial entry: ${err.message}`);
+            return;
+        }
         throw err; // Allow executeStrategy to handle rollback
     }
 }

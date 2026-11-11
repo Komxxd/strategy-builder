@@ -46,6 +46,11 @@ async function executeStrategy(strategyId) {
             }
         } catch (err) {
             console.error(`[Engine][${strategyId}] Loop error:`, err.message);
+            const { isMarginError } = require("./strategy.execution");
+            if (isMarginError(err)) {
+                const { squareOffAndStopOnMarginError } = require("./strategy.lifecycle");
+                await squareOffAndStopOnMarginError(strategyId, `Margin Error: ${err.message}`);
+            }
         } finally {
             strategy.isProcessing = false;
         }

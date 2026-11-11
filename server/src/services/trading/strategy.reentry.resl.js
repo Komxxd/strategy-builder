@@ -1,5 +1,5 @@
 const { roundToTick, getLimitOffsetAmt, computeStopLossExitPrices } = require("./strategy.offset");
-const { placeOrder, waitForOrderFillPrice, placeStopLossWithRetry } = require("./strategy.execution");
+const { placeOrder, placeStopLossWithRetry, resolveReentryOrderFill, handleReentryPlacementError } = require("./strategy.execution");
 const { getISTTime, getISTExchangeFormat, isWithinSecondsOfExit } = require("./strategy.time");
 
 async function handleReentryReSL({ leg, config, strategyId, addStrategyLog, currentTick }) {
@@ -101,69 +101,24 @@ async function handleReentryReSL({ leg, config, strategyId, addStrategyLog, curr
         leg.rtp = rtp;
         setTimeout(async () => {
             try {
-                let fillPrice;
-                const fillMeta = {};
-                if (!isPaperTrading && ordertype === 'LIMIT') {
-                    const { chaseOrderFill } = require("./strategy.execution");
-                    fillPrice = await chaseOrderFill({
-                        orderId: leg.orderId,
-                        uniqueOrderId: leg.uniqueOrderId,
-                        instrument: leg.instrument,
-                        config,
-                        legSide: side,
-                        lots: leg.leg.lots,
-                        connectionId: config.connectionId,
-                        strategyId,
-                        baseLtp: targetPrice,
-                        orderVariety: variety,
-                        orderType: ordertype,
-                        isReentryChase: true,
-                        fillMeta
-                    });
-                } else {
-                    fillPrice = await waitForOrderFillPrice(
-                        leg.uniqueOrderId,
-                        config.connectionId,
-                        isPaperTrading,
-                        leg.instrument,
-                        28800000,
-                        1000,
-                        {
-                            side: side,
-                            ordertype: ordertype,
-                            price: parseFloat(finalPriceStr || 0),
-                            triggerprice: parseFloat(triggerPriceStr || 0),
-                            isInstantFill: isPaperTrading
-                        },
-                        fillMeta
-                    );
-                }
-
-                if (!fillPrice && !isPaperTrading && ordertype === "LIMIT") {
-
-                    addStrategyLog(strategyId, `Re-Entry Chase exhausted. Order left on exchange. Monitoring for fill...`, "WARNING");
-
-                    fillPrice = await waitForOrderFillPrice(
-
-                        leg.uniqueOrderId,
-
-                        config.connectionId,
-
-                        false,
-
-                        leg.instrument,
-
-                        28800000,
-
-                        1000,
-
-                        null,
-
-                        fillMeta
-
-                    );
-
-                }
+                const { fillPrice, fillMeta, halted } = await resolveReentryOrderFill({
+                    leg,
+                    config,
+                    strategyId,
+                    side,
+                    variety,
+                    ordertype,
+                    targetPrice,
+                    priceStr: finalPriceStr,
+                    triggerPriceStr: triggerPriceStr,
+                    isPaperTrading,
+                    isInstantFill: isPaperTrading,
+                    isReentryChase: true,
+                    timeoutMs: 28800000,
+                    pollMs: 1000,
+                    logPrefix: "[RE-SL]"
+                });
+                if (halted) return;
 
                 if (fillPrice) {
                     const fill = fillPrice;
@@ -219,16 +174,14 @@ async function handleReentryReSL({ leg, config, strategyId, addStrategyLog, curr
             }
         }, 0);
     } catch (err) {
-        if (err.message === "LPP_TRIGGER_REJECTION") {
-            addStrategyLog(strategyId, `[RE-SL] Target order rejected by LPP for ${leg.instrument.symbol}. Switching to INTERNAL MONITORING for Target: ₹${targetPrice}.`, "WARNING");
-            leg.state = "WAITING_FOR_INTERNAL_FALLBACK";
-            leg.fallbackTargetPrice = targetPrice;
-            leg.fallbackSide = side;
-            return;
-        }
-        console.error("[RE-SL] Momentum Re-entry failed. Halting leg completely.", err);
-        leg.state = "COMPLETED";
-        leg.exited = true;
+        await handleReentryPlacementError({
+            err,
+            strategyId,
+            leg,
+            targetPrice,
+            side,
+            logPrefix: "[RE-SL]"
+        });
     }
 }
 

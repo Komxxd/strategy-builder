@@ -525,7 +525,7 @@ function pauseStrategy(strategyId, reason) {
     marketSocketService.sendAlertToUser(strategy.user_id, `Strategy PAUSED — ${reason}`, "error", strategyId);
 }
 
-function stopStrategy(strategyId, reason) {
+function stopStrategy(strategyId, reason, extraUpdates = {}) {
     const strategy = activeStrategies.get(strategyId);
     if (!strategy) return;
 
@@ -545,11 +545,87 @@ function stopStrategy(strategyId, reason) {
         totalPnlRupees: strategy.totalPnlRupees || 0,
         totalOriginalValue: strategy.totalOriginalValue || 0,
         legs: strategy.legs,
-        _closedAt: new Date().toISOString()
+        _closedAt: new Date().toISOString(),
+        ...extraUpdates
     });
 
     const marketSocketService = require("../marketSocket.service");
     marketSocketService.sendAlertToUser(strategy.user_id, `Strategy CLOSED — ${reason}`, "error", strategyId);
+}
+
+/**
+ * Handles any synchronous or asynchronous broker margin error on a strategy:
+ * cancels pending entry/SL orders, squares off all already-filled positions
+ * across all legs, and stops the strategy cleanly.
+ * Idempotent per strategy so concurrent leg rejections collapse into one square-off.
+ */
+async function squareOffAndStopOnMarginError(strategyId, reason) {
+    const strategy = activeStrategies.get(strategyId);
+    if (!strategy) return false;
+
+    if (strategy.marginErrorPromise) {
+        return await strategy.marginErrorPromise;
+    }
+
+    const cleanReason = reason || "Broker reported insufficient margin / funds";
+    strategy.marginErrorTriggered = true;
+    strategy.entryAttempted = true;
+    strategy.exitAttempted = true;
+
+    if (strategy.interval) {
+        clearInterval(strategy.interval);
+        strategy.interval = null;
+    }
+
+    // Use transitional status while squaring off so exit chase loops still run cleanly
+    if (strategy.status !== "EXITED") {
+        strategy.status = "CLOSING";
+    }
+
+    addStrategyLog(strategyId, `MARGIN ERROR DETECTED: ${cleanReason}. Initiating immediate square-off and strategy shutdown...`, "CRITICAL");
+
+    strategy.marginErrorPromise = (async () => {
+        try {
+            // Wait for any in-flight parallel initial placement RPCs so all placed orderIds are in strategy.legs
+            if (strategy._pendingEntryPlacementPromise) {
+                try {
+                    await strategy._pendingEntryPlacementPromise;
+                } catch (_) {
+                    // Individual errors are handled via legs cleanup below
+                }
+            }
+
+            const { placeExitOrder } = require("./strategy.execution");
+            const legs = Array.isArray(strategy.legs) ? strategy.legs : [];
+            const legsToClose = legs.filter(l => !l.exited);
+            const exitConfig = { ...(strategy.config || {}), id: strategy.config?.id || strategyId };
+
+            if (legsToClose.length > 0) {
+                addStrategyLog(strategyId, `[Margin Shutdown] Squaring off / cancelling ${legsToClose.length} active or pending leg(s)...`, "CRITICAL");
+                await Promise.allSettled(legsToClose.map(async (leg) => {
+                    try {
+                        await placeExitOrder({
+                            config: exitConfig,
+                            leg,
+                            instrument: leg.instrument,
+                            exitType: "MARGIN_ERROR_SQ_OFF"
+                        });
+                    } catch (exitErr) {
+                        addStrategyLog(strategyId, `[Margin Shutdown] CRITICAL: Failed to square off ${leg.instrument?.symbol || "leg"}: ${exitErr.message}`, "CRITICAL");
+                    }
+                }));
+            }
+
+            if (strategy.totalPnlRupees == null && legs.length > 0) {
+                strategy.totalPnlRupees = legs.reduce((sum, l) => sum + (Number(l.pnlRupees || l.bookedPnlRupees || 0)), 0);
+            }
+        } finally {
+            stopStrategy(strategyId, cleanReason, { exit_type: "MARGIN_ERROR_SQ_OFF" });
+        }
+        return true;
+    })();
+
+    return await strategy.marginErrorPromise;
 }
 
 async function squareOffStrategy(strategyId, userId) {
@@ -1135,6 +1211,7 @@ module.exports = {
     handleLegStopOut,
     pauseStrategy,
     stopStrategy,
+    squareOffAndStopOnMarginError,
     squareOffStrategy,
     squareOffLeg,
     resumeStrategy,
