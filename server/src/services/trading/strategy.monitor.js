@@ -144,7 +144,7 @@ async function monitorStrategyLoop(strategyId, strategy) {
                         try {
                             const offset = getLimitOffsetAmt(target, config);
                             const limitPrice = side === "BUY" ? roundToTick(target + offset) : roundToTick(target - offset);
-                            
+
                             const order = await placeOrder({
                                 ...config,
                                 side: side,
@@ -156,9 +156,9 @@ async function monitorStrategyLoop(strategyId, strategy) {
 
                             leg.orderId = order.orderid;
                             leg.uniqueOrderId = order.uniqueorderid;
-                            leg.state = "ACTIVE"; 
+                            leg.state = "ACTIVE";
                             leg.mtp = target;
-                            
+
                             // Re-init fill monitoring
                             const { waitForOrderFillPrice } = require("./strategy.execution");
                             setTimeout(async () => {
@@ -177,7 +177,7 @@ async function monitorStrategyLoop(strategyId, strategy) {
                                         if (config.variety === "STOPLOSS" && leg.entryPrice && isSlEnabled) {
                                             const activeSlType = leg.leg.reentry_sl_enabled ? leg.leg.reentry_sl_type : (leg.leg.sl_type || "PERCENTAGE");
                                             const activeSlValue = leg.leg.reentry_sl_enabled ? leg.leg.reentry_sl_value : leg.leg.stop_loss;
-                                            
+
                                             let slValueToUse = activeSlValue;
                                             const isReentered = leg.reentry_count > 0;
                                             if (isReentered && leg.leg.reentry_sl_multiplier_entry_candle && leg.leg.reentry_sl_multiplier_value) {
@@ -237,7 +237,7 @@ async function monitorStrategyLoop(strategyId, strategy) {
                             }
                         }
                     }
-                    continue; 
+                    continue;
                 }                /**
                  * PHASE 3: Re-Entry Tracking (RE-HIGH / RE-LOW)
                  */
@@ -570,57 +570,87 @@ async function monitorStrategyLoop(strategyId, strategy) {
                             }
                         } else {
                             // Live order placement for Simple Momentum
+                            const variety = config.variety === "STOPLOSS" ? "NORMAL" : (config.variety || "NORMAL");
+                            const ordertype = config.ordertype || "LIMIT";
                             const offsetAmt = getLimitOffsetAmt(target, config);
                             let finalPrice = target.toString();
-                            if (config.ordertype === 'LIMIT') {
-                                if (leg.leg.side === "BUY") finalPrice = roundToTick(target + offsetAmt).toString();
-                                else finalPrice = roundToTick(target - offsetAmt).toString();
-                            } else {
-                                finalPrice = "0";
-                            }
+                                if (ordertype === 'LIMIT') {
+                                    if (leg.leg.side === "BUY") finalPrice = roundToTick(target + offsetAmt).toString();
+                                    else finalPrice = roundToTick(target - offsetAmt).toString();
+                                } else {
+                                    finalPrice = "0";
+                                }
 
-                            let variety = config.variety === "STOPLOSS" ? "NORMAL" : (config.variety || "NORMAL");
-                            let ordertype = config.ordertype || "LIMIT";
+                                addStrategyLog(strategyId, `[LIVE] Simple Momentum (${mntmType}) Target Reached: ₹${target}. Placing ${leg.leg.side} order for ${leg.instrument.symbol}...`, "INFO");
 
-                            addStrategyLog(strategyId, `[LIVE] Simple Momentum (${mntmType}) Target Reached: ₹${target}. Placing ${leg.leg.side} order for ${leg.instrument.symbol}...`, "INFO");
+                                try {
+                                    let orderData = await placeOrder({
+                                        ...config,
+                                        side: leg.leg.side,
+                                        variety: variety,
+                                        ordertype: ordertype,
+                                        price: finalPrice,
+                                        lots: leg.leg.lots
+                                    }, leg.instrument, config.connectionId);
 
-                            try {
-                                let orderData = await placeOrder({
-                                    ...config,
-                                    side: leg.leg.side,
-                                    variety: variety,
-                                    ordertype: ordertype,
-                                    price: finalPrice,
-                                    lots: leg.leg.lots
-                                }, leg.instrument, config.connectionId);
+                                    if (orderData?.uniqueorderid) {
+                                        leg.orderId = orderData.orderid;
+                                        leg.uniqueOrderId = orderData.uniqueorderid;
+                                        leg.state = "WAITING_FOR_FILL";
+                                        if (mntmType === "HIGH") leg.final_peak_reached = leg.max_peak_price;
+                                        else if (mntmType === "LOW") leg.final_low_reached = leg.max_low_price;
 
-                                if (orderData?.uniqueorderid) {
-                                    leg.orderId = orderData.orderid;
-                                    leg.uniqueOrderId = orderData.uniqueorderid;
-                                    leg.state = "WAITING_FOR_FILL";
-                                    if (mntmType === "HIGH") leg.final_peak_reached = leg.max_peak_price;
-                                    else if (mntmType === "LOW") leg.final_low_reached = leg.max_low_price;
+                                        setTimeout(async () => {
+                                            try {
+                                                const isHighOrLow = mntmType === "HIGH" || mntmType === "LOW";
+                                                const fillMeta = { strategyId };
+                                                        let fillPrice = null;
 
-                                    setTimeout(async () => {
-                                        try {
-                                            const fillMeta = { strategyId };
-                                            const fillPrice = await waitForOrderFillPrice(
-                                                leg.uniqueOrderId,
-                                                config.connectionId,
-                                                false,
-                                                leg.instrument,
-                                                28800000,
-                                                1000,
-                                                {
-                                                    strategyId,
-                                                    side: leg.leg.side,
-                                                    ordertype: ordertype,
-                                                    price: parseFloat(finalPrice),
-                                                    targetPrice: target,
-                                                    isInstantFill: true
-                                                },
-                                                fillMeta
-                                            );
+                                                        if(isHighOrLow) {
+                                                            const res = await resolveReentryOrderFill({
+                                                                leg,
+                                                                config,
+                                                                strategyId,
+                                                                side: leg.leg.side,
+                                                                variety,
+                                                                ordertype,
+                                                                targetPrice: target,
+                                                            priceStr: finalPrice,
+                                                                isPaperTrading: false,
+                                                                    isInstantFill: true,
+                                                                        isReentryChase: false,
+                                                                            timeoutMs: 28800000,
+                                                                                pollMs: 1000,
+                                                                                    logPrefix: `[SIMPLE MNTM ${mntmType}]`
+                                                        });
+                                                if (res.halted) return;
+                                                fillPrice = res.fillPrice;
+                                                Object.assign(fillMeta, res.fillMeta);
+                                                if (!fillPrice && ordertype === "LIMIT") {
+                                                    leg.state = "COMPLETED";
+                                                    leg.exited = true;
+                                                    leg.exitType = "CHASE_TIMEOUT";
+                                                    return;
+                                                }
+                                            } else {
+                                                fillPrice = await waitForOrderFillPrice(
+                                                    leg.uniqueOrderId,
+                                                    config.connectionId,
+                                                    false,
+                                                    leg.instrument,
+                                                    28800000,
+                                                    1000,
+                                                    {
+                                                        strategyId,
+                                                        side: leg.leg.side,
+                                                        ordertype: ordertype,
+                                                        price: parseFloat(finalPrice),
+                                                        targetPrice: target,
+                                                        isInstantFill: true
+                                                    },
+                                                    fillMeta
+                                                );
+                                            }
 
                                             if (fillPrice) {
                                                 leg.entryPrice = fillPrice;
@@ -677,960 +707,960 @@ async function monitorStrategyLoop(strategyId, strategy) {
                                                 await squareOffAndStopOnMarginError(strategyId, `Margin Error for ${leg.instrument?.symbol}: ${err.message}`);
                                             }
                                         }
-                                    }, 500);
-                                }
-                            } catch (err) {
-                                await handleReentryPlacementError({
-                                    err,
-                                    strategyId,
-                                    leg,
-                                    targetPrice: target,
-                                    side: leg.leg.side,
-                                    logPrefix: "[SIMPLE MNTM]",
-                                    keepRetryOnUnknownError: true
-                                });
-                                if (strategy.marginErrorTriggered) break;
+                                }, 0);
                             }
+                        } catch (err) {
+                            await handleReentryPlacementError({
+                                err,
+                                strategyId,
+                                leg,
+                                targetPrice: target,
+                                side: leg.leg.side,
+                                logPrefix: "[SIMPLE MNTM]",
+                                keepRetryOnUnknownError: true
+                            });
+                            if (strategy.marginErrorTriggered) break;
                         }
                     }
                 }
+            }
 
-                // 2. Re-Cost Cross Logic
-                if (leg.state === "WAITING_FOR_MNTM" && leg.last_tick_price !== null) {
-                    if (isReentryBlockedThisMinute) {
-                        leg.last_tick_price = leg.currentLtp;
-                        continue;
-                    }
-
-                    const isSlCandle = (leg.slHitMinute === currentMinute);
-                    const currentTick = leg.currentLtp;
-                    const prevTick = leg.last_tick_price;
-                    const rtp = leg.recost_trigger_price;
-                    const candleOpen = leg.candleOpen ?? currentTick;
-                    let triggerReEntry = false;
-
-                    const recostMode = leg.leg.recost_mode || "RECOST_PLUS_PCT";
-                    if (isSlCandle) {
-                        // Normal tick-by-tick price monitoring on the SL candle
-                        if (recostMode.includes("PLUS")) {
-                            if (prevTick <= rtp && currentTick >= rtp) triggerReEntry = true;
-                        } else {
-                            if (prevTick >= rtp && currentTick <= rtp) triggerReEntry = true;
-                        }
-                    } else {
-                        // Subsequent candles: candle open price check
-                        if (recostMode.includes("PLUS")) {
-                            if (candleOpen > rtp) {
-                                if (currentTick <= rtp) triggerReEntry = true;
-                            } else {
-                                if (prevTick <= rtp && currentTick >= rtp) triggerReEntry = true;
-                            }
-                        } else {
-                            if (candleOpen < rtp) {
-                                if (currentTick >= rtp) triggerReEntry = true;
-                            } else {
-                                if (prevTick >= rtp && currentTick <= rtp) triggerReEntry = true;
-                            }
-                        }
-                    }
-
-                    if (triggerReEntry) {
-                        if (leg.leg.recost_mntm_enabled) {
-                            if (!leg.rtp_met) {
-                                leg.rtp_met = true;
-                                const mntmMode = leg.leg.recost_mntm_mode || "RECOST_PLUS_PCT";
-                                const mntmVal = parseFloat(leg.leg.recost_mntm_value || 0);
-                                let mtp = rtp;
-                                if (mntmMode === "RECOST_PLUS_PCT" || mntmMode === "PLUS_PCT" || mntmMode === "PERCENTAGE") mtp = rtp + (rtp * mntmVal / 100);
-                                else if (mntmMode === "RECOST_PLUS_PTS" || mntmMode === "PLUS_PTS" || mntmMode === "POINTS") mtp = rtp + mntmVal;
-                                else if (mntmMode === "RECOST_MINUS_PCT" || mntmMode === "MINUS_PCT") mtp = rtp - (rtp * mntmVal / 100);
-                                else if (mntmMode === "RECOST_MINUS_PTS" || mntmMode === "MINUS_PTS") mtp = rtp - mntmVal;
-                                leg.mtp = roundToTick(mtp);
-                                addStrategyLog(strategyId, `[RE-COST MNTM] RTP ₹${rtp} reached for ${leg.instrument?.symbol}. Monitoring internally for MTP ₹${leg.mtp}...`, "INFO");
-                            }
-                        } else {
-                            await handleReentryCost({ leg, config, strategyId, addStrategyLog, currentTick });
-                        }
-                    }
-
-                    if (leg.leg.recost_mntm_enabled && leg.rtp_met) {
-                        const targetMtp = leg.mtp;
-                        let mtpHit = false;
-                        if (targetMtp > rtp) {
-                            if ((prevTick !== null && prevTick <= targetMtp && currentTick >= targetMtp) || currentTick >= targetMtp) mtpHit = true;
-                        } else if (targetMtp < rtp) {
-                            if ((prevTick !== null && prevTick >= targetMtp && currentTick <= targetMtp) || currentTick <= targetMtp) mtpHit = true;
-                        } else {
-                            mtpHit = true;
-                        }
-                        if (mtpHit) {
-                            addStrategyLog(strategyId, `[RE-COST MNTM] MTP ₹${targetMtp} reached for ${leg.instrument?.symbol}. Placing LIMIT order...`, "INFO");
-                            await handleReentryCost({ leg, config, strategyId, addStrategyLog, currentTick });
-                        }
-                    }
-                }
-
-                // 2b. Re-SL Cross Logic
-                if (leg.state === "WAITING_FOR_RESL_MNTM" && leg.last_tick_price !== null) {
-                    if (isReentryBlockedThisMinute) {
-                        leg.last_tick_price = leg.currentLtp;
-                        continue;
-                    }
-
-                    const isSlCandle = (leg.slHitMinute === currentMinute);
-                    const currentTick = leg.currentLtp;
-                    const prevTick = leg.last_tick_price;
-                    const rtp = leg.resl_trigger_price;
-                    const candleOpen = leg.candleOpen ?? currentTick;
-                    let triggerReEntry = false;
-
-                    const reslMode = leg.leg.resl_mode || "RESL_PLUS_PCT";
-                    if (isSlCandle) {
-                        // Normal tick-by-tick price monitoring on the SL candle
-                        if (reslMode.includes("PLUS")) {
-                            if (prevTick <= rtp && currentTick >= rtp) triggerReEntry = true;
-                        } else {
-                            if (prevTick >= rtp && currentTick <= rtp) triggerReEntry = true;
-                        }
-                    } else {
-                        // Subsequent candles: candle open price check
-                        if (reslMode.includes("PLUS")) {
-                            if (candleOpen > rtp) {
-                                if (currentTick <= rtp) triggerReEntry = true;
-                            } else {
-                                if (prevTick <= rtp && currentTick >= rtp) triggerReEntry = true;
-                            }
-                        } else {
-                            if (candleOpen < rtp) {
-                                if (currentTick >= rtp) triggerReEntry = true;
-                            } else {
-                                if (prevTick >= rtp && currentTick <= rtp) triggerReEntry = true;
-                            }
-                        }
-                    }
-
-                    if (triggerReEntry) {
-                        if (leg.leg.resl_mntm_enabled) {
-                            if (!leg.rtp_met) {
-                                leg.rtp_met = true;
-                                const mntmMode = leg.leg.resl_mntm_mode || "RESL_PLUS_PCT";
-                                const mntmVal = parseFloat(leg.leg.resl_mntm_value || 0);
-                                let mtp = rtp;
-                                if (mntmMode === "RESL_PLUS_PCT" || mntmMode === "PLUS_PCT" || mntmMode === "PERCENTAGE") mtp = rtp + (rtp * mntmVal / 100);
-                                else if (mntmMode === "RESL_PLUS_PTS" || mntmMode === "PLUS_PTS" || mntmMode === "POINTS") mtp = rtp + mntmVal;
-                                else if (mntmMode === "RESL_MINUS_PCT" || mntmMode === "MINUS_PCT") mtp = rtp - (rtp * mntmVal / 100);
-                                else if (mntmMode === "RESL_MINUS_PTS" || mntmMode === "MINUS_PTS") mtp = rtp - mntmVal;
-                                leg.mtp = roundToTick(mtp);
-                                addStrategyLog(strategyId, `[RE-SL MNTM] RTP ₹${rtp} reached for ${leg.instrument?.symbol}. Monitoring internally for MTP ₹${leg.mtp}...`, "INFO");
-                            }
-                        } else {
-                            await handleReentryReSL({ leg, config, strategyId, addStrategyLog, currentTick });
-                        }
-                    }
-
-                    if (leg.leg.resl_mntm_enabled && leg.rtp_met) {
-                        const targetMtp = leg.mtp;
-                        let mtpHit = false;
-                        if (targetMtp > rtp) {
-                            if ((prevTick !== null && prevTick <= targetMtp && currentTick >= targetMtp) || currentTick >= targetMtp) mtpHit = true;
-                        } else if (targetMtp < rtp) {
-                            if ((prevTick !== null && prevTick >= targetMtp && currentTick <= targetMtp) || currentTick <= targetMtp) mtpHit = true;
-                        } else {
-                            mtpHit = true;
-                        }
-                        if (mtpHit) {
-                            addStrategyLog(strategyId, `[RE-SL MNTM] MTP ₹${targetMtp} reached for ${leg.instrument?.symbol}. Placing LIMIT order...`, "INFO");
-                            await handleReentryReSL({ leg, config, strategyId, addStrategyLog, currentTick });
-                        }
-                    }
-                }
-
-                // 2b.2 Re-entry Conditions (Multiple OR / AND)
-                if (leg.state === "WAITING_FOR_REENTRY_COND" && leg.last_tick_price !== null) {
-                    if (isReentryBlockedThisMinute) {
-                        leg.last_tick_price = leg.currentLtp;
-                        continue;
-                    }
-                    await processReentryConditionsTick({
-                        leg,
-                        config,
-                        strategyId,
-                        addStrategyLog,
-                        tickPrice: leg.currentLtp,
-                        prevTick: leg.last_tick_price,
-                        currentMinute,
-                        currentTime
-                    });
-                }
-
-                // 2c. Re-initiate orphaned WAITING_FOR_FILL legs (from mode switches)
-                // When a leg is in WAITING_FOR_FILL and a virtual/live switch happens, the
-                // original async fill watcher dies (it holds a ref to the old leg object).
-                // The new leg inherits the state but has no watcher. This block re-places
-                // the order and spawns a fresh fill watcher.
-                if (leg.state === "WAITING_FOR_FILL" && leg.needsOrderReplacement) {
-                    const targetPrice = leg.mtp || leg.rtp || leg.re_high_trigger_price || leg.re_low_trigger_price || leg.recost_trigger_price || leg.resl_trigger_price;
-                    if (!targetPrice || !leg.instrument) {
-                        leg.needsOrderReplacement = false;
-                        continue;
-                    }
-
-                    const isVirtual = config?.is_virtual === true || leg.is_virtual_leg === true;
-                    const isPaperTrading = config?.is_paper_trading === true || isVirtual;
-                    const side = leg.leg.side;
-                    const offsetAmt = isPaperTrading ? 0 : getLimitOffsetAmt(targetPrice, config);
-
-                    let variety, ordertype, finalPriceStr, triggerPriceStr;
-
-                    if (side === "BUY") {
-                        if (targetPrice > tickPrice) {
-                            variety = "STOPLOSS";
-                            ordertype = "STOPLOSS_LIMIT";
-                            finalPriceStr = roundToTick(targetPrice + offsetAmt).toString();
-                            triggerPriceStr = targetPrice.toString();
-                        } else {
-                            variety = "NORMAL";
-                            ordertype = "LIMIT";
-                            triggerPriceStr = "0";
-                            finalPriceStr = roundToTick(targetPrice + offsetAmt).toString();
-                        }
-                    } else {
-                        if (targetPrice < tickPrice) {
-                            variety = "STOPLOSS";
-                            ordertype = "STOPLOSS_LIMIT";
-                            finalPriceStr = roundToTick(targetPrice - offsetAmt).toString();
-                            triggerPriceStr = targetPrice.toString();
-                        } else {
-                            variety = "NORMAL";
-                            ordertype = "LIMIT";
-                            triggerPriceStr = "0";
-                            finalPriceStr = roundToTick(targetPrice - offsetAmt).toString();
-                        }
-                    }
-
-                    try {
-                        addStrategyLog(strategyId, `[RE-INIT] Re-placing order for ${leg.instrument?.symbol} at ₹${targetPrice} after mode switch.`, "INFO");
-
-                        const reInitOrder = await placeOrder({
-                            ...config,
-                            side: side,
-                            variety: variety,
-                            ordertype: ordertype,
-                            price: finalPriceStr,
-                            triggerprice: triggerPriceStr,
-                            lots: leg.leg.lots
-                        }, leg.instrument, config.connectionId);
-
-                        leg.orderId = reInitOrder.orderid;
-                        leg.uniqueOrderId = reInitOrder.uniqueorderid;
-                        leg.needsOrderReplacement = false;
-
-                        // Start fill watcher in background
-                        setTimeout(async () => {
-                            try {
-                                const { fillPrice, fillMeta, halted } = await resolveReentryOrderFill({
-                                    leg,
-                                    config,
-                                    strategyId,
-                                    side,
-                                    variety: config.variety || "NORMAL",
-                                    ordertype,
-                                    targetPrice,
-                                    priceStr: finalPriceStr,
-                                    triggerPriceStr: triggerPriceStr,
-                                    isPaperTrading,
-                                    isInstantFill: isPaperTrading,
-                                    isReentryChase: false,
-                                    timeoutMs: 28800000,
-                                    pollMs: 1000,
-                                    logPrefix: "[RE-INIT]"
-                                });
-                                if (halted) return;
-
-                                if (fillPrice) {
-                                    const fill = fillPrice;
-                                    leg.entryPrice = fill;
-                                    leg.entryTime = fillMeta.time || getISTExchangeFormat();
-                                    leg.original_traded_price = fill;
-                                    leg.peakPrice = fill;
-                                    leg.tslReferencePrice = fill;
-                                    leg.state = "ACTIVE";
-                                    addStrategyLog(strategyId, `[RE-INIT] Fill confirmed for ${leg.instrument?.symbol} at ₹${fill}.`, "INFO");
-
-                                    // Deploy SL if needed
-                                    const isSlEnabled = leg.leg.reentry_sl_enabled ? true : leg.leg.sl_enabled !== false;
-                                    if (config.variety === "STOPLOSS" && leg.entryPrice && isSlEnabled) {
-                                        const activeSlType = leg.leg.reentry_sl_enabled ? leg.leg.reentry_sl_type : (leg.leg.sl_type || "PERCENTAGE");
-                                        const activeSlValue = leg.leg.reentry_sl_enabled ? leg.leg.reentry_sl_value : leg.leg.stop_loss;
-
-                                        let slValueToUse = activeSlValue;
-                                        const isReentered = leg.reentry_count > 0;
-                                        if (isReentered && leg.leg.reentry_sl_multiplier_entry_candle && leg.leg.reentry_sl_multiplier_value) {
-                                            slValueToUse = activeSlValue * parseFloat(leg.leg.reentry_sl_multiplier_value);
-                                            leg.sl_multiplier_applied = true;
-                                        } else if (!isReentered && leg.leg.sl_multiplier_entry_candle && leg.leg.sl_multiplier_value) {
-                                            slValueToUse = activeSlValue * parseFloat(leg.leg.sl_multiplier_value);
-                                            leg.sl_multiplier_applied = true;
-                                        }
-
-                                        const slOrder = await placeStopLossWithRetry({
-                                            baseConfig: config,
-                                            legSide: side,
-                                            entryPrice: fill,
-                                            instrument: leg.instrument,
-                                            lots: leg.leg.lots,
-                                            slType: activeSlType,
-                                            slValue: slValueToUse,
-                                            slLimitMargin: config.entry_limit_offset,
-                                            slLimitMarginType: config.entry_limit_offset_type || 'POINTS',
-                                            connectionId: config.connectionId,
-                                            strategyId: strategyId
-                                        });
-
-                                        if (slOrder?.orderid) {
-                                            const prices = computeStopLossExitPrices(fill, side, activeSlType, slValueToUse, config.entry_limit_offset, config.entry_limit_offset_type || 'POINTS');
-                                            leg.slOrderId = slOrder.orderid;
-                                            leg.slUniqueOrderId = slOrder.uniqueorderid;
-                                            leg.slTriggerPrice = prices?.trigger;
-                                            leg.initialSlTriggerPrice = prices?.trigger;
-                                            leg.slLimitPrice = prices?.limit;
-                                            leg.exchangeSlProcessed = false;
-                                        }
-                                    }
-                                }
-                            } catch (e) {
-                                console.error("[RE-INIT] Fill monitoring failed:", e.message);
-                            }
-                        }, 1000);
-                    } catch (err) {
-                        await handleReentryPlacementError({
-                            err,
-                            strategyId,
-                            leg,
-                            targetPrice,
-                            side,
-                            logPrefix: "[RE-INIT]",
-                            keepRetryOnUnknownError: true
-                        });
-                    }
+            // 2. Re-Cost Cross Logic
+            if (leg.state === "WAITING_FOR_MNTM" && leg.last_tick_price !== null) {
+                if (isReentryBlockedThisMinute) {
+                    leg.last_tick_price = leg.currentLtp;
                     continue;
                 }
 
+                const isSlCandle = (leg.slHitMinute === currentMinute);
+                const currentTick = leg.currentLtp;
+                const prevTick = leg.last_tick_price;
+                const rtp = leg.recost_trigger_price;
+                const candleOpen = leg.candleOpen ?? currentTick;
+                let triggerReEntry = false;
 
-                leg.last_tick_price = leg.currentLtp;
-
-                // 3. PnL Updates
-                if (leg.entryPrice && (leg.state === "ACTIVE" || leg.state === "VIRTUAL_MONITORING")) {
-                    if (leg.peakPrice === undefined || leg.peakPrice === null) leg.peakPrice = leg.entryPrice;
-                    if (leg.leg.side === "BUY") {
-                        if (leg.currentLtp > leg.peakPrice) leg.peakPrice = leg.currentLtp;
+                const recostMode = leg.leg.recost_mode || "RECOST_PLUS_PCT";
+                if (isSlCandle) {
+                    // Normal tick-by-tick price monitoring on the SL candle
+                    if (recostMode.includes("PLUS")) {
+                        if (prevTick <= rtp && currentTick >= rtp) triggerReEntry = true;
                     } else {
-                        if (leg.currentLtp < leg.peakPrice) leg.peakPrice = leg.currentLtp;
+                        if (prevTick >= rtp && currentTick <= rtp) triggerReEntry = true;
                     }
-
-                    const pnlPoints = leg.leg.side === "BUY" ? (leg.currentLtp - leg.entryPrice) : (leg.entryPrice - leg.currentLtp);
-                    leg.currentActivePnlPoints = pnlPoints;
-                    
-                    // SCALE QUANTITY BY MULTIPLIER
-                    const multiplier = parseFloat(config.quantity_multiplier) || 1;
-                    const quantity = leg.leg.lots * parseInt(leg.instrument.lotsize || 1) * multiplier;
-                    
-                    leg.currentActivePnlRupees = pnlPoints * quantity;
-                    leg.pnlPercent = ((leg.bookedPnlPoints || 0) + pnlPoints) / leg.original_traded_price * 100;
-                    leg.currentActivePnlPercent = (pnlPoints / leg.entryPrice) * 100;
-                    leg.pnlPoints = (leg.bookedPnlPoints || 0) + leg.currentActivePnlPoints;
-                    leg.pnlRupees = (leg.bookedPnlRupees || 0) + leg.currentActivePnlRupees;
-                }
-            }
-        }
-
-        // Global Strategy PnL (strictly following the new formula)
-        const isVirtualLeg = l => l.is_virtual_leg || l.is_virtual_monitoring;
-        
-        const bookedRupees = strategy.legs
-            .filter(l => l.exited && (!isVirtualLeg(l) || l.exitType === "SWITCHED_TO_VIRTUAL"))
-            .reduce((sum, l) => sum + (l.pnlRupees || l.bookedPnlRupees || 0), 0);
-            
-        const virtualRupees = strategy.legs
-            .filter(l => isVirtualLeg(l))
-            .reduce((sum, l) => sum + (l.exited ? (l.pnlRupees || l.bookedPnlRupees || 0) : (l.currentActivePnlRupees || l.pnlRupees || 0)), 0);
-            
-        const switchRupees = strategy.legs
-            .filter(l => l.exitType === "SWITCHED_TO_VIRTUAL")
-            .reduce((sum, l) => sum + (l.pnlRupees || l.bookedPnlRupees || 0), 0);
-            
-        const virtualPlRupees = virtualRupees - switchRupees;
-        
-        const ongoingRupees = strategy.legs
-            .filter(l => !l.exited && !isVirtualLeg(l))
-            .reduce((sum, l) => sum + (l.currentActivePnlRupees || l.pnlRupees || 0), 0);
-            
-        const totalPnlRupees = virtualPlRupees + bookedRupees + ongoingRupees;
-        
-        strategy.totalPnlRupees = totalPnlRupees;
-
-        const totalOriginalValue = strategy.legs.reduce((sum, l) => {
-            if (l.exitType === "SWITCHED_TO_VIRTUAL") return sum;
-            if (!l.original_traded_price) return sum;
-            const multiplier = parseFloat(config.quantity_multiplier) || 1;
-            const quantity = (l.leg?.lots || 0) * parseInt(l.instrument?.lotsize || 1) * multiplier;
-            return sum + (l.original_traded_price * quantity);
-        }, 0);
-
-        const avgPnl = totalOriginalValue > 0 ? (totalPnlRupees / totalOriginalValue) * 100 : 0;
-        strategy.pnlPercent = avgPnl;
-        strategy.totalOriginalValue = totalOriginalValue;
-
-        // Overall Limit Check — "On Close" support
-        // If on_close is enabled, the check only fires at second 59 of each minute
-        const currentSeconds = parseInt(currentTime.split(":")[2], 10);
-        const isMinuteClose = currentSeconds === 59;
-
-        const limitCheck = checkOverallPnlLimits({ config, totalPnlRupees, avgPnl, isMinuteClose });
-        if (limitCheck.hit) {
-            if (strategy.exitAttempted) return;
-            strategy.exitAttempted = true;
-            addStrategyLog(strategyId, `${limitCheck.logMessage} Final PnL: ₹${totalPnlRupees.toFixed(2)} (${avgPnl.toFixed(2)}%).`, limitCheck.logLevel);
-
-            if (!config.is_paper_trading) {
-                await Promise.all(strategy.legs.map(async (leg) => {
-                    if (leg.exited) return;
-                    try {
-                        // We NO LONGER cancel slOrderId here. placeExitOrder will convert it to an Exit order.
-                        if (!leg.entryPrice && leg.orderId) {
-                            try { await cancelOrder(config, "NORMAL", leg.orderId); } catch (e) { await cancelOrder(config, "STOPLOSS", leg.orderId); }
-                        }
-                    } catch (e) { }
-                }));
-            }
-
-            try {
-                const exitResults = await Promise.allSettled(strategy.legs.map(async (leg) => {
-                    if (leg.exited) return leg.exitOrderId;
-                    return await placeExitOrder({ config, leg, instrument: leg.instrument, exitType: limitCheck.exitType });
-                }));
-                const chaseErrors = exitResults.filter(r => r.status === 'rejected' && r.reason?.message?.startsWith("EXIT_CHASE_EXHAUSTED"));
-                if (chaseErrors.length > 0) {
-                    pauseStrategy(strategyId, `Exit Chase failed during Overall Limit hit: ${chaseErrors[0].reason.message}`);
-                    return "TERMINATE";
-                }
-                const otherErrors = exitResults.filter(r => r.status === 'rejected');
-                if (otherErrors.length > 0) {
-                    pauseStrategy(strategyId, `Exit placement failed: ${otherErrors[0].reason.message}`);
-                    return "TERMINATE";
-                }
-                const exitOrders = exitResults.map(r => r.value);
-                strategy.status = "EXITED";
-                strategy.exitOrderId = exitOrders;
-                strategy.exitType = limitCheck.exitType;
-                updateStrategyInMemory(strategyId, {
-                    status: "EXITED", exit_order_id: strategy.exitOrderId, exit_type: limitCheck.exitType,
-                    final_pnl_percent: avgPnl, totalPnlRupees: totalPnlRupees, totalOriginalValue: strategy.totalOriginalValue, legs: strategy.legs
-                });
-                return "TERMINATE";
-            } catch (exitErr) {
-                throw exitErr;
-            }
-        }
-
-        // Leg Monitoring (TSL/SL)
-        for (const leg of strategy.legs) {
-            if (leg.exited || leg.state === "WAITING_FOR_RECOST" || !leg.entryPrice) continue;
-            if (leg.state !== "ACTIVE" && leg.state !== "VIRTUAL_MONITORING") continue;
-            
-            let isEntryMinute = false;
-            const isReenteredForTimer = leg.reentry_count > 0;
-            const hasMultiplier = isReenteredForTimer ? leg.leg.reentry_sl_multiplier_entry_candle : leg.leg.sl_multiplier_entry_candle;
-            if ((config.no_sl_on_entry_candle || hasMultiplier) && leg.entryTime) {
-                const { getISTTime } = require("./strategy.time");
-                const currentMinute = getISTTime().substring(0, 5);
-                const entryTimeStr = leg.entryTime.includes(' ') ? leg.entryTime.split(' ')[1] : leg.entryTime;
-                const entryMinute = entryTimeStr.substring(0, 5);
-                isEntryMinute = (currentMinute === entryMinute);
-            }
-
-            if (!isEntryMinute) {
-                if (config.no_sl_on_entry_candle && !leg.slOrderId && leg.entryPrice && config.variety === "STOPLOSS" && !config.is_paper_trading && !leg.is_virtual_leg && leg.state !== "WAITING_FOR_RECOST") {
-                    const isReentered = leg.reentry_count > 0;
-                    const isSlEnabled = isReentered && leg.leg.reentry_sl_enabled ? true : leg.leg.sl_enabled !== false;
-                    const activeSlValue = isReentered && leg.leg.reentry_sl_enabled ? leg.leg.reentry_sl_value : leg.leg.stop_loss;
-                    
-                    if (isSlEnabled && activeSlValue > 0 && leg.slOrderId !== "DISABLED") {
-                        try {
-                            const activeSlType = isReentered && leg.leg.reentry_sl_enabled ? leg.leg.reentry_sl_type : (leg.leg.sl_type || "PERCENTAGE");
-                            const isSlCandleOpen = !isReentered && (leg.is_sl_price_on_candle_open || leg.leg?.is_sl_price_on_candle_open || leg.leg?.sl_price_on_candle_open || leg.leg?.sl_based_on_candle_open || config.is_sl_price_on_candle_open || config.sl_price_on_candle_open || config.sl_based_on_candle_open) && !leg.simpleMntmEnabled;
-                            let basePriceForSl = (isSlCandleOpen && leg.entryCandleOpen) ? leg.entryCandleOpen : leg.entryPrice;
-                            if (isSlCandleOpen) {
-                                const { resolveEntryCandleOpenPrice } = require("./strategy.init");
-                                basePriceForSl = await resolveEntryCandleOpenPrice(leg, config, strategyId);
-                            }
-
-                            const limitMargin = leg.leg.sl_limit_margin !== undefined && leg.leg.sl_limit_margin !== null && leg.leg.sl_limit_margin !== ''
-                                ? leg.leg.sl_limit_margin
-                                : getLimitOffsetAmt(basePriceForSl, config);
-                            const limitMarginType = leg.leg.sl_limit_margin_type || config.entry_limit_offset_type || 'POINTS';
-
-                            // If trailing is enabled and has already trailed leg.slTriggerPrice, pass that as overrideSlTriggerPrice
-                            const isSlOverride = isReentered && leg.leg.reentry_sl_enabled === true;
-                            const isTslEnabled = isSlOverride ? (leg.leg.reentry_tsl_enabled === true) : (leg.leg.tsl_enabled || false);
-                            const targetTriggerPrice = (isTslEnabled && leg.slTriggerPrice) ? leg.slTriggerPrice : undefined;
-
-                            const slOrder = await placeStopLossWithRetry({
-                                baseConfig: config,
-                                legSide: leg.leg.side,
-                                entryPrice: basePriceForSl,
-                                instrument: leg.instrument,
-                                lots: leg.leg.lots,
-                                slType: activeSlType,
-                                slValue: activeSlValue,
-                                slLimitMargin: limitMargin,
-                                slLimitMarginType: limitMarginType,
-                                connectionId: config.connectionId,
-                                strategyId: strategyId,
-                                overrideSlTriggerPrice: targetTriggerPrice,
-                                isDeferred: true,
-                                isCandleOpenSl: isSlCandleOpen,
-                                candleOpenPrice: basePriceForSl,
-                                actualEntryPrice: leg.entryPrice
-                            });
-                            if (slOrder && slOrder.orderid) {
-                                leg.slOrderId = slOrder.orderid;
-                                leg.slUniqueOrderId = slOrder.uniqueorderid;
-                                if (targetTriggerPrice) {
-                                    leg.slTriggerPrice = parseFloat(slOrder.triggerprice);
-                                    leg.slLimitPrice = parseFloat(slOrder.limitprice);
-                                } else {
-                                    const prices = computeStopLossExitPrices(basePriceForSl, leg.leg.side, activeSlType, activeSlValue, limitMargin, limitMarginType);
-                                    if (prices) {
-                                        leg.slTriggerPrice = prices.trigger;
-                                        leg.initialSlTriggerPrice = prices.trigger;
-                                        leg.slLimitPrice = prices.limit;
-                                    }
-                                }
-                                leg.exchangeSlProcessed = false;
-                                const candleOpenMsg = isSlCandleOpen ? ` using Entry Candle Open ₹${Number(basePriceForSl).toFixed(2)} (Traded Entry Price: ₹${Number(leg.entryPrice).toFixed(2)})` : '';
-                                addStrategyLog(strategyId, `[Deferred SL] Placed StopLoss for ${leg.instrument.symbol} after entry minute close${candleOpenMsg}. Trigger: ₹${slOrder.triggerprice}, Limit: ₹${slOrder.limitprice}${targetTriggerPrice ? ' (Trailed)' : ''}`, "INFO");
-                            } else {
-                                leg.slOrderId = "DISABLED";
-                            }
-                        } catch(err) {
-                            addStrategyLog(strategyId, `[Deferred SL] Failed to place StopLoss for ${leg.instrument.symbol}: ${err.message}`, "ERROR");
-                            leg.slOrderId = "DISABLED";
-                        }
-                    }
-                }
-
-                if (leg.sl_multiplier_applied && leg.slOrderId && leg.slOrderId !== "DISABLED" && config.variety === "STOPLOSS") {
-                    const isReentered = leg.reentry_count > 0;
-                    const activeSlValue = isReentered && leg.leg.reentry_sl_enabled ? leg.leg.reentry_sl_value : leg.leg.stop_loss;
-                    const activeSlType = isReentered && leg.leg.reentry_sl_enabled ? leg.leg.reentry_sl_type : (leg.leg.sl_type || "PERCENTAGE");
-                    
-                    const isSlCandleOpen = !isReentered && (leg.is_sl_price_on_candle_open || leg.leg?.is_sl_price_on_candle_open || leg.leg?.sl_price_on_candle_open || leg.leg?.sl_based_on_candle_open || config.is_sl_price_on_candle_open || config.sl_price_on_candle_open || config.sl_based_on_candle_open) && !leg.simpleMntmEnabled;
-                    const basePriceForSl = (isSlCandleOpen && leg.entryCandleOpen) ? leg.entryCandleOpen : leg.entryPrice;
-
-                    const prices = computeStopLossExitPrices(basePriceForSl, leg.leg.side, activeSlType, activeSlValue, config.entry_limit_offset, config.entry_limit_offset_type || 'POINTS');
-                    if (prices) {
-                        try {
-                            const multiplier = parseFloat(config.quantity_multiplier) || 1;
-                            const quantityInShares = (leg.leg.lots * parseInt(leg.instrument.lotsize) * multiplier).toString();
-                            
-                            await modifyOrderLocallyOrViaWorker(config, {
-                                variety: "STOPLOSS", orderid: leg.slOrderId, ordertype: "STOPLOSS_LIMIT", producttype: config.producttype || "CARRYFORWARD",
-                                duration: config.duration || "DAY", price: prices.limit.toString(), quantity: quantityInShares,
-                                tradingsymbol: leg.instrument.symbol, symboltoken: leg.instrument.token, exchange: leg.instrument.exch_seg,
-                                triggerprice: prices.trigger.toString(),
-                            });
-                            leg.sl_multiplier_applied = false;
-                            
-                            // update memory prices so monitoring doesn't trigger unexpectedly early or late
-                            leg.slTriggerPrice = prices.trigger;
-                            leg.slLimitPrice = prices.limit;
-                            leg.initialSlTriggerPrice = prices.trigger;
-                            
-                            const candleOpenMsg = isSlCandleOpen ? ` (based on Entry Candle Open ₹${Number(basePriceForSl).toFixed(2)}, Traded Entry Price: ₹${Number(leg.entryPrice).toFixed(2)})` : '';
-                            addStrategyLog(strategyId, `[SL Multiplier] Reverted SL order for ${leg.instrument.symbol} to normal price ₹${prices.trigger}${candleOpenMsg} after entry minute.`, "INFO");
-                        } catch(err) {
-                            addStrategyLog(strategyId, `[SL Multiplier] Failed to revert SL order for ${leg.instrument.symbol}: ${err.message}`, "ERROR");
-                        }
-                    }
-                }
-            }
-
-            const evalResult = evaluateLegLimits({ leg, config, strategyId, addStrategyLog, isMinuteClose, isEntryMinute });
-            
-            // Debug TSL re-entry
-            if (leg.reentry_count > 0 && leg.leg.tsl_enabled) {
-                // We can't easily see internal variables of evaluateLegLimits here, 
-                // but we can check the result.
-            }
-
-            if (evalResult.initSlReq) {
-                leg.initialSlTriggerPrice = evalResult.tslUpdates.initTrigger;
-                if (!leg.slTriggerPrice) leg.slTriggerPrice = evalResult.tslUpdates.initTrigger;
-                if (!leg.slLimitPrice) leg.slLimitPrice = evalResult.tslUpdates.initLimit;
-                addStrategyLog(strategyId, `[MONITOR] Recovered missing Initial SL for ${leg.instrument?.symbol}: ₹${leg.initialSlTriggerPrice}`, "INFO");
-            }
-
-            if (evalResult.tslStepped) {
-                const { oldTrigger, newTrigger, newLimit, newReferencePrice } = evalResult.tslUpdates;
-                if (config.variety === "STOPLOSS" && !config.is_paper_trading && leg.slOrderId) {
-                    try {
-                        const multiplier = parseFloat(config.quantity_multiplier) || 1;
-                        const quantityInShares = (leg.leg.lots * parseInt(leg.instrument.lotsize) * multiplier).toString();
-                        await modifyOrderLocallyOrViaWorker(config, {
-                            variety: "STOPLOSS", orderid: leg.slOrderId, ordertype: "STOPLOSS_LIMIT", producttype: config.producttype || "CARRYFORWARD",
-                            duration: config.duration || "DAY", price: newLimit.toString(), quantity: quantityInShares,
-                            tradingsymbol: leg.instrument.symbol, symboltoken: leg.instrument.token, exchange: leg.instrument.exch_seg,
-                            triggerprice: newTrigger.toString(),
-                        });
-                        addStrategyLog(strategyId, `TSL Step: Moved SL for ${leg.instrument.symbol} to ₹${newTrigger}`, "INFO");
-                    } catch (e) {
-                        console.error(`[TSL] Failed to modify order ${leg.slOrderId} for ${leg.instrument.symbol}:`, e.message);
-                        
-                        // FIX: If modification fails, check if the original order was manually cancelled or rejected.
-                        // If it is dead, deploy a new SL order to restore protection.
-                        try {
-                            const api = await getAuthorizedInstance(config.connectionId);
-                            const { orderStatus, orderData } = await getBrokerOrderStatus(api, leg.slUniqueOrderId, leg.slOrderId);
-                            if (!leg.slUniqueOrderId && orderData?.uniqueorderid) {
-                                leg.slUniqueOrderId = orderData.uniqueorderid;
-                            }
-                            
-                            if (orderStatus === "cancelled" || orderStatus === "rejected") {
-                                const slRejReason = orderData?.text || orderData?.message || orderData?.rejectionreason || "";
-                                if (orderStatus === "rejected" && isMarginError(slRejReason)) {
-                                    await squareOffAndStopOnMarginError(strategyId, `Margin Error on SL order for ${leg.instrument?.symbol}: ${slRejReason}`);
-                                    break;
-                                }
-                                addStrategyLog(strategyId, `[TSL RECOVERY] Original SL order was ${orderStatus}. Placing a new SL order at ₹${newTrigger} to restore protection.`, "WARNING");
-                                
-                                const { placeOrder } = require("./strategy.execution");
-                                const slConfig = {
-                                    ...config,
-                                    lots: leg.leg.lots,
-                                    variety: "STOPLOSS",
-                                    ordertype: "STOPLOSS_LIMIT",
-                                    side: leg.leg.side === "BUY" ? "SELL" : "BUY",
-                                    price: newLimit.toString(),
-                                    triggerprice: newTrigger.toString(),
-                                };
-                                
-                                const newSlOrder = await placeOrder(slConfig, leg.instrument, config.connectionId);
-                                if (newSlOrder && newSlOrder.orderid) {
-                                    leg.slOrderId = newSlOrder.orderid;
-                                    leg.slUniqueOrderId = newSlOrder.uniqueorderid;
-                                    addStrategyLog(strategyId, `[TSL RECOVERY] Successfully deployed replacement SL order ${newSlOrder.orderid}.`, "INFO");
-                                }
-                            } else {
-                                addStrategyLog(strategyId, `[TSL] SL Modification failed, but order status is '${orderStatus || "unknown"}'. Keeping existing order.`, "WARNING");
-                            }
-                        } catch (statusErr) {
-                            console.error(`[TSL RECOVERY] Failed to check status of ${leg.slOrderId}:`, statusErr.message);
-                        }
-                    }
-                } else if (!config.is_paper_trading && !leg.is_virtual_leg && config.no_sl_on_entry_candle && isEntryMinute) {
-                    addStrategyLog(strategyId, `[TSL] Entry candle trailing updated SL for ${leg.instrument?.symbol} to ₹${newTrigger} (order deferred)`, "INFO");
                 } else {
-                    addStrategyLog(strategyId, `[PAPER TSL] Virtual SL moved to ₹${newTrigger}`, "INFO");
+                    // Subsequent candles: candle open price check
+                    if (recostMode.includes("PLUS")) {
+                        if (candleOpen > rtp) {
+                            if (currentTick <= rtp) triggerReEntry = true;
+                        } else {
+                            if (prevTick <= rtp && currentTick >= rtp) triggerReEntry = true;
+                        }
+                    } else {
+                        if (candleOpen < rtp) {
+                            if (currentTick >= rtp) triggerReEntry = true;
+                        } else {
+                            if (prevTick >= rtp && currentTick <= rtp) triggerReEntry = true;
+                        }
+                    }
                 }
-                leg.slTriggerPrice = newTrigger;
-                leg.slLimitPrice = newLimit;
-                leg.tslReferencePrice = newReferencePrice;
+
+                if (triggerReEntry) {
+                    if (leg.leg.recost_mntm_enabled) {
+                        if (!leg.rtp_met) {
+                            leg.rtp_met = true;
+                            const mntmMode = leg.leg.recost_mntm_mode || "RECOST_PLUS_PCT";
+                            const mntmVal = parseFloat(leg.leg.recost_mntm_value || 0);
+                            let mtp = rtp;
+                            if (mntmMode === "RECOST_PLUS_PCT" || mntmMode === "PLUS_PCT" || mntmMode === "PERCENTAGE") mtp = rtp + (rtp * mntmVal / 100);
+                            else if (mntmMode === "RECOST_PLUS_PTS" || mntmMode === "PLUS_PTS" || mntmMode === "POINTS") mtp = rtp + mntmVal;
+                            else if (mntmMode === "RECOST_MINUS_PCT" || mntmMode === "MINUS_PCT") mtp = rtp - (rtp * mntmVal / 100);
+                            else if (mntmMode === "RECOST_MINUS_PTS" || mntmMode === "MINUS_PTS") mtp = rtp - mntmVal;
+                            leg.mtp = roundToTick(mtp);
+                            addStrategyLog(strategyId, `[RE-COST MNTM] RTP ₹${rtp} reached for ${leg.instrument?.symbol}. Monitoring internally for MTP ₹${leg.mtp}...`, "INFO");
+                        }
+                    } else {
+                        await handleReentryCost({ leg, config, strategyId, addStrategyLog, currentTick });
+                    }
+                }
+
+                if (leg.leg.recost_mntm_enabled && leg.rtp_met) {
+                    const targetMtp = leg.mtp;
+                    let mtpHit = false;
+                    if (targetMtp > rtp) {
+                        if ((prevTick !== null && prevTick <= targetMtp && currentTick >= targetMtp) || currentTick >= targetMtp) mtpHit = true;
+                    } else if (targetMtp < rtp) {
+                        if ((prevTick !== null && prevTick >= targetMtp && currentTick <= targetMtp) || currentTick <= targetMtp) mtpHit = true;
+                    } else {
+                        mtpHit = true;
+                    }
+                    if (mtpHit) {
+                        addStrategyLog(strategyId, `[RE-COST MNTM] MTP ₹${targetMtp} reached for ${leg.instrument?.symbol}. Placing LIMIT order...`, "INFO");
+                        await handleReentryCost({ leg, config, strategyId, addStrategyLog, currentTick });
+                    }
+                }
             }
 
-            // If the PnL evaluation says "IsHit", it means either your Target or SL was reached.
-            if (evalResult.isHit) {
-                if (evalResult.requiresExchangeValidation) {
-                    try {
-                        const api = await getAuthorizedInstance(config.connectionId);
-                        const { orderStatus, orderData } = await getBrokerOrderStatus(api, leg.slUniqueOrderId, leg.slOrderId);
-                        
-                        if (!leg.slUniqueOrderId && orderData?.uniqueorderid) {
-                            leg.slUniqueOrderId = orderData.uniqueorderid;
-                        }
+            // 2b. Re-SL Cross Logic
+            if (leg.state === "WAITING_FOR_RESL_MNTM" && leg.last_tick_price !== null) {
+                if (isReentryBlockedThisMinute) {
+                    leg.last_tick_price = leg.currentLtp;
+                    continue;
+                }
 
-                        // Log SL hit detection with broker order status (once per SL order)
-                        const statusDisplay = (orderStatus || "unknown").toUpperCase();
-                        if (leg.slHitLoggedForOrderId !== leg.slOrderId) {
-                            addStrategyLog(strategyId, `[SL CHECK] ${leg.instrument?.symbol}: SL price hit by LTP (₹${leg.currentLtp}), order status at Angel as "${statusDisplay}"`, "INFO");
-                            leg.slHitLoggedForOrderId = leg.slOrderId;
-                        }
+                const isSlCandle = (leg.slHitMinute === currentMinute);
+                const currentTick = leg.currentLtp;
+                const prevTick = leg.last_tick_price;
+                const rtp = leg.resl_trigger_price;
+                const candleOpen = leg.candleOpen ?? currentTick;
+                let triggerReEntry = false;
 
-                        const isCancelledOrRejected = ["cancelled", "rejected"].includes(orderStatus);
-                        const isExecuted = ["complete", "filled"].includes(orderStatus);
-                        const isTriggerPending = ["trigger pending", "pending"].includes(orderStatus);
-                        const isOpen = orderStatus === "open";
-
-                        if (isCancelledOrRejected) {
-                            addStrategyLog(strategyId, `[FALLBACK] Internal Monitor detected SL breach. Exchange SL order was ${orderStatus}. Forcing manual Market Exit to protect position!`, "CRITICAL");
-                            // Fall through to manual exit below
-                        } else if (isExecuted) {
-                            const exchangeFillPrice = Number(orderData?.averageprice || orderData?.averagePrice || 0) || leg.slTriggerPrice;
-                            const exchangeFillTime = getBrokerFillTime(orderData) || getISTExchangeFormat();
-                            leg.exchangeSlProcessed = true;
-                            addStrategyLog(strategyId, `[EXCHANGE_STOP_LOSS] Verified SL executed on exchange for ${leg.instrument?.symbol} at ₹${exchangeFillPrice}.`, "INFO");
-                            await handleLegStopOut(leg, "EXCHANGE_STOP_LOSS", strategy, { exchangeFillPrice, exchangeFillTime });
-                            continue;
-                        } else if (isOpen || isTriggerPending) {
-                            const limitPrice = Number(orderData?.price || leg.slLimitPrice || leg.slTriggerPrice || 0);
-                            const currentLtp = Number(leg.currentLtp || 0);
-                            const isBuyLeg = leg.leg.side === "BUY"; // Long position, exit is SELL
-
-                            // Distance by which market price has moved WORSE than our exit limit price
-                            const distancePastLimit = isBuyLeg
-                                ? (limitPrice - currentLtp)
-                                : (currentLtp - limitPrice);
-
-                            const isPastLimit = distancePastLimit > 0;
-                            // Consider "far past SL" if slippage is >= 0.5 pts or >= 0.5% of limit price
-                            const isFarPastLimit = distancePastLimit >= Math.max(0.5, Number((limitPrice * 0.005).toFixed(2)));
-
-                            // If order is triggered ("open") and market price has moved past limit:
-                            // A resting limit order CANNOT execute on the exchange book when market price is worse than its limit!
-                            if (isOpen && (isFarPastLimit || (isPastLimit && (leg.slOpenUnfilledCount || 0) >= 1))) {
-                                addStrategyLog(strategyId, `[SL RESCUE] SL order ${leg.slOrderId} was triggered but is resting unfilled at ₹${limitPrice} while market price moved to ₹${currentLtp} (past limit by ₹${distancePastLimit.toFixed(2)}). Cancelling stuck order and firing immediate market exit!`, "CRITICAL");
-
-                                let cancelConfirmedFilled = false;
-                                if (leg.slOrderId) {
-                                    try {
-                                        try {
-                                            await cancelOrder(config, "STOPLOSS", leg.slOrderId);
-                                        } catch (cErr1) {
-                                            const msg1 = (cErr1.message || "").toLowerCase();
-                                            if (msg1.includes("filled") || msg1.includes("complete")) {
-                                                cancelConfirmedFilled = true;
-                                            } else {
-                                                await cancelOrder(config, "NORMAL", leg.slOrderId);
-                                            }
-                                        }
-                                        if (!cancelConfirmedFilled) {
-                                            addStrategyLog(strategyId, `[SL RESCUE] Successfully cancelled stuck SL order ${leg.slOrderId}.`, "INFO");
-                                        }
-                                    } catch (cErr2) {
-                                        const msg2 = (cErr2.message || "").toLowerCase();
-                                        if (msg2.includes("filled") || msg2.includes("complete")) {
-                                            cancelConfirmedFilled = true;
-                                        } else {
-                                            console.warn(`[SL RESCUE] Cancellation failed for ${leg.slOrderId}: ${cErr2.message}. Proceeding to exit.`);
-                                        }
-                                    }
-                                }
-
-                                if (cancelConfirmedFilled) {
-                                    const exchangeFillPrice = Number(orderData?.averageprice || orderData?.averagePrice || 0) || limitPrice || leg.slTriggerPrice;
-                                    const exchangeFillTime = getBrokerFillTime(orderData) || getISTExchangeFormat();
-                                    leg.exchangeSlProcessed = true;
-                                    addStrategyLog(strategyId, `[EXCHANGE_STOP_LOSS] SL order ${leg.slOrderId} was confirmed filled on exchange at ₹${exchangeFillPrice}.`, "INFO");
-                                    await handleLegStopOut(leg, "EXCHANGE_STOP_LOSS", strategy, { exchangeFillPrice, exchangeFillTime });
-                                    continue;
-                                }
-
-                                // Clear order IDs so placeExitOrder places a clean fresh market/limit exit order with chase
-                                leg.slOrderId = null;
-                                leg.slUniqueOrderId = null;
-                                // Fall through to manual exit below (lines 986+)
-                            } else if (isTriggerPending && distancePastLimit >= Math.max(2.0, Number((limitPrice * 0.02).toFixed(2)))) {
-                                // Extreme edge case: Order still shows 'trigger pending' despite market being >= 2% past trigger
-                                addStrategyLog(strategyId, `[SL RESCUE] SL order ${leg.slOrderId} remained 'trigger pending' despite market price at ₹${currentLtp} (₹${distancePastLimit.toFixed(2)} past trigger). Cancelling to execute market exit!`, "CRITICAL");
-                                if (leg.slOrderId) {
-                                    try {
-                                        await cancelOrder(config, "STOPLOSS", leg.slOrderId);
-                                    } catch (e) {
-                                        try { await cancelOrder(config, "NORMAL", leg.slOrderId); } catch (e2) {}
-                                    }
-                                }
-                                leg.slOrderId = null;
-                                leg.slUniqueOrderId = null;
-                                // Fall through to manual exit below
-                            } else {
-                                // Order is either still waiting for trigger, or open within acceptable matchable range.
-                                if (isOpen && isPastLimit) {
-                                    leg.slOpenUnfilledCount = (leg.slOpenUnfilledCount || 0) + 1;
-                                } else {
-                                    leg.slOpenUnfilledCount = 0;
-                                }
-                                // For pending SL orders: monitor and log status every 1-min candle close
-                                if (isTriggerPending) {
-                                    const { getISTTime } = require("./strategy.time");
-                                    const currentMinute = getISTTime().substring(0, 5);
-                                    if (leg.slPendingLastLogMinute !== currentMinute) {
-                                        addStrategyLog(strategyId, `[SL PENDING] ${leg.instrument?.symbol}: SL order ${leg.slOrderId} still "${statusDisplay}" at Angel. LTP: ₹${currentLtp}, SL Trigger: ₹${limitPrice}. Monitoring continues...`, "WARNING");
-                                        leg.slPendingLastLogMinute = currentMinute;
-                                    }
-                                }
-                                // Let the exchange/Phase 6 handle it.
-                                continue;
-                            }
+                const reslMode = leg.leg.resl_mode || "RESL_PLUS_PCT";
+                if (isSlCandle) {
+                    // Normal tick-by-tick price monitoring on the SL candle
+                    if (reslMode.includes("PLUS")) {
+                        if (prevTick <= rtp && currentTick >= rtp) triggerReEntry = true;
+                    } else {
+                        if (prevTick >= rtp && currentTick <= rtp) triggerReEntry = true;
+                    }
+                } else {
+                    // Subsequent candles: candle open price check
+                    if (reslMode.includes("PLUS")) {
+                        if (candleOpen > rtp) {
+                            if (currentTick <= rtp) triggerReEntry = true;
                         } else {
-                            addStrategyLog(strategyId, `[FALLBACK] Could not verify broker SL order status for ${leg.instrument?.symbol} (${leg.slOrderId || 'no ID'}). Retrying on next check...`, "WARNING");
-                            continue;
+                            if (prevTick <= rtp && currentTick >= rtp) triggerReEntry = true;
                         }
-                    } catch (e) {
-                        // If we can't ping the broker, it's safer to defer to the exchange to avoid double exits.
-                        console.error(`[FALLBACK] Failed to verify SL status for ${leg.instrument.symbol}:`, e.message);
-                        continue;
+                    } else {
+                        if (candleOpen < rtp) {
+                            if (currentTick >= rtp) triggerReEntry = true;
+                        } else {
+                            if (prevTick >= rtp && currentTick <= rtp) triggerReEntry = true;
+                        }
+                    }
+                }
+
+                if (triggerReEntry) {
+                    if (leg.leg.resl_mntm_enabled) {
+                        if (!leg.rtp_met) {
+                            leg.rtp_met = true;
+                            const mntmMode = leg.leg.resl_mntm_mode || "RESL_PLUS_PCT";
+                            const mntmVal = parseFloat(leg.leg.resl_mntm_value || 0);
+                            let mtp = rtp;
+                            if (mntmMode === "RESL_PLUS_PCT" || mntmMode === "PLUS_PCT" || mntmMode === "PERCENTAGE") mtp = rtp + (rtp * mntmVal / 100);
+                            else if (mntmMode === "RESL_PLUS_PTS" || mntmMode === "PLUS_PTS" || mntmMode === "POINTS") mtp = rtp + mntmVal;
+                            else if (mntmMode === "RESL_MINUS_PCT" || mntmMode === "MINUS_PCT") mtp = rtp - (rtp * mntmVal / 100);
+                            else if (mntmMode === "RESL_MINUS_PTS" || mntmMode === "MINUS_PTS") mtp = rtp - mntmVal;
+                            leg.mtp = roundToTick(mtp);
+                            addStrategyLog(strategyId, `[RE-SL MNTM] RTP ₹${rtp} reached for ${leg.instrument?.symbol}. Monitoring internally for MTP ₹${leg.mtp}...`, "INFO");
+                        }
+                    } else {
+                        await handleReentryReSL({ leg, config, strategyId, addStrategyLog, currentTick });
+                    }
+                }
+
+                if (leg.leg.resl_mntm_enabled && leg.rtp_met) {
+                    const targetMtp = leg.mtp;
+                    let mtpHit = false;
+                    if (targetMtp > rtp) {
+                        if ((prevTick !== null && prevTick <= targetMtp && currentTick >= targetMtp) || currentTick >= targetMtp) mtpHit = true;
+                    } else if (targetMtp < rtp) {
+                        if ((prevTick !== null && prevTick >= targetMtp && currentTick <= targetMtp) || currentTick <= targetMtp) mtpHit = true;
+                    } else {
+                        mtpHit = true;
+                    }
+                    if (mtpHit) {
+                        addStrategyLog(strategyId, `[RE-SL MNTM] MTP ₹${targetMtp} reached for ${leg.instrument?.symbol}. Placing LIMIT order...`, "INFO");
+                        await handleReentryReSL({ leg, config, strategyId, addStrategyLog, currentTick });
+                    }
+                }
+            }
+
+            // 2b.2 Re-entry Conditions (Multiple OR / AND)
+            if (leg.state === "WAITING_FOR_REENTRY_COND" && leg.last_tick_price !== null) {
+                if (isReentryBlockedThisMinute) {
+                    leg.last_tick_price = leg.currentLtp;
+                    continue;
+                }
+                await processReentryConditionsTick({
+                    leg,
+                    config,
+                    strategyId,
+                    addStrategyLog,
+                    tickPrice: leg.currentLtp,
+                    prevTick: leg.last_tick_price,
+                    currentMinute,
+                    currentTime
+                });
+            }
+
+            // 2c. Re-initiate orphaned WAITING_FOR_FILL legs (from mode switches)
+            // When a leg is in WAITING_FOR_FILL and a virtual/live switch happens, the
+            // original async fill watcher dies (it holds a ref to the old leg object).
+            // The new leg inherits the state but has no watcher. This block re-places
+            // the order and spawns a fresh fill watcher.
+            if (leg.state === "WAITING_FOR_FILL" && leg.needsOrderReplacement) {
+                const targetPrice = leg.mtp || leg.rtp || leg.re_high_trigger_price || leg.re_low_trigger_price || leg.recost_trigger_price || leg.resl_trigger_price;
+                if (!targetPrice || !leg.instrument) {
+                    leg.needsOrderReplacement = false;
+                    continue;
+                }
+
+                const isVirtual = config?.is_virtual === true || leg.is_virtual_leg === true;
+                const isPaperTrading = config?.is_paper_trading === true || isVirtual;
+                const side = leg.leg.side;
+                const offsetAmt = isPaperTrading ? 0 : getLimitOffsetAmt(targetPrice, config);
+
+                let variety, ordertype, finalPriceStr, triggerPriceStr;
+
+                if (side === "BUY") {
+                    if (targetPrice > tickPrice) {
+                        variety = "STOPLOSS";
+                        ordertype = "STOPLOSS_LIMIT";
+                        finalPriceStr = roundToTick(targetPrice + offsetAmt).toString();
+                        triggerPriceStr = targetPrice.toString();
+                    } else {
+                        variety = "NORMAL";
+                        ordertype = "LIMIT";
+                        triggerPriceStr = "0";
+                        finalPriceStr = roundToTick(targetPrice + offsetAmt).toString();
+                    }
+                } else {
+                    if (targetPrice < tickPrice) {
+                        variety = "STOPLOSS";
+                        ordertype = "STOPLOSS_LIMIT";
+                        finalPriceStr = roundToTick(targetPrice - offsetAmt).toString();
+                        triggerPriceStr = targetPrice.toString();
+                    } else {
+                        variety = "NORMAL";
+                        ordertype = "LIMIT";
+                        triggerPriceStr = "0";
+                        finalPriceStr = roundToTick(targetPrice - offsetAmt).toString();
                     }
                 }
 
                 try {
-                    // 1. Place the order to close the position at the exchange.
-                    await placeExitOrder({ config, leg, instrument: leg.instrument, exitType: evalResult.exitReason });
-                    // 2. Call the lifecycle handler to record the data and check for Re-Entry.
-                    //    Forward the broker fill time recorded by placeExitOrder so it isn't replaced by server time.
-                    await handleLegStopOut(leg, evalResult.exitReason, strategy, leg.exited ? { exchangeFillTime: leg.exitTime } : null);
-                } catch (exitErr) {
-                    if (exitErr.message?.startsWith("EXIT_CHASE_EXHAUSTED")) {
-                        pauseStrategy(strategyId, `Exit Chase failed for ${leg.instrument?.symbol}: ${exitErr.message}`);
-                        return "TERMINATE";
+                    addStrategyLog(strategyId, `[RE-INIT] Re-placing order for ${leg.instrument?.symbol} at ₹${targetPrice} after mode switch.`, "INFO");
+
+                    const reInitOrder = await placeOrder({
+                        ...config,
+                        side: side,
+                        variety: variety,
+                        ordertype: ordertype,
+                        price: finalPriceStr,
+                        triggerprice: triggerPriceStr,
+                        lots: leg.leg.lots
+                    }, leg.instrument, config.connectionId);
+
+                    leg.orderId = reInitOrder.orderid;
+                    leg.uniqueOrderId = reInitOrder.uniqueorderid;
+                    leg.needsOrderReplacement = false;
+
+                    // Start fill watcher in background
+                    setTimeout(async () => {
+                        try {
+                            const { fillPrice, fillMeta, halted } = await resolveReentryOrderFill({
+                                leg,
+                                config,
+                                strategyId,
+                                side,
+                                variety: config.variety || "NORMAL",
+                                ordertype,
+                                targetPrice,
+                                priceStr: finalPriceStr,
+                                triggerPriceStr: triggerPriceStr,
+                                isPaperTrading,
+                                isInstantFill: isPaperTrading,
+                                isReentryChase: false,
+                                timeoutMs: 28800000,
+                                pollMs: 1000,
+                                logPrefix: "[RE-INIT]"
+                            });
+                            if (halted) return;
+
+                            if (fillPrice) {
+                                const fill = fillPrice;
+                                leg.entryPrice = fill;
+                                leg.entryTime = fillMeta.time || getISTExchangeFormat();
+                                leg.original_traded_price = fill;
+                                leg.peakPrice = fill;
+                                leg.tslReferencePrice = fill;
+                                leg.state = "ACTIVE";
+                                addStrategyLog(strategyId, `[RE-INIT] Fill confirmed for ${leg.instrument?.symbol} at ₹${fill}.`, "INFO");
+
+                                // Deploy SL if needed
+                                const isSlEnabled = leg.leg.reentry_sl_enabled ? true : leg.leg.sl_enabled !== false;
+                                if (config.variety === "STOPLOSS" && leg.entryPrice && isSlEnabled) {
+                                    const activeSlType = leg.leg.reentry_sl_enabled ? leg.leg.reentry_sl_type : (leg.leg.sl_type || "PERCENTAGE");
+                                    const activeSlValue = leg.leg.reentry_sl_enabled ? leg.leg.reentry_sl_value : leg.leg.stop_loss;
+
+                                    let slValueToUse = activeSlValue;
+                                    const isReentered = leg.reentry_count > 0;
+                                    if (isReentered && leg.leg.reentry_sl_multiplier_entry_candle && leg.leg.reentry_sl_multiplier_value) {
+                                        slValueToUse = activeSlValue * parseFloat(leg.leg.reentry_sl_multiplier_value);
+                                        leg.sl_multiplier_applied = true;
+                                    } else if (!isReentered && leg.leg.sl_multiplier_entry_candle && leg.leg.sl_multiplier_value) {
+                                        slValueToUse = activeSlValue * parseFloat(leg.leg.sl_multiplier_value);
+                                        leg.sl_multiplier_applied = true;
+                                    }
+
+                                    const slOrder = await placeStopLossWithRetry({
+                                        baseConfig: config,
+                                        legSide: side,
+                                        entryPrice: fill,
+                                        instrument: leg.instrument,
+                                        lots: leg.leg.lots,
+                                        slType: activeSlType,
+                                        slValue: slValueToUse,
+                                        slLimitMargin: config.entry_limit_offset,
+                                        slLimitMarginType: config.entry_limit_offset_type || 'POINTS',
+                                        connectionId: config.connectionId,
+                                        strategyId: strategyId
+                                    });
+
+                                    if (slOrder?.orderid) {
+                                        const prices = computeStopLossExitPrices(fill, side, activeSlType, slValueToUse, config.entry_limit_offset, config.entry_limit_offset_type || 'POINTS');
+                                        leg.slOrderId = slOrder.orderid;
+                                        leg.slUniqueOrderId = slOrder.uniqueorderid;
+                                        leg.slTriggerPrice = prices?.trigger;
+                                        leg.initialSlTriggerPrice = prices?.trigger;
+                                        leg.slLimitPrice = prices?.limit;
+                                        leg.exchangeSlProcessed = false;
+                                    }
+                                }
+                            }
+                        } catch (e) {
+                            console.error("[RE-INIT] Fill monitoring failed:", e.message);
+                        }
+                    }, 1000);
+                } catch (err) {
+                    await handleReentryPlacementError({
+                        err,
+                        strategyId,
+                        leg,
+                        targetPrice,
+                        side,
+                        logPrefix: "[RE-INIT]",
+                        keepRetryOnUnknownError: true
+                    });
+                }
+                continue;
+            }
+
+
+            leg.last_tick_price = leg.currentLtp;
+
+            // 3. PnL Updates
+            if (leg.entryPrice && (leg.state === "ACTIVE" || leg.state === "VIRTUAL_MONITORING")) {
+                if (leg.peakPrice === undefined || leg.peakPrice === null) leg.peakPrice = leg.entryPrice;
+                if (leg.leg.side === "BUY") {
+                    if (leg.currentLtp > leg.peakPrice) leg.peakPrice = leg.currentLtp;
+                } else {
+                    if (leg.currentLtp < leg.peakPrice) leg.peakPrice = leg.currentLtp;
+                }
+
+                const pnlPoints = leg.leg.side === "BUY" ? (leg.currentLtp - leg.entryPrice) : (leg.entryPrice - leg.currentLtp);
+                leg.currentActivePnlPoints = pnlPoints;
+
+                // SCALE QUANTITY BY MULTIPLIER
+                const multiplier = parseFloat(config.quantity_multiplier) || 1;
+                const quantity = leg.leg.lots * parseInt(leg.instrument.lotsize || 1) * multiplier;
+
+                leg.currentActivePnlRupees = pnlPoints * quantity;
+                leg.pnlPercent = ((leg.bookedPnlPoints || 0) + pnlPoints) / leg.original_traded_price * 100;
+                leg.currentActivePnlPercent = (pnlPoints / leg.entryPrice) * 100;
+                leg.pnlPoints = (leg.bookedPnlPoints || 0) + leg.currentActivePnlPoints;
+                leg.pnlRupees = (leg.bookedPnlRupees || 0) + leg.currentActivePnlRupees;
+            }
+        }
+    }
+
+        // Global Strategy PnL (strictly following the new formula)
+        const isVirtualLeg = l => l.is_virtual_leg || l.is_virtual_monitoring;
+
+    const bookedRupees = strategy.legs
+        .filter(l => l.exited && (!isVirtualLeg(l) || l.exitType === "SWITCHED_TO_VIRTUAL"))
+        .reduce((sum, l) => sum + (l.pnlRupees || l.bookedPnlRupees || 0), 0);
+
+    const virtualRupees = strategy.legs
+        .filter(l => isVirtualLeg(l))
+        .reduce((sum, l) => sum + (l.exited ? (l.pnlRupees || l.bookedPnlRupees || 0) : (l.currentActivePnlRupees || l.pnlRupees || 0)), 0);
+
+    const switchRupees = strategy.legs
+        .filter(l => l.exitType === "SWITCHED_TO_VIRTUAL")
+        .reduce((sum, l) => sum + (l.pnlRupees || l.bookedPnlRupees || 0), 0);
+
+    const virtualPlRupees = virtualRupees - switchRupees;
+
+    const ongoingRupees = strategy.legs
+        .filter(l => !l.exited && !isVirtualLeg(l))
+        .reduce((sum, l) => sum + (l.currentActivePnlRupees || l.pnlRupees || 0), 0);
+
+    const totalPnlRupees = virtualPlRupees + bookedRupees + ongoingRupees;
+
+    strategy.totalPnlRupees = totalPnlRupees;
+
+    const totalOriginalValue = strategy.legs.reduce((sum, l) => {
+        if (l.exitType === "SWITCHED_TO_VIRTUAL") return sum;
+        if (!l.original_traded_price) return sum;
+        const multiplier = parseFloat(config.quantity_multiplier) || 1;
+        const quantity = (l.leg?.lots || 0) * parseInt(l.instrument?.lotsize || 1) * multiplier;
+        return sum + (l.original_traded_price * quantity);
+    }, 0);
+
+    const avgPnl = totalOriginalValue > 0 ? (totalPnlRupees / totalOriginalValue) * 100 : 0;
+    strategy.pnlPercent = avgPnl;
+    strategy.totalOriginalValue = totalOriginalValue;
+
+    // Overall Limit Check — "On Close" support
+    // If on_close is enabled, the check only fires at second 59 of each minute
+    const currentSeconds = parseInt(currentTime.split(":")[2], 10);
+    const isMinuteClose = currentSeconds === 59;
+
+    const limitCheck = checkOverallPnlLimits({ config, totalPnlRupees, avgPnl, isMinuteClose });
+    if (limitCheck.hit) {
+        if (strategy.exitAttempted) return;
+        strategy.exitAttempted = true;
+        addStrategyLog(strategyId, `${limitCheck.logMessage} Final PnL: ₹${totalPnlRupees.toFixed(2)} (${avgPnl.toFixed(2)}%).`, limitCheck.logLevel);
+
+        if (!config.is_paper_trading) {
+            await Promise.all(strategy.legs.map(async (leg) => {
+                if (leg.exited) return;
+                try {
+                    // We NO LONGER cancel slOrderId here. placeExitOrder will convert it to an Exit order.
+                    if (!leg.entryPrice && leg.orderId) {
+                        try { await cancelOrder(config, "NORMAL", leg.orderId); } catch (e) { await cancelOrder(config, "STOPLOSS", leg.orderId); }
                     }
-                    throw exitErr;
+                } catch (e) { }
+            }));
+        }
+
+        try {
+            const exitResults = await Promise.allSettled(strategy.legs.map(async (leg) => {
+                if (leg.exited) return leg.exitOrderId;
+                return await placeExitOrder({ config, leg, instrument: leg.instrument, exitType: limitCheck.exitType });
+            }));
+            const chaseErrors = exitResults.filter(r => r.status === 'rejected' && r.reason?.message?.startsWith("EXIT_CHASE_EXHAUSTED"));
+            if (chaseErrors.length > 0) {
+                pauseStrategy(strategyId, `Exit Chase failed during Overall Limit hit: ${chaseErrors[0].reason.message}`);
+                return "TERMINATE";
+            }
+            const otherErrors = exitResults.filter(r => r.status === 'rejected');
+            if (otherErrors.length > 0) {
+                pauseStrategy(strategyId, `Exit placement failed: ${otherErrors[0].reason.message}`);
+                return "TERMINATE";
+            }
+            const exitOrders = exitResults.map(r => r.value);
+            strategy.status = "EXITED";
+            strategy.exitOrderId = exitOrders;
+            strategy.exitType = limitCheck.exitType;
+            updateStrategyInMemory(strategyId, {
+                status: "EXITED", exit_order_id: strategy.exitOrderId, exit_type: limitCheck.exitType,
+                final_pnl_percent: avgPnl, totalPnlRupees: totalPnlRupees, totalOriginalValue: strategy.totalOriginalValue, legs: strategy.legs
+            });
+            return "TERMINATE";
+        } catch (exitErr) {
+            throw exitErr;
+        }
+    }
+
+    // Leg Monitoring (TSL/SL)
+    for (const leg of strategy.legs) {
+        if (leg.exited || leg.state === "WAITING_FOR_RECOST" || !leg.entryPrice) continue;
+        if (leg.state !== "ACTIVE" && leg.state !== "VIRTUAL_MONITORING") continue;
+
+        let isEntryMinute = false;
+        const isReenteredForTimer = leg.reentry_count > 0;
+        const hasMultiplier = isReenteredForTimer ? leg.leg.reentry_sl_multiplier_entry_candle : leg.leg.sl_multiplier_entry_candle;
+        if ((config.no_sl_on_entry_candle || hasMultiplier) && leg.entryTime) {
+            const { getISTTime } = require("./strategy.time");
+            const currentMinute = getISTTime().substring(0, 5);
+            const entryTimeStr = leg.entryTime.includes(' ') ? leg.entryTime.split(' ')[1] : leg.entryTime;
+            const entryMinute = entryTimeStr.substring(0, 5);
+            isEntryMinute = (currentMinute === entryMinute);
+        }
+
+        if (!isEntryMinute) {
+            if (config.no_sl_on_entry_candle && !leg.slOrderId && leg.entryPrice && config.variety === "STOPLOSS" && !config.is_paper_trading && !leg.is_virtual_leg && leg.state !== "WAITING_FOR_RECOST") {
+                const isReentered = leg.reentry_count > 0;
+                const isSlEnabled = isReentered && leg.leg.reentry_sl_enabled ? true : leg.leg.sl_enabled !== false;
+                const activeSlValue = isReentered && leg.leg.reentry_sl_enabled ? leg.leg.reentry_sl_value : leg.leg.stop_loss;
+
+                if (isSlEnabled && activeSlValue > 0 && leg.slOrderId !== "DISABLED") {
+                    try {
+                        const activeSlType = isReentered && leg.leg.reentry_sl_enabled ? leg.leg.reentry_sl_type : (leg.leg.sl_type || "PERCENTAGE");
+                        const isSlCandleOpen = !isReentered && (leg.is_sl_price_on_candle_open || leg.leg?.is_sl_price_on_candle_open || leg.leg?.sl_price_on_candle_open || leg.leg?.sl_based_on_candle_open || config.is_sl_price_on_candle_open || config.sl_price_on_candle_open || config.sl_based_on_candle_open) && !leg.simpleMntmEnabled;
+                        let basePriceForSl = (isSlCandleOpen && leg.entryCandleOpen) ? leg.entryCandleOpen : leg.entryPrice;
+                        if (isSlCandleOpen) {
+                            const { resolveEntryCandleOpenPrice } = require("./strategy.init");
+                            basePriceForSl = await resolveEntryCandleOpenPrice(leg, config, strategyId);
+                        }
+
+                        const limitMargin = leg.leg.sl_limit_margin !== undefined && leg.leg.sl_limit_margin !== null && leg.leg.sl_limit_margin !== ''
+                            ? leg.leg.sl_limit_margin
+                            : getLimitOffsetAmt(basePriceForSl, config);
+                        const limitMarginType = leg.leg.sl_limit_margin_type || config.entry_limit_offset_type || 'POINTS';
+
+                        // If trailing is enabled and has already trailed leg.slTriggerPrice, pass that as overrideSlTriggerPrice
+                        const isSlOverride = isReentered && leg.leg.reentry_sl_enabled === true;
+                        const isTslEnabled = isSlOverride ? (leg.leg.reentry_tsl_enabled === true) : (leg.leg.tsl_enabled || false);
+                        const targetTriggerPrice = (isTslEnabled && leg.slTriggerPrice) ? leg.slTriggerPrice : undefined;
+
+                        const slOrder = await placeStopLossWithRetry({
+                            baseConfig: config,
+                            legSide: leg.leg.side,
+                            entryPrice: basePriceForSl,
+                            instrument: leg.instrument,
+                            lots: leg.leg.lots,
+                            slType: activeSlType,
+                            slValue: activeSlValue,
+                            slLimitMargin: limitMargin,
+                            slLimitMarginType: limitMarginType,
+                            connectionId: config.connectionId,
+                            strategyId: strategyId,
+                            overrideSlTriggerPrice: targetTriggerPrice,
+                            isDeferred: true,
+                            isCandleOpenSl: isSlCandleOpen,
+                            candleOpenPrice: basePriceForSl,
+                            actualEntryPrice: leg.entryPrice
+                        });
+                        if (slOrder && slOrder.orderid) {
+                            leg.slOrderId = slOrder.orderid;
+                            leg.slUniqueOrderId = slOrder.uniqueorderid;
+                            if (targetTriggerPrice) {
+                                leg.slTriggerPrice = parseFloat(slOrder.triggerprice);
+                                leg.slLimitPrice = parseFloat(slOrder.limitprice);
+                            } else {
+                                const prices = computeStopLossExitPrices(basePriceForSl, leg.leg.side, activeSlType, activeSlValue, limitMargin, limitMarginType);
+                                if (prices) {
+                                    leg.slTriggerPrice = prices.trigger;
+                                    leg.initialSlTriggerPrice = prices.trigger;
+                                    leg.slLimitPrice = prices.limit;
+                                }
+                            }
+                            leg.exchangeSlProcessed = false;
+                            const candleOpenMsg = isSlCandleOpen ? ` using Entry Candle Open ₹${Number(basePriceForSl).toFixed(2)} (Traded Entry Price: ₹${Number(leg.entryPrice).toFixed(2)})` : '';
+                            addStrategyLog(strategyId, `[Deferred SL] Placed StopLoss for ${leg.instrument.symbol} after entry minute close${candleOpenMsg}. Trigger: ₹${slOrder.triggerprice}, Limit: ₹${slOrder.limitprice}${targetTriggerPrice ? ' (Trailed)' : ''}`, "INFO");
+                        } else {
+                            leg.slOrderId = "DISABLED";
+                        }
+                    } catch (err) {
+                        addStrategyLog(strategyId, `[Deferred SL] Failed to place StopLoss for ${leg.instrument.symbol}: ${err.message}`, "ERROR");
+                        leg.slOrderId = "DISABLED";
+                    }
+                }
+            }
+
+            if (leg.sl_multiplier_applied && leg.slOrderId && leg.slOrderId !== "DISABLED" && config.variety === "STOPLOSS") {
+                const isReentered = leg.reentry_count > 0;
+                const activeSlValue = isReentered && leg.leg.reentry_sl_enabled ? leg.leg.reentry_sl_value : leg.leg.stop_loss;
+                const activeSlType = isReentered && leg.leg.reentry_sl_enabled ? leg.leg.reentry_sl_type : (leg.leg.sl_type || "PERCENTAGE");
+
+                const isSlCandleOpen = !isReentered && (leg.is_sl_price_on_candle_open || leg.leg?.is_sl_price_on_candle_open || leg.leg?.sl_price_on_candle_open || leg.leg?.sl_based_on_candle_open || config.is_sl_price_on_candle_open || config.sl_price_on_candle_open || config.sl_based_on_candle_open) && !leg.simpleMntmEnabled;
+                const basePriceForSl = (isSlCandleOpen && leg.entryCandleOpen) ? leg.entryCandleOpen : leg.entryPrice;
+
+                const prices = computeStopLossExitPrices(basePriceForSl, leg.leg.side, activeSlType, activeSlValue, config.entry_limit_offset, config.entry_limit_offset_type || 'POINTS');
+                if (prices) {
+                    try {
+                        const multiplier = parseFloat(config.quantity_multiplier) || 1;
+                        const quantityInShares = (leg.leg.lots * parseInt(leg.instrument.lotsize) * multiplier).toString();
+
+                        await modifyOrderLocallyOrViaWorker(config, {
+                            variety: "STOPLOSS", orderid: leg.slOrderId, ordertype: "STOPLOSS_LIMIT", producttype: config.producttype || "CARRYFORWARD",
+                            duration: config.duration || "DAY", price: prices.limit.toString(), quantity: quantityInShares,
+                            tradingsymbol: leg.instrument.symbol, symboltoken: leg.instrument.token, exchange: leg.instrument.exch_seg,
+                            triggerprice: prices.trigger.toString(),
+                        });
+                        leg.sl_multiplier_applied = false;
+
+                        // update memory prices so monitoring doesn't trigger unexpectedly early or late
+                        leg.slTriggerPrice = prices.trigger;
+                        leg.slLimitPrice = prices.limit;
+                        leg.initialSlTriggerPrice = prices.trigger;
+
+                        const candleOpenMsg = isSlCandleOpen ? ` (based on Entry Candle Open ₹${Number(basePriceForSl).toFixed(2)}, Traded Entry Price: ₹${Number(leg.entryPrice).toFixed(2)})` : '';
+                        addStrategyLog(strategyId, `[SL Multiplier] Reverted SL order for ${leg.instrument.symbol} to normal price ₹${prices.trigger}${candleOpenMsg} after entry minute.`, "INFO");
+                    } catch (err) {
+                        addStrategyLog(strategyId, `[SL Multiplier] Failed to revert SL order for ${leg.instrument.symbol}: ${err.message}`, "ERROR");
+                    }
                 }
             }
         }
 
-        /**
-         * PHASE 6: Live SL Sync (Broker Side)
-         * If you are trading with REAL money, we check the actual exchange order status.
-         * If the SL was hit directly on the broker's platform, we sync that into our system.
-         */
-        const isVirtualStrat = config?.is_virtual === true;
-        const isPaperTrade = config?.is_paper_trading === true || isVirtualStrat;
-        if (config.variety === "STOPLOSS" && !isPaperTrade) {
-            for (const leg of strategy.legs) {
-                // We only check legs that are active and have an order ID.
-                if (leg.exited || leg.state === "WAITING_FOR_RECOST" || (!leg.slUniqueOrderId && !leg.slOrderId) || leg.exchangeSlProcessed) continue;
+        const evalResult = evaluateLegLimits({ leg, config, strategyId, addStrategyLog, isMinuteClose, isEntryMinute });
 
-                // Optimization: Only ping the broker API if the current price is very near the SL (within 2%).
-                const isNearTrigger = leg.leg.side === "BUY" ? (leg.currentLtp <= leg.slTriggerPrice * 1.02) : (leg.currentLtp >= leg.slTriggerPrice * 0.98);
-                if (isNearTrigger) {
+        // Debug TSL re-entry
+        if (leg.reentry_count > 0 && leg.leg.tsl_enabled) {
+            // We can't easily see internal variables of evaluateLegLimits here, 
+            // but we can check the result.
+        }
+
+        if (evalResult.initSlReq) {
+            leg.initialSlTriggerPrice = evalResult.tslUpdates.initTrigger;
+            if (!leg.slTriggerPrice) leg.slTriggerPrice = evalResult.tslUpdates.initTrigger;
+            if (!leg.slLimitPrice) leg.slLimitPrice = evalResult.tslUpdates.initLimit;
+            addStrategyLog(strategyId, `[MONITOR] Recovered missing Initial SL for ${leg.instrument?.symbol}: ₹${leg.initialSlTriggerPrice}`, "INFO");
+        }
+
+        if (evalResult.tslStepped) {
+            const { oldTrigger, newTrigger, newLimit, newReferencePrice } = evalResult.tslUpdates;
+            if (config.variety === "STOPLOSS" && !config.is_paper_trading && leg.slOrderId) {
+                try {
+                    const multiplier = parseFloat(config.quantity_multiplier) || 1;
+                    const quantityInShares = (leg.leg.lots * parseInt(leg.instrument.lotsize) * multiplier).toString();
+                    await modifyOrderLocallyOrViaWorker(config, {
+                        variety: "STOPLOSS", orderid: leg.slOrderId, ordertype: "STOPLOSS_LIMIT", producttype: config.producttype || "CARRYFORWARD",
+                        duration: config.duration || "DAY", price: newLimit.toString(), quantity: quantityInShares,
+                        tradingsymbol: leg.instrument.symbol, symboltoken: leg.instrument.token, exchange: leg.instrument.exch_seg,
+                        triggerprice: newTrigger.toString(),
+                    });
+                    addStrategyLog(strategyId, `TSL Step: Moved SL for ${leg.instrument.symbol} to ₹${newTrigger}`, "INFO");
+                } catch (e) {
+                    console.error(`[TSL] Failed to modify order ${leg.slOrderId} for ${leg.instrument.symbol}:`, e.message);
+
+                    // FIX: If modification fails, check if the original order was manually cancelled or rejected.
+                    // If it is dead, deploy a new SL order to restore protection.
                     try {
                         const api = await getAuthorizedInstance(config.connectionId);
                         const { orderStatus, orderData } = await getBrokerOrderStatus(api, leg.slUniqueOrderId, leg.slOrderId);
                         if (!leg.slUniqueOrderId && orderData?.uniqueorderid) {
                             leg.slUniqueOrderId = orderData.uniqueorderid;
                         }
-                        const statusDisplay = (orderStatus || "unknown").toUpperCase();
-                        const isExecuted = ["complete", "filled"].includes(orderStatus);
-                        const isTriggerPending = ["trigger pending", "pending"].includes(orderStatus);
-                        const isSlHitByLtp = leg.leg.side === "BUY" ? (leg.currentLtp <= leg.slTriggerPrice) : (leg.currentLtp >= leg.slTriggerPrice);
 
-                        // Log SL hit detection with broker order status (once per SL order)
-                        if (isExecuted || isSlHitByLtp) {
-                            if (leg.slHitLoggedForOrderId !== leg.slOrderId) {
-                                addStrategyLog(strategyId, `[SL CHECK] ${leg.instrument?.symbol}: SL price hit by LTP (₹${leg.currentLtp}), order status at Angel as "${statusDisplay}"`, "INFO");
-                                leg.slHitLoggedForOrderId = leg.slOrderId;
+                        if (orderStatus === "cancelled" || orderStatus === "rejected") {
+                            const slRejReason = orderData?.text || orderData?.message || orderData?.rejectionreason || "";
+                            if (orderStatus === "rejected" && isMarginError(slRejReason)) {
+                                await squareOffAndStopOnMarginError(strategyId, `Margin Error on SL order for ${leg.instrument?.symbol}: ${slRejReason}`);
+                                break;
                             }
-                        }
+                            addStrategyLog(strategyId, `[TSL RECOVERY] Original SL order was ${orderStatus}. Placing a new SL order at ₹${newTrigger} to restore protection.`, "WARNING");
 
-                        if (isExecuted) {
-                            const exchangeFillPrice = Number(orderData?.averageprice || orderData?.averagePrice || 0) || null;
-                            const exchangeFillTime = getBrokerFillTime(orderData);
-                            leg.exchangeSlProcessed = true;
-                            addStrategyLog(strategyId, `[EXCHANGE_STOP_LOSS] Verified SL executed on exchange for ${leg.instrument?.symbol} at ₹${exchangeFillPrice || leg.slTriggerPrice}.`, "INFO");
-                            await handleLegStopOut(leg, "EXCHANGE_STOP_LOSS", strategy, { exchangeFillPrice, exchangeFillTime });
-                            continue;
-                        }
+                            const { placeOrder } = require("./strategy.execution");
+                            const slConfig = {
+                                ...config,
+                                lots: leg.leg.lots,
+                                variety: "STOPLOSS",
+                                ordertype: "STOPLOSS_LIMIT",
+                                side: leg.leg.side === "BUY" ? "SELL" : "BUY",
+                                price: newLimit.toString(),
+                                triggerprice: newTrigger.toString(),
+                            };
 
-                        // For pending SL orders when SL price is hit: monitor and log status every 1-min candle close
-                        if (isTriggerPending && isSlHitByLtp) {
-                            const { getISTTime } = require("./strategy.time");
-                            const currentMinute = getISTTime().substring(0, 5);
-                            if (leg.slPendingLastLogMinute !== currentMinute) {
-                                addStrategyLog(strategyId, `[SL PENDING] ${leg.instrument?.symbol}: SL order ${leg.slOrderId} still "${statusDisplay}" at Angel. LTP: ₹${leg.currentLtp}, SL Trigger: ₹${leg.slTriggerPrice}. Monitoring continues...`, "WARNING");
-                                leg.slPendingLastLogMinute = currentMinute;
+                            const newSlOrder = await placeOrder(slConfig, leg.instrument, config.connectionId);
+                            if (newSlOrder && newSlOrder.orderid) {
+                                leg.slOrderId = newSlOrder.orderid;
+                                leg.slUniqueOrderId = newSlOrder.uniqueorderid;
+                                addStrategyLog(strategyId, `[TSL RECOVERY] Successfully deployed replacement SL order ${newSlOrder.orderid}.`, "INFO");
                             }
+                        } else {
+                            addStrategyLog(strategyId, `[TSL] SL Modification failed, but order status is '${orderStatus || "unknown"}'. Keeping existing order.`, "WARNING");
                         }
-                    } catch (err) { }
+                    } catch (statusErr) {
+                        console.error(`[TSL RECOVERY] Failed to check status of ${leg.slOrderId}:`, statusErr.message);
+                    }
                 }
+            } else if (!config.is_paper_trading && !leg.is_virtual_leg && config.no_sl_on_entry_candle && isEntryMinute) {
+                addStrategyLog(strategyId, `[TSL] Entry candle trailing updated SL for ${leg.instrument?.symbol} to ₹${newTrigger} (order deferred)`, "INFO");
+            } else {
+                addStrategyLog(strategyId, `[PAPER TSL] Virtual SL moved to ₹${newTrigger}`, "INFO");
             }
+            leg.slTriggerPrice = newTrigger;
+            leg.slLimitPrice = newLimit;
+            leg.tslReferencePrice = newReferencePrice;
         }
 
-        /**
-         * PHASE 7: Exit Time Check (Market Closing)
-         * If the current time has passed your "Exit Time" setting (e.g., 3:15 PM), 
-         * we automatically close everything and stop the strategy.
-         */
-        if (currentTime >= config.exit_time) {
-            if (strategy.exitAttempted) return;
-            strategy.exitAttempted = true;
-            addStrategyLog(strategyId, `Exit Time ${config.exit_time} reached. Squaring off all legs.`, "INFO");
+        // If the PnL evaluation says "IsHit", it means either your Target or SL was reached.
+        if (evalResult.isHit) {
+            if (evalResult.requiresExchangeValidation) {
+                try {
+                    const api = await getAuthorizedInstance(config.connectionId);
+                    const { orderStatus, orderData } = await getBrokerOrderStatus(api, leg.slUniqueOrderId, leg.slOrderId);
 
-            if (!config.is_paper_trading) {
-                await Promise.all(strategy.legs.map(async (leg) => {
-                    if (leg.exited) return;
-                    try {
-                        // We NO LONGER cancel slOrderId here. placeExitOrder will convert it to an Exit order.
-                        if (!leg.entryPrice && leg.orderId) {
-                            try { await cancelOrder(config, "NORMAL", leg.orderId); } catch (e) { await cancelOrder(config, "STOPLOSS", leg.orderId); }
+                    if (!leg.slUniqueOrderId && orderData?.uniqueorderid) {
+                        leg.slUniqueOrderId = orderData.uniqueorderid;
+                    }
+
+                    // Log SL hit detection with broker order status (once per SL order)
+                    const statusDisplay = (orderStatus || "unknown").toUpperCase();
+                    if (leg.slHitLoggedForOrderId !== leg.slOrderId) {
+                        addStrategyLog(strategyId, `[SL CHECK] ${leg.instrument?.symbol}: SL price hit by LTP (₹${leg.currentLtp}), order status at Angel as "${statusDisplay}"`, "INFO");
+                        leg.slHitLoggedForOrderId = leg.slOrderId;
+                    }
+
+                    const isCancelledOrRejected = ["cancelled", "rejected"].includes(orderStatus);
+                    const isExecuted = ["complete", "filled"].includes(orderStatus);
+                    const isTriggerPending = ["trigger pending", "pending"].includes(orderStatus);
+                    const isOpen = orderStatus === "open";
+
+                    if (isCancelledOrRejected) {
+                        addStrategyLog(strategyId, `[FALLBACK] Internal Monitor detected SL breach. Exchange SL order was ${orderStatus}. Forcing manual Market Exit to protect position!`, "CRITICAL");
+                        // Fall through to manual exit below
+                    } else if (isExecuted) {
+                        const exchangeFillPrice = Number(orderData?.averageprice || orderData?.averagePrice || 0) || leg.slTriggerPrice;
+                        const exchangeFillTime = getBrokerFillTime(orderData) || getISTExchangeFormat();
+                        leg.exchangeSlProcessed = true;
+                        addStrategyLog(strategyId, `[EXCHANGE_STOP_LOSS] Verified SL executed on exchange for ${leg.instrument?.symbol} at ₹${exchangeFillPrice}.`, "INFO");
+                        await handleLegStopOut(leg, "EXCHANGE_STOP_LOSS", strategy, { exchangeFillPrice, exchangeFillTime });
+                        continue;
+                    } else if (isOpen || isTriggerPending) {
+                        const limitPrice = Number(orderData?.price || leg.slLimitPrice || leg.slTriggerPrice || 0);
+                        const currentLtp = Number(leg.currentLtp || 0);
+                        const isBuyLeg = leg.leg.side === "BUY"; // Long position, exit is SELL
+
+                        // Distance by which market price has moved WORSE than our exit limit price
+                        const distancePastLimit = isBuyLeg
+                            ? (limitPrice - currentLtp)
+                            : (currentLtp - limitPrice);
+
+                        const isPastLimit = distancePastLimit > 0;
+                        // Consider "far past SL" if slippage is >= 0.5 pts or >= 0.5% of limit price
+                        const isFarPastLimit = distancePastLimit >= Math.max(0.5, Number((limitPrice * 0.005).toFixed(2)));
+
+                        // If order is triggered ("open") and market price has moved past limit:
+                        // A resting limit order CANNOT execute on the exchange book when market price is worse than its limit!
+                        if (isOpen && (isFarPastLimit || (isPastLimit && (leg.slOpenUnfilledCount || 0) >= 1))) {
+                            addStrategyLog(strategyId, `[SL RESCUE] SL order ${leg.slOrderId} was triggered but is resting unfilled at ₹${limitPrice} while market price moved to ₹${currentLtp} (past limit by ₹${distancePastLimit.toFixed(2)}). Cancelling stuck order and firing immediate market exit!`, "CRITICAL");
+
+                            let cancelConfirmedFilled = false;
+                            if (leg.slOrderId) {
+                                try {
+                                    try {
+                                        await cancelOrder(config, "STOPLOSS", leg.slOrderId);
+                                    } catch (cErr1) {
+                                        const msg1 = (cErr1.message || "").toLowerCase();
+                                        if (msg1.includes("filled") || msg1.includes("complete")) {
+                                            cancelConfirmedFilled = true;
+                                        } else {
+                                            await cancelOrder(config, "NORMAL", leg.slOrderId);
+                                        }
+                                    }
+                                    if (!cancelConfirmedFilled) {
+                                        addStrategyLog(strategyId, `[SL RESCUE] Successfully cancelled stuck SL order ${leg.slOrderId}.`, "INFO");
+                                    }
+                                } catch (cErr2) {
+                                    const msg2 = (cErr2.message || "").toLowerCase();
+                                    if (msg2.includes("filled") || msg2.includes("complete")) {
+                                        cancelConfirmedFilled = true;
+                                    } else {
+                                        console.warn(`[SL RESCUE] Cancellation failed for ${leg.slOrderId}: ${cErr2.message}. Proceeding to exit.`);
+                                    }
+                                }
+                            }
+
+                            if (cancelConfirmedFilled) {
+                                const exchangeFillPrice = Number(orderData?.averageprice || orderData?.averagePrice || 0) || limitPrice || leg.slTriggerPrice;
+                                const exchangeFillTime = getBrokerFillTime(orderData) || getISTExchangeFormat();
+                                leg.exchangeSlProcessed = true;
+                                addStrategyLog(strategyId, `[EXCHANGE_STOP_LOSS] SL order ${leg.slOrderId} was confirmed filled on exchange at ₹${exchangeFillPrice}.`, "INFO");
+                                await handleLegStopOut(leg, "EXCHANGE_STOP_LOSS", strategy, { exchangeFillPrice, exchangeFillTime });
+                                continue;
+                            }
+
+                            // Clear order IDs so placeExitOrder places a clean fresh market/limit exit order with chase
+                            leg.slOrderId = null;
+                            leg.slUniqueOrderId = null;
+                            // Fall through to manual exit below (lines 986+)
+                        } else if (isTriggerPending && distancePastLimit >= Math.max(2.0, Number((limitPrice * 0.02).toFixed(2)))) {
+                            // Extreme edge case: Order still shows 'trigger pending' despite market being >= 2% past trigger
+                            addStrategyLog(strategyId, `[SL RESCUE] SL order ${leg.slOrderId} remained 'trigger pending' despite market price at ₹${currentLtp} (₹${distancePastLimit.toFixed(2)} past trigger). Cancelling to execute market exit!`, "CRITICAL");
+                            if (leg.slOrderId) {
+                                try {
+                                    await cancelOrder(config, "STOPLOSS", leg.slOrderId);
+                                } catch (e) {
+                                    try { await cancelOrder(config, "NORMAL", leg.slOrderId); } catch (e2) { }
+                                }
+                            }
+                            leg.slOrderId = null;
+                            leg.slUniqueOrderId = null;
+                            // Fall through to manual exit below
+                        } else {
+                            // Order is either still waiting for trigger, or open within acceptable matchable range.
+                            if (isOpen && isPastLimit) {
+                                leg.slOpenUnfilledCount = (leg.slOpenUnfilledCount || 0) + 1;
+                            } else {
+                                leg.slOpenUnfilledCount = 0;
+                            }
+                            // For pending SL orders: monitor and log status every 1-min candle close
+                            if (isTriggerPending) {
+                                const { getISTTime } = require("./strategy.time");
+                                const currentMinute = getISTTime().substring(0, 5);
+                                if (leg.slPendingLastLogMinute !== currentMinute) {
+                                    addStrategyLog(strategyId, `[SL PENDING] ${leg.instrument?.symbol}: SL order ${leg.slOrderId} still "${statusDisplay}" at Angel. LTP: ₹${currentLtp}, SL Trigger: ₹${limitPrice}. Monitoring continues...`, "WARNING");
+                                    leg.slPendingLastLogMinute = currentMinute;
+                                }
+                            }
+                            // Let the exchange/Phase 6 handle it.
+                            continue;
                         }
-                    } catch (e) { }
-                }));
+                    } else {
+                        addStrategyLog(strategyId, `[FALLBACK] Could not verify broker SL order status for ${leg.instrument?.symbol} (${leg.slOrderId || 'no ID'}). Retrying on next check...`, "WARNING");
+                        continue;
+                    }
+                } catch (e) {
+                    // If we can't ping the broker, it's safer to defer to the exchange to avoid double exits.
+                    console.error(`[FALLBACK] Failed to verify SL status for ${leg.instrument.symbol}:`, e.message);
+                    continue;
+                }
             }
 
             try {
-                const exitResults = await Promise.allSettled(strategy.legs.map(async (leg) => {
-                    if (leg.exited) return leg.exitOrderId;
-                    return await placeExitOrder({ config, leg, instrument: leg.instrument, exitType: "EXIT_TIME" });
-                }));
-
-                const chaseErrors = exitResults.filter(r => r.status === 'rejected' && r.reason?.message?.startsWith("EXIT_CHASE_EXHAUSTED"));
-                if (chaseErrors.length > 0) {
-                    pauseStrategy(strategyId, `Square-off chase failed at Exit Time: ${chaseErrors[0].reason.message}`);
-                    return "TERMINATE";
-                }
-                
-                const otherErrors = exitResults.filter(r => r.status === 'rejected');
-                if (otherErrors.length > 0) {
-                    pauseStrategy(strategyId, `Exit placement failed: ${otherErrors[0].reason.message}`);
-                    return "TERMINATE";
-                }
-
-                const exitOrders = exitResults.map(r => r.value);
-
-                strategy.status = "EXITED";
-                updateStrategyInMemory(strategyId, {
-                    status: "EXITED", exit_order_id: exitOrders, exit_type: "EXIT_TIME", final_pnl_percent: strategy.pnlPercent,
-                    totalPnlRupees: strategy.totalPnlRupees, totalOriginalValue: strategy.totalOriginalValue, legs: strategy.legs
-                });
-                return "TERMINATE";
+                // 1. Place the order to close the position at the exchange.
+                await placeExitOrder({ config, leg, instrument: leg.instrument, exitType: evalResult.exitReason });
+                // 2. Call the lifecycle handler to record the data and check for Re-Entry.
+                //    Forward the broker fill time recorded by placeExitOrder so it isn't replaced by server time.
+                await handleLegStopOut(leg, evalResult.exitReason, strategy, leg.exited ? { exchangeFillTime: leg.exitTime } : null);
             } catch (exitErr) {
+                if (exitErr.message?.startsWith("EXIT_CHASE_EXHAUSTED")) {
+                    pauseStrategy(strategyId, `Exit Chase failed for ${leg.instrument?.symbol}: ${exitErr.message}`);
+                    return "TERMINATE";
+                }
                 throw exitErr;
             }
         }
+    }
 
-        // All Legs Completed Check
-        if (strategy.legs.every(l => l.exited)) {
+    /**
+     * PHASE 6: Live SL Sync (Broker Side)
+     * If you are trading with REAL money, we check the actual exchange order status.
+     * If the SL was hit directly on the broker's platform, we sync that into our system.
+     */
+    const isVirtualStrat = config?.is_virtual === true;
+    const isPaperTrade = config?.is_paper_trading === true || isVirtualStrat;
+    if (config.variety === "STOPLOSS" && !isPaperTrade) {
+        for (const leg of strategy.legs) {
+            // We only check legs that are active and have an order ID.
+            if (leg.exited || leg.state === "WAITING_FOR_RECOST" || (!leg.slUniqueOrderId && !leg.slOrderId) || leg.exchangeSlProcessed) continue;
+
+            // Optimization: Only ping the broker API if the current price is very near the SL (within 2%).
+            const isNearTrigger = leg.leg.side === "BUY" ? (leg.currentLtp <= leg.slTriggerPrice * 1.02) : (leg.currentLtp >= leg.slTriggerPrice * 0.98);
+            if (isNearTrigger) {
+                try {
+                    const api = await getAuthorizedInstance(config.connectionId);
+                    const { orderStatus, orderData } = await getBrokerOrderStatus(api, leg.slUniqueOrderId, leg.slOrderId);
+                    if (!leg.slUniqueOrderId && orderData?.uniqueorderid) {
+                        leg.slUniqueOrderId = orderData.uniqueorderid;
+                    }
+                    const statusDisplay = (orderStatus || "unknown").toUpperCase();
+                    const isExecuted = ["complete", "filled"].includes(orderStatus);
+                    const isTriggerPending = ["trigger pending", "pending"].includes(orderStatus);
+                    const isSlHitByLtp = leg.leg.side === "BUY" ? (leg.currentLtp <= leg.slTriggerPrice) : (leg.currentLtp >= leg.slTriggerPrice);
+
+                    // Log SL hit detection with broker order status (once per SL order)
+                    if (isExecuted || isSlHitByLtp) {
+                        if (leg.slHitLoggedForOrderId !== leg.slOrderId) {
+                            addStrategyLog(strategyId, `[SL CHECK] ${leg.instrument?.symbol}: SL price hit by LTP (₹${leg.currentLtp}), order status at Angel as "${statusDisplay}"`, "INFO");
+                            leg.slHitLoggedForOrderId = leg.slOrderId;
+                        }
+                    }
+
+                    if (isExecuted) {
+                        const exchangeFillPrice = Number(orderData?.averageprice || orderData?.averagePrice || 0) || null;
+                        const exchangeFillTime = getBrokerFillTime(orderData);
+                        leg.exchangeSlProcessed = true;
+                        addStrategyLog(strategyId, `[EXCHANGE_STOP_LOSS] Verified SL executed on exchange for ${leg.instrument?.symbol} at ₹${exchangeFillPrice || leg.slTriggerPrice}.`, "INFO");
+                        await handleLegStopOut(leg, "EXCHANGE_STOP_LOSS", strategy, { exchangeFillPrice, exchangeFillTime });
+                        continue;
+                    }
+
+                    // For pending SL orders when SL price is hit: monitor and log status every 1-min candle close
+                    if (isTriggerPending && isSlHitByLtp) {
+                        const { getISTTime } = require("./strategy.time");
+                        const currentMinute = getISTTime().substring(0, 5);
+                        if (leg.slPendingLastLogMinute !== currentMinute) {
+                            addStrategyLog(strategyId, `[SL PENDING] ${leg.instrument?.symbol}: SL order ${leg.slOrderId} still "${statusDisplay}" at Angel. LTP: ₹${leg.currentLtp}, SL Trigger: ₹${leg.slTriggerPrice}. Monitoring continues...`, "WARNING");
+                            leg.slPendingLastLogMinute = currentMinute;
+                        }
+                    }
+                } catch (err) { }
+            }
+        }
+    }
+
+    /**
+     * PHASE 7: Exit Time Check (Market Closing)
+     * If the current time has passed your "Exit Time" setting (e.g., 3:15 PM), 
+     * we automatically close everything and stop the strategy.
+     */
+    if (currentTime >= config.exit_time) {
+        if (strategy.exitAttempted) return;
+        strategy.exitAttempted = true;
+        addStrategyLog(strategyId, `Exit Time ${config.exit_time} reached. Squaring off all legs.`, "INFO");
+
+        if (!config.is_paper_trading) {
+            await Promise.all(strategy.legs.map(async (leg) => {
+                if (leg.exited) return;
+                try {
+                    // We NO LONGER cancel slOrderId here. placeExitOrder will convert it to an Exit order.
+                    if (!leg.entryPrice && leg.orderId) {
+                        try { await cancelOrder(config, "NORMAL", leg.orderId); } catch (e) { await cancelOrder(config, "STOPLOSS", leg.orderId); }
+                    }
+                } catch (e) { }
+            }));
+        }
+
+        try {
+            const exitResults = await Promise.allSettled(strategy.legs.map(async (leg) => {
+                if (leg.exited) return leg.exitOrderId;
+                return await placeExitOrder({ config, leg, instrument: leg.instrument, exitType: "EXIT_TIME" });
+            }));
+
+            const chaseErrors = exitResults.filter(r => r.status === 'rejected' && r.reason?.message?.startsWith("EXIT_CHASE_EXHAUSTED"));
+            if (chaseErrors.length > 0) {
+                pauseStrategy(strategyId, `Square-off chase failed at Exit Time: ${chaseErrors[0].reason.message}`);
+                return "TERMINATE";
+            }
+
+            const otherErrors = exitResults.filter(r => r.status === 'rejected');
+            if (otherErrors.length > 0) {
+                pauseStrategy(strategyId, `Exit placement failed: ${otherErrors[0].reason.message}`);
+                return "TERMINATE";
+            }
+
+            const exitOrders = exitResults.map(r => r.value);
+
             strategy.status = "EXITED";
             updateStrategyInMemory(strategyId, {
-                status: "EXITED", exit_type: "LEGS_COMPLETED", final_pnl_percent: strategy.pnlPercent,
-                pnlPercent: strategy.pnlPercent, totalPnlRupees: strategy.totalPnlRupees,
-                totalOriginalValue: strategy.totalOriginalValue, legs: strategy.legs
+                status: "EXITED", exit_order_id: exitOrders, exit_type: "EXIT_TIME", final_pnl_percent: strategy.pnlPercent,
+                totalPnlRupees: strategy.totalPnlRupees, totalOriginalValue: strategy.totalOriginalValue, legs: strategy.legs
             });
             return "TERMINATE";
+        } catch (exitErr) {
+            throw exitErr;
         }
-
-        /**
-         * PERIODIC STATE SYNC (Heartbeat)
-         * We flush the current runtime state — including the latest leg snapshots and PnL — 
-         * to the memory buffer. The global DbWriter will pick this up every 5 seconds and 
-         * persist it to the database. This prevents data loss (missing legs in history) 
-         * if the server restarts or if a strategy is running for many hours.
-         */
-        if (strategy.status === "IN_POSITION" || strategy.status === "WAITING") {
-            updateStrategyInMemory(strategyId, {
-                status: strategy.status,
-                pnlPercent: strategy.pnlPercent,
-                totalPnlRupees: strategy.totalPnlRupees,
-                totalOriginalValue: strategy.totalOriginalValue,
-                legs: strategy.legs,
-                entryAttempted: strategy.entryAttempted || false,
-                exitAttempted: strategy.exitAttempted || false
-            });
-        }
-
-    } catch (err) {
-        console.error(`[${strategyId}] Monitor Loop Error:`, err.message);
     }
+
+    // All Legs Completed Check
+    if (strategy.legs.every(l => l.exited)) {
+        strategy.status = "EXITED";
+        updateStrategyInMemory(strategyId, {
+            status: "EXITED", exit_type: "LEGS_COMPLETED", final_pnl_percent: strategy.pnlPercent,
+            pnlPercent: strategy.pnlPercent, totalPnlRupees: strategy.totalPnlRupees,
+            totalOriginalValue: strategy.totalOriginalValue, legs: strategy.legs
+        });
+        return "TERMINATE";
+    }
+
+    /**
+     * PERIODIC STATE SYNC (Heartbeat)
+     * We flush the current runtime state — including the latest leg snapshots and PnL — 
+     * to the memory buffer. The global DbWriter will pick this up every 5 seconds and 
+     * persist it to the database. This prevents data loss (missing legs in history) 
+     * if the server restarts or if a strategy is running for many hours.
+     */
+    if (strategy.status === "IN_POSITION" || strategy.status === "WAITING") {
+        updateStrategyInMemory(strategyId, {
+            status: strategy.status,
+            pnlPercent: strategy.pnlPercent,
+            totalPnlRupees: strategy.totalPnlRupees,
+            totalOriginalValue: strategy.totalOriginalValue,
+            legs: strategy.legs,
+            entryAttempted: strategy.entryAttempted || false,
+            exitAttempted: strategy.exitAttempted || false
+        });
+    }
+
+} catch (err) {
+    console.error(`[${strategyId}] Monitor Loop Error:`, err.message);
+}
 }
 
 module.exports = {

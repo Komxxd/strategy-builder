@@ -941,7 +941,7 @@ async function resolveReentryOrderFill({
         }
 
         if (!fillPrice && !isPaperTrading && ordertype === "LIMIT" && !isReentryChase) {
-            addStrategyLog(strategyId, `Re-Entry Chase failed for ${leg.instrument?.symbol || "leg"}: order not filled after ${parseInt(config.chase_time_seconds) || 45}s chase.`, "WARNING");
+            addStrategyLog(strategyId, `${logPrefix} Chase failed for ${leg.instrument?.symbol || "leg"}: order not filled after ${parseInt(config.chase_time_seconds) || 45}s chase.`, "WARNING");
             return { fillPrice: null, fillMeta, halted: false };
         }
 
