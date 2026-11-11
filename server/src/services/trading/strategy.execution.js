@@ -114,7 +114,7 @@ async function cancelOrder(config, variety, orderId) {
         const workerId = await workerSocketService.getAssignedWorkerForUser(connId);
         if (workerId) {
             console.log(`[${new Date().toISOString()}] Routing cancel order via Worker Node: ${workerId}`);
-            
+
             const session = sessionService.getSession(connId);
             const tradePayload = {
                 is_paper_trading: isPaperTrading,
@@ -123,7 +123,7 @@ async function cancelOrder(config, variety, orderId) {
                 jwtToken: session?.jwtToken,
                 order_details: { variety, orderid: orderId }
             };
-            
+
             return await orderDispatcher.dispatchTrade(workerId, connId, () =>
                 workerSocketService.cancelTradeOnWorker(workerId, tradePayload)
             );
@@ -164,7 +164,7 @@ async function modifyOrderLocallyOrViaWorker(config, modifyParams) {
         const workerId = await workerSocketService.getAssignedWorkerForUser(connId);
         if (workerId) {
             console.log(`[${new Date().toISOString()}] Routing modify order via Worker Node: ${workerId}`);
-            
+
             const session = sessionService.getSession(connId);
             const tradePayload = {
                 is_paper_trading: isPaperTrading,
@@ -173,7 +173,7 @@ async function modifyOrderLocallyOrViaWorker(config, modifyParams) {
                 jwtToken: session?.jwtToken,
                 order_details: modifyParams
             };
-            
+
             try {
                 return await orderDispatcher.dispatchTrade(workerId, connId, () =>
                     workerSocketService.modifyTradeOnWorker(workerId, tradePayload)
@@ -244,7 +244,7 @@ async function placeOrder(config, instrument, connectionId) {
     // --- CASE B: LIVE TRADING ---
     try {
         console.log(`[${new Date().toISOString()}] Placing order:`, orderParams);
-        
+
         // --- CASE A: PAPER TRADING (Local Fallback) ---
         if (isPaperTrading) {
             console.log(`[${new Date().toISOString()}] PAPER ORDER (Local):`, orderParams);
@@ -259,7 +259,7 @@ async function placeOrder(config, instrument, connectionId) {
             const workerId = await workerSocketService.getAssignedWorkerForUser(connId);
             if (workerId) {
                 console.log(`[${new Date().toISOString()}] Routing order via Worker Node: ${workerId}`);
-                
+
                 // Fetch credentials needed by the worker (as the worker logs in independently)
                 const session = sessionService.getSession(connId);
                 const tradePayload = {
@@ -269,7 +269,7 @@ async function placeOrder(config, instrument, connectionId) {
                     jwtToken: session?.jwtToken,
                     order_details: orderParams
                 };
-                
+
                 // Send trade to the worker over WebSocket through the paced Token Dispatcher
                 const response = await orderDispatcher.dispatchTrade(workerId, connId, () =>
                     workerSocketService.executeTradeOnWorker(workerId, tradePayload),
@@ -532,9 +532,9 @@ async function placeExitOrder({ config, leg, instrument, exitType }) {
     const strategyId = config?.id || config?.strategyId;
     const activeStrat = strategyId ? activeStrategies.get(strategyId) : null;
     const isVirtual = config?.is_virtual === true ||
-                      leg.is_virtual_monitoring === true ||
-                      leg.is_virtual_leg === true ||
-                      activeStrat?.is_virtual === true;
+        leg.is_virtual_monitoring === true ||
+        leg.is_virtual_leg === true ||
+        activeStrat?.is_virtual === true;
 
     if (leg.isExiting && (!config.is_paper_trading && !isVirtual)) return leg.exitOrderId;
 
@@ -743,7 +743,7 @@ async function placeExitOrder({ config, leg, instrument, exitType }) {
                         exchange: instrument.exch_seg,
                     };
                     await modifyOrderLocallyOrViaWorker(config, modifyPayload);
-                    
+
                     orderData = { orderid: leg.slOrderId, uniqueorderid: leg.slUniqueOrderId };
                     useSlOrder = true;
                     console.log(`[Exit] Successfully modified SL order ${leg.slOrderId} to Exit LIMIT order at ₹${finalPrice}.`);
@@ -802,7 +802,7 @@ async function placeExitOrder({ config, leg, instrument, exitType }) {
             leg.currentLtp = fillPrice;
             // Use the broker's fill timestamp; fall back to the moment we confirmed the fill
             leg.exitTime = fillMeta.time || getISTExchangeFormat();
-            
+
             if (leg.entryPrice) {
                 const pnlPts = leg.leg.side === "BUY" ? (fillPrice - leg.entryPrice) : (leg.entryPrice - fillPrice);
                 const multiplier = parseFloat(config.quantity_multiplier) || 1;
@@ -815,7 +815,7 @@ async function placeExitOrder({ config, leg, instrument, exitType }) {
                     leg.pnlPercent = (leg.pnlPoints / leg.original_traded_price) * 100;
                 }
             }
-            
+
             leg.exited = true;
             leg.isExiting = false;
             addStrategyLog(strategyId, `Exit confirmed for ${instrument.symbol} at ₹${fillPrice}.`, "INFO");
