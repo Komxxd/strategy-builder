@@ -1,6 +1,48 @@
 const { roundToTick, getLimitOffsetAmt, computeStopLossExitPrices } = require("./strategy.offset");
 
-function checkOverallPnlLimits({ config, totalPnlRupees, avgPnl, isMinuteClose }) {
+/**
+ * Returns true if the leg represents one of the strategy's starting legs
+ * rather than a re-entry or lazy leg.
+ */
+function isStartingLeg(leg, seenInitialLegIndices) {
+    if (!leg) return false;
+    if (leg.is_initial_leg === true) return true;
+    if (leg.is_initial_leg === false || leg.is_lazy_leg) return false;
+    if ((leg.reentry_count || 0) > 0) return false;
+    // Fallback for strategies started before is_initial_leg was tagged
+    const idxKey = leg.legIndex !== undefined ? leg.legIndex : leg;
+    if (seenInitialLegIndices) {
+        if (seenInitialLegIndices.has(idxKey)) return false;
+        seenInitialLegIndices.add(idxKey);
+    }
+    return true;
+}
+
+/**
+ * Computes total traded value across all entered legs and initial traded value
+ * across starting legs only.
+ */
+function computeStrategyTradedValues(legs = [], config = {}) {
+    const multiplier = parseFloat(config?.quantity_multiplier) || 1;
+    const seenInitialLegIndices = new Set();
+    let totalOriginalValue = 0;
+    let initialOriginalValue = 0;
+
+    for (const l of legs) {
+        if (!l || l.exitType === "SWITCHED_TO_VIRTUAL" || !l.original_traded_price) continue;
+        const isInitial = isStartingLeg(l, seenInitialLegIndices);
+        const quantity = (l.leg?.lots || 0) * (parseInt(l.instrument?.lotsize, 10) || 1) * multiplier;
+        const value = l.original_traded_price * quantity;
+        totalOriginalValue += value;
+        if (isInitial) {
+            initialOriginalValue += value;
+        }
+    }
+
+    return { totalOriginalValue, initialOriginalValue };
+}
+
+function checkOverallPnlLimits({ config, totalPnlRupees, avgPnl, initialAvgPnl, isMinuteClose }) {
     // 1. Check Overall Stop Loss
     // If "On Close" is enabled for SL, only check at minute close (second 59)
     const slOnClose = config.overall_sl_on_close === true;
@@ -8,16 +50,18 @@ function checkOverallPnlLimits({ config, totalPnlRupees, avgPnl, isMinuteClose }
 
     const slType = config.overall_sl_type || "PERCENTAGE";
     const slValue = parseFloat(config.overall_sl_value || 0);
+    const slOnInitial = config.overall_sl_on_initial === true;
+    const effectiveSlPct = (slOnInitial && initialAvgPnl !== undefined) ? initialAvgPnl : avgPnl;
 
     const multiplier = parseFloat(config.quantity_multiplier) || 1;
     if (!skipSl && config.overall_sl_enabled && slValue > 0) {
-        if (slType === "PERCENTAGE" && avgPnl <= -slValue) {
+        if (slType === "PERCENTAGE" && effectiveSlPct <= -slValue) {
             return {
                 hit: true,
                 exitType: "OVERALL_STOP_LOSS",
-                reason: `Overall SL% (${slValue}%) hit`,
+                reason: `Overall SL% (${slValue}%${slOnInitial ? " on Initial" : ""}) hit`,
                 logLevel: "CRITICAL",
-                logMessage: `SQUARING OFF due to Overall Stop Loss hit${slOnClose ? " (On Close)" : ""}.`
+                logMessage: `SQUARING OFF due to Overall Stop Loss hit${slOnInitial ? " (Initial Traded Value)" : ""}${slOnClose ? " (On Close)" : ""}.`
             };
         } else if (slType === "AMOUNT" && totalPnlRupees <= -(slValue * multiplier)) {
             return {
@@ -37,15 +81,17 @@ function checkOverallPnlLimits({ config, totalPnlRupees, avgPnl, isMinuteClose }
 
     const targetType = config.overall_target_type || "PERCENTAGE";
     const targetValue = parseFloat(config.overall_target_value || 0);
+    const targetOnInitial = config.overall_target_on_initial === true;
+    const effectiveTargetPct = (targetOnInitial && initialAvgPnl !== undefined) ? initialAvgPnl : avgPnl;
 
     if (!skipTarget && config.overall_target_enabled && targetValue > 0) {
-        if (targetType === "PERCENTAGE" && avgPnl >= targetValue) {
+        if (targetType === "PERCENTAGE" && effectiveTargetPct >= targetValue) {
             return {
                 hit: true,
                 exitType: "OVERALL_TARGET",
-                reason: `Overall Target% (${targetValue}%) hit`,
+                reason: `Overall Target% (${targetValue}%${targetOnInitial ? " on Initial" : ""}) hit`,
                 logLevel: "SUCCESS",
-                logMessage: `SQUARING OFF due to Overall Target hit${targetOnClose ? " (On Close)" : ""}.`
+                logMessage: `SQUARING OFF due to Overall Target hit${targetOnInitial ? " (Initial Traded Value)" : ""}${targetOnClose ? " (On Close)" : ""}.`
             };
         } else if (targetType === "AMOUNT" && totalPnlRupees >= (targetValue * multiplier)) {
             return {
@@ -273,6 +319,7 @@ function evaluateLegLimits({ leg, config, strategyId, addStrategyLog, isMinuteCl
 }
 
 module.exports = {
+    computeStrategyTradedValues,
     checkOverallPnlLimits,
     evaluateLegLimits
 };

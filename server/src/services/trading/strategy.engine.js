@@ -216,6 +216,7 @@ async function initializeActiveStrategies() {
                 totalPnlRupees: exec.execution_details?.totalPnlRupees || 0,
                 pnlPercent: exec.execution_details?.pnlPercent || 0,
                 totalOriginalValue: exec.execution_details?.totalOriginalValue || 0,
+                initialOriginalValue: exec.execution_details?.initialOriginalValue || 0,
                 user_id: exec.user_id
             };
 

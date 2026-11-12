@@ -29,7 +29,7 @@ const { placeExitOrder } = require("./strategy.execution");
 const { checkOrderFillOnce } = require("./strategy.chase");
 const marketSocketService = require("../marketSocket.service");
 const { handleLegStopOut, pauseStrategy, squareOffAndStopOnMarginError } = require("./strategy.lifecycle");
-const { checkOverallPnlLimits, evaluateLegLimits } = require("./strategy.pnl");
+const { computeStrategyTradedValues, checkOverallPnlLimits, evaluateLegLimits } = require("./strategy.pnl");
 
 /**
  * Helper to fetch order status from Angel One with two-tier fallback:
@@ -970,24 +970,20 @@ async function monitorStrategyLoop(strategyId, strategy) {
 
     strategy.totalPnlRupees = totalPnlRupees;
 
-    const totalOriginalValue = strategy.legs.reduce((sum, l) => {
-        if (l.exitType === "SWITCHED_TO_VIRTUAL") return sum;
-        if (!l.original_traded_price) return sum;
-        const multiplier = parseFloat(config.quantity_multiplier) || 1;
-        const quantity = (l.leg?.lots || 0) * parseInt(l.instrument?.lotsize || 1) * multiplier;
-        return sum + (l.original_traded_price * quantity);
-    }, 0);
+    const { totalOriginalValue, initialOriginalValue } = computeStrategyTradedValues(strategy.legs, config);
 
     const avgPnl = totalOriginalValue > 0 ? (totalPnlRupees / totalOriginalValue) * 100 : 0;
+    const initialAvgPnl = initialOriginalValue > 0 ? (totalPnlRupees / initialOriginalValue) * 100 : 0;
     strategy.pnlPercent = avgPnl;
     strategy.totalOriginalValue = totalOriginalValue;
+    strategy.initialOriginalValue = initialOriginalValue;
 
     // Overall Limit Check — "On Close" support
     // If on_close is enabled, the check only fires at second 59 of each minute
     const currentSeconds = parseInt(currentTime.split(":")[2], 10);
     const isMinuteClose = currentSeconds === 59;
 
-    const limitCheck = checkOverallPnlLimits({ config, totalPnlRupees, avgPnl, isMinuteClose });
+    const limitCheck = checkOverallPnlLimits({ config, totalPnlRupees, avgPnl, initialAvgPnl, isMinuteClose });
     if (limitCheck.hit) {
         if (strategy.exitAttempted) return;
         strategy.exitAttempted = true;
@@ -1026,7 +1022,7 @@ async function monitorStrategyLoop(strategyId, strategy) {
             strategy.exitType = limitCheck.exitType;
             updateStrategyInMemory(strategyId, {
                 status: "EXITED", exit_order_id: strategy.exitOrderId, exit_type: limitCheck.exitType,
-                final_pnl_percent: avgPnl, totalPnlRupees: totalPnlRupees, totalOriginalValue: strategy.totalOriginalValue, legs: strategy.legs
+                final_pnl_percent: avgPnl, totalPnlRupees: totalPnlRupees, totalOriginalValue: strategy.totalOriginalValue, initialOriginalValue: strategy.initialOriginalValue, legs: strategy.legs
             });
             return "TERMINATE";
         } catch (exitErr) {
@@ -1491,7 +1487,7 @@ async function monitorStrategyLoop(strategyId, strategy) {
             strategy.status = "EXITED";
             updateStrategyInMemory(strategyId, {
                 status: "EXITED", exit_order_id: exitOrders, exit_type: "EXIT_TIME", final_pnl_percent: strategy.pnlPercent,
-                totalPnlRupees: strategy.totalPnlRupees, totalOriginalValue: strategy.totalOriginalValue, legs: strategy.legs
+                totalPnlRupees: strategy.totalPnlRupees, totalOriginalValue: strategy.totalOriginalValue, initialOriginalValue: strategy.initialOriginalValue, legs: strategy.legs
             });
             return "TERMINATE";
         } catch (exitErr) {
@@ -1505,7 +1501,7 @@ async function monitorStrategyLoop(strategyId, strategy) {
         updateStrategyInMemory(strategyId, {
             status: "EXITED", exit_type: "LEGS_COMPLETED", final_pnl_percent: strategy.pnlPercent,
             pnlPercent: strategy.pnlPercent, totalPnlRupees: strategy.totalPnlRupees,
-            totalOriginalValue: strategy.totalOriginalValue, legs: strategy.legs
+            totalOriginalValue: strategy.totalOriginalValue, initialOriginalValue: strategy.initialOriginalValue, legs: strategy.legs
         });
         return "TERMINATE";
     }
@@ -1523,6 +1519,7 @@ async function monitorStrategyLoop(strategyId, strategy) {
             pnlPercent: strategy.pnlPercent,
             totalPnlRupees: strategy.totalPnlRupees,
             totalOriginalValue: strategy.totalOriginalValue,
+            initialOriginalValue: strategy.initialOriginalValue,
             legs: strategy.legs,
             entryAttempted: strategy.entryAttempted || false,
             exitAttempted: strategy.exitAttempted || false

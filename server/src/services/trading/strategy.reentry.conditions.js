@@ -296,6 +296,7 @@ function initReentryConditionsLeg({
         currentLtp: currentLtp,
         last_tick_price: currentLtp,
         reentry_count: leg.reentry_count,
+        is_initial_leg: false,
         original_traded_price: 0,
         base_otp: otp,
         base_sl_price: slPrice,

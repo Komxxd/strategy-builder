@@ -179,6 +179,7 @@ function updateStrategyInMemory(executionId, data) {
         updateData.execution_details.legs = strategy.legs || [];
         if (strategy.error) updateData.execution_details.error = strategy.error;
         if (strategy.totalOriginalValue !== undefined) updateData.execution_details.totalOriginalValue = strategy.totalOriginalValue;
+        if (strategy.initialOriginalValue !== undefined) updateData.execution_details.initialOriginalValue = strategy.initialOriginalValue;
     }
 
     for (const key of Object.keys(data)) {
@@ -244,6 +245,7 @@ async function getStatus(strategyId) {
             pnlPercent: s.pnlPercent || 0,
             totalPnlRupees: s.totalPnlRupees || 0,
             totalOriginalValue: s.totalOriginalValue || 0,
+            initialOriginalValue: s.initialOriginalValue || 0,
             orderId: s.orderId,
             exitOrderId: s.exitOrderId,
             exitType: s.exitType,
@@ -283,6 +285,7 @@ async function getStatus(strategyId) {
         pnlPercent: dbExec.final_pnl_percent || 0,
         totalPnlRupees: dbExec.total_pnl_rupees || 0,
         totalOriginalValue: dbExec.execution_details?.totalOriginalValue || 0,
+        initialOriginalValue: dbExec.execution_details?.initialOriginalValue || 0,
         exitType: dbExec.exit_type
     };
 }

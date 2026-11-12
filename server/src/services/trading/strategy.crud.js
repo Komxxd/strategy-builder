@@ -200,6 +200,7 @@ async function getExecutionHistory(userId) {
         pnlPercent: dbExec.final_pnl_percent || 0,
         totalPnlRupees: dbExec.total_pnl_rupees || 0,
         totalOriginalValue: dbExec.execution_details?.totalOriginalValue || 0,
+        initialOriginalValue: dbExec.execution_details?.initialOriginalValue || 0,
         exitType: dbExec.exit_type,
         started_at: fixTimezone(dbExec.started_at),
         completed_at: fixTimezone(dbExec.completed_at)

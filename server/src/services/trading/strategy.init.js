@@ -256,6 +256,7 @@ async function handleInitialEntry(strategyId, strategy) {
                 base_otp: parseFloat(finalPrice) || instLtp || 0,
                 recost_trigger_price: null,
                 reentry_count: 0,
+                is_initial_leg: true,
                 last_tick_price: null,
                 max_peak_price: (item.leg.simple_mntm_type === "HIGH" && isSimpleMntm) ? instLtp : null,
                 max_low_price: (item.leg.simple_mntm_type === "LOW" && isSimpleMntm) ? instLtp : null,

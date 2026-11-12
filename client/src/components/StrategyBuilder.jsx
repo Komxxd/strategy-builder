@@ -2030,6 +2030,7 @@ export const StrategyFormContent = ({ config, setConfig, editingId, setEditingId
  />
  </div>
  </div>
+ <div className="flex flex-wrap items-center gap-3">
  <div className="flex items-center gap-1.5">
  <input
  type="checkbox"
@@ -2039,6 +2040,17 @@ export const StrategyFormContent = ({ config, setConfig, editingId, setEditingId
  onChange={(e) => setConfig({ ...config, overall_sl_on_close: e.target.checked })}
  />
  <Label htmlFor="overall-sl-on-close" className="text-[10px] cursor-pointer text-muted-foreground">On Close</Label>
+ </div>
+ <div className="flex items-center gap-1.5">
+ <input
+ type="checkbox"
+ id="overall-sl-on-initial"
+ className="w-3.5 h-3.5 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
+ checked={config.overall_sl_on_initial || false}
+ onChange={(e) => setConfig({ ...config, overall_sl_on_initial: e.target.checked })}
+ />
+ <Label htmlFor="overall-sl-on-initial" className="text-[10px] cursor-pointer text-muted-foreground">OSL on Initial Traded Value</Label>
+ </div>
  </div>
  </div>
  )}
@@ -2086,6 +2098,7 @@ export const StrategyFormContent = ({ config, setConfig, editingId, setEditingId
  />
  </div>
  </div>
+ <div className="flex flex-wrap items-center gap-3">
  <div className="flex items-center gap-1.5">
  <input
  type="checkbox"
@@ -2095,6 +2108,17 @@ export const StrategyFormContent = ({ config, setConfig, editingId, setEditingId
  onChange={(e) => setConfig({ ...config, overall_target_on_close: e.target.checked })}
  />
  <Label htmlFor="overall-target-on-close" className="text-[10px] cursor-pointer text-muted-foreground">On Close</Label>
+ </div>
+ <div className="flex items-center gap-1.5">
+ <input
+ type="checkbox"
+ id="overall-target-on-initial"
+ className="w-3.5 h-3.5 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
+ checked={config.overall_target_on_initial || false}
+ onChange={(e) => setConfig({ ...config, overall_target_on_initial: e.target.checked })}
+ />
+ <Label htmlFor="overall-target-on-initial" className="text-[10px] cursor-pointer text-muted-foreground">OT on Initial Traded Value</Label>
+ </div>
  </div>
  </div>
  )}
@@ -2718,10 +2742,12 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  overall_sl_value: 0,
  overall_sl_enabled: false,
  overall_sl_on_close: false,
+ overall_sl_on_initial: false,
  overall_target_type:'PERCENTAGE',
  overall_target_value: 0,
  overall_target_enabled: false,
  overall_target_on_close: false,
+ overall_target_on_initial: false,
  entry_limit_offset: 0,
  entry_limit_offset_type:'POINTS',
  chase_time_seconds: 45,
@@ -3341,15 +3367,31 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
 
    const totalPnlRupees = virtualPlRupees + bookedRupees + ongoingRupees;
 
-   const calculatedOriginalValue = updatedLegs.reduce((sum, l) => {
+   let calculatedOriginalValue = 0;
+   let calculatedInitialOriginalValue = 0;
+   const seenInitialIndices = new Set();
+   const tradedMultiplier = parseFloat(strategy.config?.quantity_multiplier) || 1;
+   for (const l of updatedLegs) {
+     if (l.exitType === "SWITCHED_TO_VIRTUAL") continue;
      const price = l.original_traded_price || l.entryPrice || 0;
-     if (!price) return sum;
-     const multiplier = parseFloat(strategy.config?.quantity_multiplier) || 1;
-     const quantity = (l.leg?.lots || 0) * (parseInt(l.instrument?.lotsize) || 1) * multiplier;
-     return sum + (price * quantity);
-   }, 0);
+     if (!price) continue;
+     const quantity = (l.leg?.lots || 0) * (parseInt(l.instrument?.lotsize, 10) || 1) * tradedMultiplier;
+     const val = price * quantity;
+     calculatedOriginalValue += val;
+     let isInitial = false;
+     if (l.is_initial_leg === true) isInitial = true;
+     else if (l.is_initial_leg !== false && !l.is_lazy_leg && !(l.reentry_count > 0)) {
+       const idxKey = l.legIndex !== undefined ? l.legIndex : l;
+       if (!seenInitialIndices.has(idxKey)) {
+         seenInitialIndices.add(idxKey);
+         isInitial = true;
+       }
+     }
+     if (isInitial) calculatedInitialOriginalValue += val;
+   }
 
    const totalOriginalValue = calculatedOriginalValue || strategy.totalOriginalValue || 0;
+   const initialOriginalValue = calculatedInitialOriginalValue || strategy.initialOriginalValue || 0;
    const finalPnlRupees = totalPnlRupees !== 0 ? totalPnlRupees : (strategy.totalPnlRupees ?? 0);
    const avgPnl = totalOriginalValue > 0 ? (finalPnlRupees / totalOriginalValue) * 100 : (strategy.pnlPercent || 0);
 
@@ -3358,6 +3400,7 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
     legs: updatedLegs,
     totalPnlRupees: finalPnlRupees,
     totalOriginalValue,
+    initialOriginalValue,
     pnlPercent: avgPnl
   };
  };
@@ -4010,10 +4053,15 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
   <span className="text-[10px] font-mono font-bold text-black bg-slate-50 border border-slate-200 px-1.5 py-0.5 rounded">
   Trade Value: ₹{(Number(strategyData.totalOriginalValue) || 0).toFixed(0)}
   </span>
+ {(strategyData.config?.overall_sl_on_initial || strategyData.config?.overall_target_on_initial) && (
+ <span className="text-[10px] font-mono font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 px-1.5 py-0.5 rounded">
+ Initial Trade Value: ₹{(Number(strategyData.initialOriginalValue) || 0).toFixed(0)}
+ </span>
+ )}
  {strategyData.config?.overall_sl_enabled && (
  <span className="text-[10px] font-mono font-medium text-red-500 bg-red-50 border border-red-100 px-1.5 py-0.5 rounded">
  SL: -₹{(() => {
- const total = Number(strategyData.totalOriginalValue) || 0;
+ const total = Number(strategyData.config?.overall_sl_on_initial ? strategyData.initialOriginalValue : strategyData.totalOriginalValue) || 0;
  const multiplier = strategyData.config?.quantity_multiplier || 1;
  const val = (strategyData.config.overall_sl_value || 0) * multiplier;
  const amt = (strategyData.config.overall_sl_type ==='PERCENTAGE'
@@ -4026,7 +4074,7 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  {strategyData.config?.overall_target_enabled && (
  <span className="text-[10px] font-mono font-medium text-emerald-600 bg-emerald-50 border border-emerald-100 px-1.5 py-0.5 rounded">
  Tgt: +₹{(() => {
- const total = Number(strategyData.totalOriginalValue) || 0;
+ const total = Number(strategyData.config?.overall_target_on_initial ? strategyData.initialOriginalValue : strategyData.totalOriginalValue) || 0;
  const multiplier = strategyData.config?.quantity_multiplier || 1;
  const val = (strategyData.config.overall_target_value || 0) * multiplier;
  const amt = (strategyData.config.overall_target_type ==='PERCENTAGE'
