@@ -16,7 +16,7 @@ async function handleReentryLow({ leg, config, strategyId, addStrategyLog, curre
     }
     // 1. Setup the basic details
     const side = leg.leg.side;
-    const rtp = leg.re_low_trigger_price; 
+    const rtp = (leg.leg.relow_rtp_on_close && leg.committed_rtp !== undefined) ? leg.committed_rtp : leg.re_low_trigger_price;
     const currentPrice = currentTick || leg.currentLtp;
     const offsetAmt = isPaperTrading ? 0 : getLimitOffsetAmt(rtp, config);
 

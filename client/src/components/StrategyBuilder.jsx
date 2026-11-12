@@ -422,11 +422,23 @@ const getLegReentryConditionsState = (l, strategyConfig) => {
           (l.triggering_condition.type === cond.type && Number(l.triggering_condition.rtp) === Number(cond.rtp))
         ))
       );
+      const isHighOnClose = cond.type === 'RE_HIGH' && !!cond.rehigh_rtp_on_close;
+      const isLowOnClose = cond.type === 'RE_LOW' && !!cond.relow_rtp_on_close;
+      const displayPeak = isHighOnClose && cond.committed_peak_price != null
+        ? cond.committed_peak_price
+        : (cond.max_peak_price ?? (cond.type === 'RE_HIGH' ? l?.max_peak_price : undefined));
+      const displayLow = isLowOnClose && cond.committed_low_price != null
+        ? cond.committed_low_price
+        : (cond.max_low_price ?? (cond.type === 'RE_LOW' ? l?.max_low_price : undefined));
+      const displayRtp = (isHighOnClose || isLowOnClose) && cond.committed_rtp != null
+        ? cond.committed_rtp
+        : cond.rtp;
       return {
         ...cond,
+        rtp: displayRtp,
         rtp_met: cond.rtp_met === true,
-        max_peak_price: cond.max_peak_price ?? (cond.type === 'RE_HIGH' ? l?.max_peak_price : undefined),
-        max_low_price: cond.max_low_price ?? (cond.type === 'RE_LOW' ? l?.max_low_price : undefined),
+        max_peak_price: displayPeak,
+        max_low_price: displayLow,
         met: (isTriggered || cond.met === true)
       };
     });
@@ -445,8 +457,8 @@ const getLegReentryConditionsState = (l, strategyConfig) => {
   const otp = Number(l?.base_otp || l?.original_traded_price || l?.entryPrice || l?.initialLtp || l?.currentLtp || 0);
   const slPrice = Number(l?.base_sl_price || l?.slTriggerPrice || l?.initialSlTriggerPrice || otp);
   const currentLtp = Number(l?.currentLtp || otp);
-  const peakPrice = Number(l?.max_peak_price || l?.peakPrice || currentLtp);
-  const lowPrice = Number(l?.max_low_price || l?.lowPrice || currentLtp);
+  const peakPrice = Number((l?.leg?.rehigh_rtp_on_close && l?.committed_peak_price != null ? l.committed_peak_price : l?.max_peak_price) || l?.peakPrice || currentLtp);
+  const lowPrice = Number((l?.leg?.relow_rtp_on_close && l?.committed_low_price != null ? l.committed_low_price : l?.max_low_price) || l?.lowPrice || currentLtp);
 
   return raw.slice(0, 5).map((cond, idx) => {
     const type = cond.type || 'RE_COST';
@@ -4274,9 +4286,9 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
    {l.rtp_met ? `Waiting MTP: ₹${Number(l.committed_mtp || l.mtp || 0).toFixed(2)}` : "Waiting (Peak Basis)"}
  </span>
  <span className="text-muted-foreground text-[10px] font-mono ml-1">|</span>
- <span className="text-indigo-600 font-bold text-[10px] font-mono ml-1 uppercase">Peak:₹{(l.max_peak_price || 0).toFixed(2)}</span>
+ <span className="text-indigo-600 font-bold text-[10px] font-mono ml-1 uppercase">Peak:₹{((l.leg?.rehigh_rtp_on_close && l.committed_peak_price != null ? l.committed_peak_price : l.max_peak_price) || 0).toFixed(2)}</span>
  <span className="text-muted-foreground text-[10px] font-mono ml-1">|</span>
- <span className="text-orange-600 font-bold text-[10px] font-mono ml-1 uppercase">RTP:₹{(l.re_high_trigger_price || 0).toFixed(2)}{l.rtp_met ? " ✓" : ""}</span>
+ <span className="text-orange-600 font-bold text-[10px] font-mono ml-1 uppercase">RTP:₹{((l.leg?.rehigh_rtp_on_close && l.committed_rtp != null ? l.committed_rtp : l.re_high_trigger_price) || 0).toFixed(2)}{l.rtp_met ? " ✓" : ""}</span>
  {l.mtp && (
  <>
  <span className="text-muted-foreground text-[10px] font-mono ml-1">|</span>
@@ -4291,9 +4303,9 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
    {l.rtp_met ? `Waiting MTP: ₹${Number(l.committed_mtp || l.mtp || 0).toFixed(2)}` : "Waiting (Low Basis)"}
  </span>
  <span className="text-muted-foreground text-[10px] font-mono ml-1">|</span>
- <span className="text-indigo-600 font-bold text-[10px] font-mono ml-1 uppercase">Low:₹{(l.max_low_price || 0).toFixed(2)}</span>
+ <span className="text-indigo-600 font-bold text-[10px] font-mono ml-1 uppercase">Low:₹{((l.leg?.relow_rtp_on_close && l.committed_low_price != null ? l.committed_low_price : l.max_low_price) || 0).toFixed(2)}</span>
  <span className="text-muted-foreground text-[10px] font-mono ml-1">|</span>
- <span className="text-orange-600 font-bold text-[10px] font-mono ml-1 uppercase">RTP:₹{(l.re_low_trigger_price || 0).toFixed(2)}{l.rtp_met ? " ✓" : ""}</span>
+ <span className="text-orange-600 font-bold text-[10px] font-mono ml-1 uppercase">RTP:₹{((l.leg?.relow_rtp_on_close && l.committed_rtp != null ? l.committed_rtp : l.re_low_trigger_price) || 0).toFixed(2)}{l.rtp_met ? " ✓" : ""}</span>
  {l.mtp && (
  <>
  <span className="text-muted-foreground text-[10px] font-mono ml-1">|</span>

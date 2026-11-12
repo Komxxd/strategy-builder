@@ -20,7 +20,7 @@ const { handleReentryCost } = require("./strategy.reentry.cost");
 const { handleReentryReSL } = require("./strategy.reentry.resl");
 const { handleReentryHigh, modifyReentryOrder } = require("./strategy.reentry.high");
 const { handleReentryLow, modifyReentryLowOrder } = require("./strategy.reentry.low");
-const { processReentryConditionsTick } = require("./strategy.reentry.conditions");
+const { processReentryConditionsTick, updateExtremumTracker } = require("./strategy.reentry.conditions");
 const { checkMomentumHit } = require("./strategy.momentum");
 const { getISTTime, getISTExchangeFormat, getBrokerFillTime } = require("./strategy.time");
 const { roundToTick, computeStopLossExitPrices, getLimitOffsetAmt } = require("./strategy.offset");
@@ -241,218 +241,89 @@ async function monitorStrategyLoop(strategyId, strategy) {
                 }                /**
                  * PHASE 3: Re-Entry Tracking (RE-HIGH / RE-LOW)
                  */
-                if (leg.state === "WAITING_FOR_RE_HIGH") {
+                if (leg.state === "WAITING_FOR_RE_HIGH" || leg.state === "WAITING_FOR_RE_LOW") {
                     if (isReentryBlockedThisMinute) continue;
 
-                    let isNewPeak = false;
-                    if (!leg.max_peak_price || tickPrice > leg.max_peak_price) {
-                        leg.max_peak_price = tickPrice;
-                        isNewPeak = true;
-                    }
+                    const isHigh = leg.state === "WAITING_FOR_RE_HIGH";
+                    const rtpOnClose = !!(isHigh ? leg.leg.rehigh_rtp_on_close : leg.leg.relow_rtp_on_close);
+                    const mntmEnabled = !!(isHigh ? leg.leg.rehigh_mntm_enabled : leg.leg.relow_mntm_enabled);
+                    const reSeconds = parseInt(currentTime.split(":")[2], 10);
+                    const prevTick = leg.last_tick_price;
+                    const tag = isHigh ? "RE-HIGH" : "RE-LOW";
+                    const label = isHigh ? "PEAK" : "LOW";
 
-                    const mode = leg.leg.rehigh_mode || 'REHIGH_MINUS_PTS';
-                    const val = leg.leg.rehigh_value || 0;
-                    const peak = leg.max_peak_price;
-                    let rtp = peak;
+                    const { isNewExtremum, extremum, checkRtp, commitAtClose } = updateExtremumTracker({
+                        tracker: leg,
+                        isHigh,
+                        rtpOnClose,
+                        mode: isHigh ? (leg.leg.rehigh_mode || "REHIGH_MINUS_PTS") : (leg.leg.relow_mode || "RELOW_PLUS_PTS"),
+                        val: isHigh ? leg.leg.rehigh_value : leg.leg.relow_value,
+                        tickPrice,
+                        currentMinute,
+                        currentSeconds: reSeconds,
+                        mntmEnabled,
+                        mntmMode: isHigh ? (leg.leg.rehigh_mntm_mode || "REHIGH_PLUS_PCT") : (leg.leg.relow_mntm_mode || "RELOW_PLUS_PCT"),
+                        mntmVal: isHigh ? leg.leg.rehigh_mntm_value : leg.leg.relow_mntm_value,
+                        isRtpMet: !!leg.rtp_met,
+                        triggerKey: isHigh ? "re_high_trigger_price" : "re_low_trigger_price",
+                        addStrategyLog,
+                        strategyId,
+                        symbol: leg.instrument?.symbol || "leg",
+                        logNewExtremum: false
+                    });
 
-                    if (mode === 'REHIGH_MINUS_PCT') rtp = peak - (peak * val / 100);
-                    else if (mode === 'REHIGH_MINUS_PTS') rtp = peak - val;
+                    const isSlCandle = (leg.slHitMinute === currentMinute);
+                    const candleOpen = leg.candleOpen ?? tickPrice;
+                    const isRtpTriggered = isSlCandle
+                        ? (isHigh ? tickPrice <= checkRtp : tickPrice >= checkRtp)
+                        : (isHigh
+                            ? (candleOpen < checkRtp ? tickPrice >= checkRtp : tickPrice <= checkRtp)
+                            : (candleOpen > checkRtp ? tickPrice <= checkRtp : tickPrice >= checkRtp));
 
-                    rtp = roundToTick(rtp);
-                    leg.re_high_trigger_price = rtp;
-
-                    // RTP on Close: track peak every tick, but check RTP hit against the previous candle's committed value.
-                    // At second 59 (candle close), commit the new RTP for the next minute.
-                    const rtpOnClose = leg.leg.rehigh_rtp_on_close;
-                    let checkRtp = rtp; // Default: real-time RTP
-
-                    if (rtpOnClose) {
-                        const rehighSeconds = parseInt(currentTime.split(":")[2], 10);
-                        // Use the previously committed RTP for hit-checking this minute
-                        checkRtp = leg.committed_rtp !== undefined ? leg.committed_rtp : rtp;
-                        leg.rtp = checkRtp; // Show committed RTP on dashboard
-
-                        if (rehighSeconds === 59) {
-                            // At candle close: commit the current peak's RTP for the next minute
-                            if (leg.committed_rtp !== rtp) {
-                                addStrategyLog(strategyId, `[RE-HIGH] Candle Close for ${leg.instrument?.symbol || "leg"} — Committing RTP: ₹${rtp} (Peak: ₹${peak})`, "INFO");
-                            }
-                            leg.committed_rtp = rtp;
-                        }
-                    } else {
-                        leg.rtp = rtp;
-                    }
-
-                    // CASE A: With Momentum (Wait for pullback, then internally monitor for MTP touch)
-                    if (leg.leg.rehigh_mntm_enabled) {
-                        // Calculate PROJECTED MTP for dashboard visibility
-                        const mntmMode = leg.leg.rehigh_mntm_mode || "REHIGH_PLUS_PCT";
-                        const mntmVal = parseFloat(leg.leg.rehigh_mntm_value || 0);
-                        let projectedMtp = checkRtp;
-                        if (mntmMode === "REHIGH_PLUS_PCT" || mntmMode === "PLUS_PCT" || mntmMode === "PERCENTAGE") projectedMtp = checkRtp + (checkRtp * mntmVal / 100);
-                        else if (mntmMode === "REHIGH_PLUS_PTS" || mntmMode === "PLUS_PTS" || mntmMode === "POINTS") projectedMtp = checkRtp + mntmVal;
-                        else if (mntmMode === "REHIGH_MINUS_PCT" || mntmMode === "MINUS_PCT") projectedMtp = checkRtp - (checkRtp * mntmVal / 100);
-                        else if (mntmMode === "REHIGH_MINUS_PTS" || mntmMode === "MINUS_PTS") projectedMtp = checkRtp - mntmVal;
-                        leg.mtp = roundToTick(projectedMtp);
-
-                        if (isNewPeak && !leg.rtp_met) {
-                            addStrategyLog(strategyId, `[RE-HIGH] PEAK: ₹${peak} | RTP: ₹${checkRtp}${rtpOnClose ? ' (on close)' : ''} | MTP: ₹${leg.mtp}`, "INFO");
+                    if (mntmEnabled) {
+                        if (!rtpOnClose && isNewExtremum && !leg.rtp_met) {
+                            addStrategyLog(strategyId, `[${tag}] ${label}: ₹${extremum} | RTP: ₹${checkRtp} | MTP: ₹${leg.mtp}`, "INFO");
                         }
 
-                        if (!leg.rtp_met) {
-                            const isSlCandle = (leg.slHitMinute === currentMinute);
-                            const candleOpen = leg.candleOpen ?? tickPrice;
-                            const isRtpTriggered = isSlCandle
-                                ? (tickPrice <= checkRtp)
-                                : (candleOpen < checkRtp ? (tickPrice >= checkRtp) : (tickPrice <= checkRtp));
-
-                            if (isRtpTriggered) {
-                                leg.rtp_met = true;
-                                leg.committed_mtp = leg.mtp;
-                                addStrategyLog(strategyId, `[RE-HIGH MNTM] RTP ₹${checkRtp} reached for ${leg.instrument?.symbol}. Monitoring internally for MTP ₹${leg.mtp}...`, "INFO");
-                            }
+                        if (!leg.rtp_met && isRtpTriggered) {
+                            leg.rtp_met = true;
+                            leg.committed_mtp = leg.mtp;
+                            addStrategyLog(strategyId, `[${tag} MNTM] RTP ₹${checkRtp} reached for ${leg.instrument?.symbol}. Monitoring internally for MTP ₹${leg.mtp}...`, "INFO");
                         }
 
                         if (leg.rtp_met) {
                             const targetMtp = leg.committed_mtp || leg.mtp;
-                            let mtpHit = false;
-                            if (targetMtp > checkRtp) {
-                                if ((prevTick !== null && prevTick <= targetMtp && tickPrice >= targetMtp) || tickPrice >= targetMtp) mtpHit = true;
-                            } else if (targetMtp < checkRtp) {
-                                if ((prevTick !== null && prevTick >= targetMtp && tickPrice <= targetMtp) || tickPrice <= targetMtp) mtpHit = true;
-                            } else {
-                                mtpHit = true;
-                            }
+                            const mtpHit = targetMtp > checkRtp
+                                ? ((prevTick !== null && prevTick <= targetMtp && tickPrice >= targetMtp) || tickPrice >= targetMtp)
+                                : (targetMtp < checkRtp
+                                    ? ((prevTick !== null && prevTick >= targetMtp && tickPrice <= targetMtp) || tickPrice <= targetMtp)
+                                    : true);
 
                             if (mtpHit) {
-                                addStrategyLog(strategyId, `[RE-HIGH MNTM] MTP ₹${targetMtp} reached for ${leg.instrument?.symbol}. Placing LIMIT order...`, "INFO");
-                                await handleReentryHigh({ leg, config, strategyId, addStrategyLog, currentTick: tickPrice, isMtpPlacement: false });
+                                addStrategyLog(strategyId, `[${tag} MNTM] MTP ₹${targetMtp} reached for ${leg.instrument?.symbol}. Placing LIMIT order...`, "INFO");
+                                if (isHigh) {
+                                    await handleReentryHigh({ leg, config, strategyId, addStrategyLog, currentTick: tickPrice, isMtpPlacement: false });
+                                } else {
+                                    await handleReentryLow({ leg, config, strategyId, addStrategyLog, currentTick: tickPrice, isMtpPlacement: false });
+                                }
                             }
                         }
-                    }
-                    // CASE B: Without Momentum (Wait for pullback to RTP, then place limit order)
-                    else {
-                        leg.mtp = null; // Clear MTP for dashboard
-                        if (isNewPeak) {
-                            addStrategyLog(strategyId, `[RE-HIGH] PEAK: ₹${peak} | RTP: ₹${checkRtp}${rtpOnClose ? ' (on close)' : ''}`, "INFO");
-                        }
 
-                        const isSlCandle = (leg.slHitMinute === currentMinute);
-                        const candleOpen = leg.candleOpen ?? tickPrice;
-                        const isRtpTriggered = isSlCandle
-                            ? (tickPrice <= checkRtp)
-                            : (candleOpen < checkRtp ? (tickPrice >= checkRtp) : (tickPrice <= checkRtp));
+                        commitAtClose(!leg.rtp_met);
+                    } else {
+                        leg.mtp = null; // Clear MTP for dashboard
+                        if (!rtpOnClose && isNewExtremum) {
+                            addStrategyLog(strategyId, `[${tag}] ${label}: ₹${extremum} | RTP: ₹${checkRtp}`, "INFO");
+                        }
 
                         if (isRtpTriggered) {
-                            await handleReentryHigh({ leg, config, strategyId, addStrategyLog, currentTick: tickPrice, isMtpPlacement: false });
-                        }
-                    }
-                }
-
-                if (leg.state === "WAITING_FOR_RE_LOW") {
-                    if (isReentryBlockedThisMinute) continue;
-
-                    let isNewLow = false;
-                    if (!leg.max_low_price || tickPrice < leg.max_low_price) {
-                        leg.max_low_price = tickPrice;
-                        isNewLow = true;
-                    }
-
-                    const mode = leg.leg.relow_mode || 'RELOW_PLUS_PTS';
-                    const val = leg.leg.relow_value || 0;
-                    const low = leg.max_low_price;
-                    let rtp = low;
-
-                    if (mode === 'RELOW_PLUS_PCT') rtp = low + (low * val / 100);
-                    else if (mode === 'RELOW_PLUS_PTS') rtp = low + val;
-
-                    rtp = roundToTick(rtp);
-                    leg.re_low_trigger_price = rtp;
-
-                    // RTP on Close: track low every tick, but check RTP hit against the previous candle's committed value.
-                    // At second 59 (candle close), commit the new RTP for the next minute.
-                    const rtpOnClose = leg.leg.relow_rtp_on_close;
-                    let checkRtp = rtp; // Default: real-time RTP
-
-                    if (rtpOnClose) {
-                        const relowSeconds = parseInt(currentTime.split(":")[2], 10);
-                        // Use the previously committed RTP for hit-checking this minute
-                        checkRtp = leg.committed_rtp !== undefined ? leg.committed_rtp : rtp;
-                        leg.rtp = checkRtp; // Show committed RTP on dashboard
-
-                        if (relowSeconds === 59) {
-                            // At candle close: commit the current low's RTP for the next minute
-                            if (leg.committed_rtp !== rtp) {
-                                addStrategyLog(strategyId, `[RE-LOW] Candle Close for ${leg.instrument?.symbol || "leg"} — Committing RTP: ₹${rtp} (Low: ₹${low})`, "INFO");
-                            }
-                            leg.committed_rtp = rtp;
-                        }
-                    } else {
-                        leg.rtp = rtp;
-                    }
-
-                    // CASE A: With Momentum (Wait for pullback, then internally monitor for MTP touch)
-                    if (leg.leg.relow_mntm_enabled) {
-                        // Calculate PROJECTED MTP for dashboard visibility
-                        const mntmMode = leg.leg.relow_mntm_mode || "RELOW_PLUS_PCT";
-                        const mntmVal = parseFloat(leg.leg.relow_mntm_value || 0);
-                        let projectedMtp = checkRtp;
-                        if (mntmMode === "RELOW_PLUS_PCT" || mntmMode === "PLUS_PCT" || mntmMode === "PERCENTAGE") projectedMtp = checkRtp + (checkRtp * mntmVal / 100);
-                        else if (mntmMode === "RELOW_PLUS_PTS" || mntmMode === "PLUS_PTS" || mntmMode === "POINTS") projectedMtp = checkRtp + mntmVal;
-                        else if (mntmMode === "RELOW_MINUS_PCT" || mntmMode === "MINUS_PCT") projectedMtp = checkRtp - (checkRtp * mntmVal / 100);
-                        else if (mntmMode === "RELOW_MINUS_PTS" || mntmMode === "MINUS_PTS") projectedMtp = checkRtp - mntmVal;
-                        leg.mtp = roundToTick(projectedMtp);
-
-                        if (isNewLow && !leg.rtp_met) {
-                            addStrategyLog(strategyId, `[RE-LOW] LOW: ₹${low} | RTP: ₹${checkRtp}${rtpOnClose ? ' (on close)' : ''} | MTP: ₹${leg.mtp}`, "INFO");
-                        }
-
-                        if (!leg.rtp_met) {
-                            const isSlCandle = (leg.slHitMinute === currentMinute);
-                            const candleOpen = leg.candleOpen ?? tickPrice;
-                            const isRtpTriggered = isSlCandle
-                                ? (tickPrice >= checkRtp)
-                                : (candleOpen > checkRtp ? (tickPrice <= checkRtp) : (tickPrice >= checkRtp));
-
-                            if (isRtpTriggered) {
-                                leg.rtp_met = true;
-                                leg.committed_mtp = leg.mtp;
-                                addStrategyLog(strategyId, `[RE-LOW MNTM] RTP ₹${checkRtp} reached for ${leg.instrument?.symbol}. Monitoring internally for MTP ₹${leg.mtp}...`, "INFO");
-                            }
-                        }
-
-                        if (leg.rtp_met) {
-                            const targetMtp = leg.committed_mtp || leg.mtp;
-                            let mtpHit = false;
-                            if (targetMtp > checkRtp) {
-                                if ((prevTick !== null && prevTick <= targetMtp && tickPrice >= targetMtp) || tickPrice >= targetMtp) mtpHit = true;
-                            } else if (targetMtp < checkRtp) {
-                                if ((prevTick !== null && prevTick >= targetMtp && tickPrice <= targetMtp) || tickPrice <= targetMtp) mtpHit = true;
+                            if (isHigh) {
+                                await handleReentryHigh({ leg, config, strategyId, addStrategyLog, currentTick: tickPrice, isMtpPlacement: false });
                             } else {
-                                mtpHit = true;
-                            }
-
-                            if (mtpHit) {
-                                addStrategyLog(strategyId, `[RE-LOW MNTM] MTP ₹${targetMtp} reached for ${leg.instrument?.symbol}. Placing LIMIT order...`, "INFO");
                                 await handleReentryLow({ leg, config, strategyId, addStrategyLog, currentTick: tickPrice, isMtpPlacement: false });
                             }
-                        }
-                    }
-                    // CASE B: Without Momentum
-                    else {
-                        leg.mtp = null; // Clear MTP for dashboard
-                        if (isNewLow) {
-                            addStrategyLog(strategyId, `[RE-LOW] LOW: ₹${low} | RTP: ₹${checkRtp}${rtpOnClose ? ' (on close)' : ''}`, "INFO");
-                        }
-
-                        const isSlCandle = (leg.slHitMinute === currentMinute);
-                        const candleOpen = leg.candleOpen ?? tickPrice;
-                        const isRtpTriggered = isSlCandle
-                            ? (tickPrice >= checkRtp)
-                            : (candleOpen > checkRtp ? (tickPrice <= checkRtp) : (tickPrice >= checkRtp));
-
-                        if (isRtpTriggered) {
-                            await handleReentryLow({ leg, config, strategyId, addStrategyLog, currentTick: tickPrice, isMtpPlacement: false });
+                        } else {
+                            commitAtClose(true);
                         }
                     }
                 }

@@ -372,6 +372,8 @@ async function handleLegStopOut(leg, exitType, strategy, exchangeFillData = null
             base_otp: leg.base_otp || leg.original_traded_price, slHitMinute: slHitMinute,
             re_high_trigger_price: triggerPrice,
             max_peak_price: peakPrice,
+            live_peak_price: peakPrice,
+            committed_peak_price: rtpOnClose ? peakPrice : undefined,
             final_peak_reached: leg.final_peak_reached || 0, // Carry over if exists
             bookedPnlPoints: 0,
             bookedPnlRupees: 0,
@@ -387,6 +389,9 @@ async function handleLegStopOut(leg, exitType, strategy, exchangeFillData = null
             slLimitPrice: null,
             rtp: triggerPrice,
             committed_rtp: committedRtp,
+            last_track_minute: null,
+            last_commit_minute: null,
+            prev_committed_rtp: undefined,
             mtp: null,
             exchangeSlProcessed: false,
             is_virtual_leg: config.is_virtual === true
@@ -437,6 +442,8 @@ async function handleLegStopOut(leg, exitType, strategy, exchangeFillData = null
             base_otp: leg.base_otp || leg.original_traded_price, slHitMinute: slHitMinute,
             re_low_trigger_price: triggerPrice,
             max_low_price: lowPrice,
+            live_low_price: lowPrice,
+            committed_low_price: rtpOnClose ? lowPrice : undefined,
             final_low_reached: leg.final_low_reached || 0, // Carry over if exists
             bookedPnlPoints: 0,
             bookedPnlRupees: 0,
@@ -452,6 +459,9 @@ async function handleLegStopOut(leg, exitType, strategy, exchangeFillData = null
             slLimitPrice: null,
             rtp: triggerPrice,
             committed_rtp: committedRtp,
+            last_track_minute: null,
+            last_commit_minute: null,
+            prev_committed_rtp: undefined,
             mtp: null,
             exchangeSlProcessed: false,
             is_virtual_leg: config.is_virtual === true

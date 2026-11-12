@@ -3,6 +3,182 @@ const { placeOrder, placeStopLossWithRetry, resolveReentryOrderFill, handleReent
 const { getISTTime, getISTExchangeFormat, isWithinSecondsOfExit } = require("./strategy.time");
 
 /**
+ * Calculates the RTP for RE_HIGH or RE_LOW from a tracked peak/low price.
+ */
+function calcExtremumRtp(extremumPrice, isHigh, mode, value) {
+    const val = parseFloat(value || 0);
+    let calcRtp = extremumPrice;
+    if (isHigh) {
+        if (mode === "REHIGH_MINUS_PCT") calcRtp = extremumPrice - (extremumPrice * val / 100);
+        else if (mode === "REHIGH_MINUS_PTS") calcRtp = extremumPrice - val;
+    } else {
+        if (mode === "RELOW_PLUS_PCT") calcRtp = extremumPrice + (extremumPrice * val / 100);
+        else if (mode === "RELOW_PLUS_PTS") calcRtp = extremumPrice + val;
+        else if (mode === "RELOW_MINUS_PCT") calcRtp = extremumPrice - (extremumPrice * val / 100);
+        else if (mode === "RELOW_MINUS_PTS") calcRtp = extremumPrice - val;
+    }
+    return roundToTick(calcRtp);
+}
+
+/**
+ * Calculates MTP from a base RTP when re-entry momentum is enabled.
+ */
+function calcConditionMtp(baseRtp, mntmEnabled, mntmMode = "PLUS_PCT", mntmVal = 0) {
+    if (!mntmEnabled || baseRtp == null) return null;
+    const val = parseFloat(mntmVal || 0);
+    let mtp = baseRtp;
+    if (mntmMode.includes("PLUS_PCT") || mntmMode === "PERCENTAGE") mtp = baseRtp + (baseRtp * val / 100);
+    else if (mntmMode.includes("PLUS_PTS") || mntmMode === "POINTS") mtp = baseRtp + val;
+    else if (mntmMode.includes("MINUS_PCT")) mtp = baseRtp - (baseRtp * val / 100);
+    else if (mntmMode.includes("MINUS_PTS")) mtp = baseRtp - val;
+    return roundToTick(mtp);
+}
+
+/**
+ * Tracks intra-minute peak/low for RE_HIGH and RE_LOW.
+ * When rtpOnClose is enabled, UI-facing peak/low and RTP only change at candle close commit.
+ */
+function updateExtremumTracker({
+    tracker,
+    isHigh,
+    rtpOnClose,
+    mode,
+    val,
+    tickPrice,
+    currentMinute,
+    currentSeconds,
+    mntmEnabled,
+    mntmMode,
+    mntmVal,
+    isRtpMet = false,
+    triggerKey = null,
+    syncLeg = null,
+    addStrategyLog,
+    strategyId,
+    symbol = "leg",
+    logNewExtremum = true
+}) {
+    const extremumKey = isHigh ? "max_peak_price" : "max_low_price";
+    const liveKey = isHigh ? "live_peak_price" : "live_low_price";
+    const committedKey = isHigh ? "committed_peak_price" : "committed_low_price";
+    const tag = isHigh ? "RE-HIGH" : "RE-LOW";
+    const label = isHigh ? "Peak" : "Low";
+    const isBetter = (price, prev) => (isHigh ? (!prev || price > prev) : (!prev || price < prev));
+
+    const applyCommit = (extremum, reasonLabel) => {
+        const commitRtp = calcExtremumRtp(extremum, isHigh, mode, val);
+        const changed = (tracker.committed_rtp !== commitRtp || tracker[committedKey] !== extremum);
+        tracker[committedKey] = extremum;
+        tracker[extremumKey] = extremum;
+        tracker.committed_rtp = commitRtp;
+        tracker.rtp = commitRtp;
+        if (triggerKey) tracker[triggerKey] = commitRtp;
+        if (mntmEnabled) {
+            tracker.mtp = calcConditionMtp(commitRtp, true, mntmMode, mntmVal);
+        }
+        if (syncLeg) syncLeg(extremum);
+        if (changed && addStrategyLog) {
+            addStrategyLog(
+                strategyId,
+                `[${tag}] ${reasonLabel} for ${symbol} — Committing ${label}: ₹${extremum}, RTP: ₹${commitRtp}`,
+                "INFO"
+            );
+        }
+    };
+
+    if (rtpOnClose) {
+        // Fallback commit if second 59 was skipped by loop timing before rolling to a new minute.
+        if (
+            !isRtpMet &&
+            tracker.last_track_minute &&
+            tracker.last_track_minute !== currentMinute &&
+            tracker.last_commit_minute !== tracker.last_track_minute
+        ) {
+            const pendingExtremum = tracker[liveKey] ?? tracker[extremumKey];
+            if (pendingExtremum != null) {
+                applyCommit(pendingExtremum, "Candle Close");
+            }
+            tracker.last_commit_minute = tracker.last_track_minute;
+            tracker.prev_committed_rtp = undefined;
+        }
+
+        let isNewExtremum = false;
+        if (!isRtpMet) {
+            const prevLive = tracker[liveKey] ?? tracker[extremumKey];
+            if (isBetter(tickPrice, prevLive)) {
+                tracker[liveKey] = tickPrice;
+                isNewExtremum = true;
+            } else if (tracker[liveKey] == null) {
+                tracker[liveKey] = prevLive;
+            }
+            tracker.last_track_minute = currentMinute;
+        }
+
+        const committedExtremum = tracker[committedKey] ?? tracker[extremumKey];
+        tracker[extremumKey] = committedExtremum;
+        if (syncLeg) syncLeg(committedExtremum);
+
+        const activeCommittedRtp = tracker.committed_rtp !== undefined
+            ? tracker.committed_rtp
+            : calcExtremumRtp(tracker[liveKey] ?? committedExtremum, isHigh, mode, val);
+        tracker.rtp = activeCommittedRtp;
+        if (triggerKey) tracker[triggerKey] = activeCommittedRtp;
+
+        // If :59 already committed for the next minute on an earlier tick in :59, keep checking this minute against pre-close RTP.
+        const checkRtp = (tracker.last_commit_minute === currentMinute && tracker.prev_committed_rtp !== undefined)
+            ? tracker.prev_committed_rtp
+            : activeCommittedRtp;
+
+        if (mntmEnabled && !isRtpMet) {
+            tracker.mtp = calcConditionMtp(checkRtp, true, mntmMode, mntmVal);
+        }
+
+        const commitAtClose = (stillWaiting) => {
+            if (!stillWaiting || currentSeconds !== 59) return;
+            if (tracker.last_commit_minute !== currentMinute) {
+                tracker.prev_committed_rtp = tracker.committed_rtp;
+            }
+            const extremumToCommit = tracker[liveKey] ?? tracker[extremumKey];
+            if (extremumToCommit != null) {
+                applyCommit(extremumToCommit, "Candle Close");
+            }
+            tracker.last_commit_minute = currentMinute;
+        };
+
+        return { isNewExtremum, extremum: committedExtremum, checkRtp, commitAtClose };
+    }
+
+    let isNewExtremum = false;
+    if (!isRtpMet && isBetter(tickPrice, tracker[extremumKey])) {
+        tracker[extremumKey] = tickPrice;
+        tracker[liveKey] = tickPrice;
+        isNewExtremum = true;
+    }
+
+    const displayExtremum = tracker[extremumKey];
+    if (syncLeg) syncLeg(displayExtremum);
+    if (logNewExtremum && isNewExtremum && !isRtpMet && addStrategyLog) {
+        addStrategyLog(strategyId, `[RE-ENTRY CONDITIONS] [${tag}] New ${label.toLowerCase()} reached for ${symbol}: ₹${displayExtremum}`, "INFO");
+    }
+
+    const rtp = calcExtremumRtp(displayExtremum, isHigh, mode, val);
+    if (!isRtpMet) {
+        tracker.rtp = rtp;
+        if (triggerKey) tracker[triggerKey] = rtp;
+        if (mntmEnabled) {
+            tracker.mtp = calcConditionMtp(rtp, true, mntmMode, mntmVal);
+        }
+    }
+
+    return {
+        isNewExtremum,
+        extremum: displayExtremum,
+        checkRtp: tracker.rtp ?? rtp,
+        commitAtClose: () => {}
+    };
+}
+
+/**
  * Initializes a new waiting leg for re-entry conditions when a leg stops out.
  */
 function initReentryConditionsLeg({
@@ -52,41 +228,23 @@ function initReentryConditionsLeg({
             rtp = roundToTick(calcRtp);
         } else if (type === "RE_HIGH") {
             peakPrice = slPrice || currentLtp;
-            const mode = cond.rehigh_mode || "REHIGH_MINUS_PTS";
-            const val = parseFloat(cond.rehigh_value || 0);
-            let calcRtp = peakPrice;
-            if (mode === "REHIGH_MINUS_PCT") calcRtp = peakPrice - (peakPrice * val / 100);
-            else if (mode === "REHIGH_MINUS_PTS") calcRtp = peakPrice - val;
-            rtp = roundToTick(calcRtp);
+            rtp = calcExtremumRtp(peakPrice, true, cond.rehigh_mode || "REHIGH_MINUS_PTS", cond.rehigh_value);
         } else if (type === "RE_LOW") {
             lowPrice = slPrice || currentLtp;
-            const mode = cond.relow_mode || "RELOW_PLUS_PTS";
-            const val = parseFloat(cond.relow_value || 0);
-            let calcRtp = lowPrice;
-            if (mode === "RELOW_PLUS_PCT") calcRtp = lowPrice + (lowPrice * val / 100);
-            else if (mode === "RELOW_PLUS_PTS") calcRtp = lowPrice + val;
-            else if (mode === "RELOW_MINUS_PCT") calcRtp = lowPrice - (lowPrice * val / 100);
-            else if (mode === "RELOW_MINUS_PTS") calcRtp = lowPrice - val;
-            rtp = roundToTick(calcRtp);
+            rtp = calcExtremumRtp(lowPrice, false, cond.relow_mode || "RELOW_PLUS_PTS", cond.relow_value);
         }
 
-        let mtp = null;
-        if (cond.mntm_enabled) {
-            const mntmMode = cond.mntm_mode || "PLUS_PCT";
-            const mntmVal = parseFloat(cond.mntm_value || 0);
-            let calcMtp = rtp;
-            if (mntmMode.includes("PLUS_PCT") || mntmMode === "PERCENTAGE") calcMtp = rtp + (rtp * mntmVal / 100);
-            else if (mntmMode.includes("PLUS_PTS") || mntmMode === "POINTS") calcMtp = rtp + mntmVal;
-            else if (mntmMode.includes("MINUS_PCT")) calcMtp = rtp - (rtp * mntmVal / 100);
-            else if (mntmMode.includes("MINUS_PTS")) calcMtp = rtp - mntmVal;
-            mtp = roundToTick(calcMtp);
-        }
+        const mtp = calcConditionMtp(rtp, !!cond.mntm_enabled, cond.mntm_mode || "PLUS_PCT", cond.mntm_value || 0);
 
         let committed_rtp = undefined;
+        let committed_peak_price = undefined;
+        let committed_low_price = undefined;
         if (type === "RE_HIGH" && cond.rehigh_rtp_on_close) {
             committed_rtp = rtp;
+            committed_peak_price = peakPrice;
         } else if (type === "RE_LOW" && cond.relow_rtp_on_close) {
             committed_rtp = rtp;
+            committed_low_price = lowPrice;
         }
 
         return {
@@ -98,7 +256,14 @@ function initReentryConditionsLeg({
             mtp,
             max_peak_price: peakPrice,
             max_low_price: lowPrice,
+            live_peak_price: peakPrice,
+            live_low_price: lowPrice,
+            committed_peak_price,
+            committed_low_price,
             committed_rtp,
+            last_track_minute: null,
+            last_commit_minute: null,
+            prev_committed_rtp: undefined,
             rtp_met: false,
             rtp_met_tick: null,
             met: false,
@@ -365,146 +530,58 @@ async function processReentryConditionsTick({
                     addStrategyLog(strategyId, `[RE-ENTRY CONDITIONS] RE_SL condition met for ${leg.instrument?.symbol || "leg"} at ₹${tickPrice} (RTP: ₹${rtp})`, "INFO");
                 }
             }
-        } else if (type === "RE_HIGH") {
-            let isNewPeak = false;
-            if (!cond.max_peak_price || tickPrice > cond.max_peak_price) {
-                cond.max_peak_price = tickPrice;
-                isNewPeak = true;
-            }
-            leg.max_peak_price = cond.max_peak_price;
-            if (isNewPeak) {
-                addStrategyLog(strategyId, `[RE-ENTRY CONDITIONS] [RE-HIGH] New peak reached for ${leg.instrument?.symbol || "leg"}: ₹${cond.max_peak_price}`, "INFO");
-            }
-
-            const peak = cond.max_peak_price;
-            const mode = cond.rehigh_mode || "REHIGH_MINUS_PTS";
-            const val = parseFloat(cond.rehigh_value || 0);
-            let rtp = peak;
-            if (mode === "REHIGH_MINUS_PCT") rtp = peak - (peak * val / 100);
-            else if (mode === "REHIGH_MINUS_PTS") rtp = peak - val;
-            rtp = roundToTick(rtp);
-            cond.rtp = rtp;
-
-            let checkRtp = rtp;
-            if (cond.rehigh_rtp_on_close) {
-                checkRtp = cond.committed_rtp !== undefined ? cond.committed_rtp : rtp;
-                if (currentSeconds === 59 && cond.committed_rtp !== rtp) {
-                    cond.committed_rtp = rtp;
-                    addStrategyLog(strategyId, `[RE-HIGH] Candle Close for ${leg.instrument?.symbol || "leg"} — Committing RTP: ₹${rtp} (Peak: ₹${peak})`, "INFO");
-                }
-            }
-
-            if (cond.mntm_enabled) {
-                const mntmMode = cond.mntm_mode || "PLUS_PCT";
-                const mntmVal = parseFloat(cond.mntm_value || 0);
-                let mtp = checkRtp;
-                if (mntmMode.includes("PLUS_PCT") || mntmMode === "PERCENTAGE") mtp = checkRtp + (checkRtp * mntmVal / 100);
-                else if (mntmMode.includes("PLUS_PTS") || mntmMode === "POINTS") mtp = checkRtp + mntmVal;
-                else if (mntmMode.includes("MINUS_PCT")) mtp = checkRtp - (checkRtp * mntmVal / 100);
-                else if (mntmMode.includes("MINUS_PTS")) mtp = checkRtp - mntmVal;
-                cond.mtp = roundToTick(mtp);
-            }
+        } else if (type === "RE_HIGH" || type === "RE_LOW") {
+            const isHigh = type === "RE_HIGH";
+            const rtpOnClose = !!(isHigh ? cond.rehigh_rtp_on_close : cond.relow_rtp_on_close);
+            const extremumLabel = isHigh ? "Peak" : "Low";
+            const { extremum, checkRtp, commitAtClose } = updateExtremumTracker({
+                tracker: cond,
+                isHigh,
+                rtpOnClose,
+                mode: isHigh ? (cond.rehigh_mode || "REHIGH_MINUS_PTS") : (cond.relow_mode || "RELOW_PLUS_PTS"),
+                val: isHigh ? cond.rehigh_value : cond.relow_value,
+                tickPrice,
+                currentMinute,
+                currentSeconds,
+                mntmEnabled: !!cond.mntm_enabled,
+                mntmMode: cond.mntm_mode || "PLUS_PCT",
+                mntmVal: cond.mntm_value || 0,
+                isRtpMet: !!cond.rtp_met,
+                syncLeg: isHigh ? (p) => { leg.max_peak_price = p; } : (l) => { leg.max_low_price = l; },
+                addStrategyLog,
+                strategyId,
+                symbol: leg.instrument?.symbol || "leg",
+                logNewExtremum: true
+            });
 
             const isRtpTriggered = isSlCandle
-                ? (tickPrice <= checkRtp)
-                : (candleOpen < checkRtp ? (tickPrice >= checkRtp) : (tickPrice <= checkRtp));
+                ? (isHigh ? tickPrice <= checkRtp : tickPrice >= checkRtp)
+                : (isHigh
+                    ? (candleOpen < checkRtp ? tickPrice >= checkRtp : tickPrice <= checkRtp)
+                    : (candleOpen > checkRtp ? tickPrice <= checkRtp : tickPrice >= checkRtp));
 
             if (isRtpTriggered) {
                 cond.rtp_met = true;
                 cond.rtp_met_tick = tickPrice;
                 if (cond.mntm_enabled && cond.mtp != null) {
-                    addStrategyLog(strategyId, `[RE-ENTRY CONDITIONS] RE_HIGH RTP met for ${leg.instrument?.symbol || "leg"} at ₹${tickPrice} (Peak: ₹${peak}, RTP: ₹${checkRtp}). Monitoring internally for MTP: ₹${cond.mtp}...`, "INFO");
+                    addStrategyLog(strategyId, `[RE-ENTRY CONDITIONS] ${type} RTP met for ${leg.instrument?.symbol || "leg"} at ₹${tickPrice} (${extremumLabel}: ₹${extremum}, RTP: ₹${checkRtp}). Monitoring internally for MTP: ₹${cond.mtp}...`, "INFO");
                     const targetMtp = cond.mtp;
-                    let mtpHit = false;
-                    if (targetMtp > checkRtp) {
-                        if (tickPrice >= targetMtp) mtpHit = true;
-                    } else if (targetMtp < checkRtp) {
-                        if (tickPrice <= targetMtp) mtpHit = true;
-                    } else {
-                        mtpHit = true;
-                    }
+                    const mtpHit = targetMtp > checkRtp
+                        ? tickPrice >= targetMtp
+                        : (targetMtp < checkRtp ? tickPrice <= targetMtp : true);
                     if (mtpHit) {
                         cond.met = true;
                         cond.metTick = tickPrice;
-                        addStrategyLog(strategyId, `[RE-ENTRY CONDITIONS] RE_HIGH MTP met on same tick for ${leg.instrument?.symbol || "leg"} at ₹${tickPrice} (MTP: ₹${targetMtp}). Condition satisfied!`, "INFO");
+                        addStrategyLog(strategyId, `[RE-ENTRY CONDITIONS] ${type} MTP met on same tick for ${leg.instrument?.symbol || "leg"} at ₹${tickPrice} (MTP: ₹${targetMtp}). Condition satisfied!`, "INFO");
                     }
                 } else {
                     cond.met = true;
                     cond.metTick = tickPrice;
-                    addStrategyLog(strategyId, `[RE-ENTRY CONDITIONS] RE_HIGH condition met for ${leg.instrument?.symbol || "leg"} at ₹${tickPrice} (Peak: ₹${peak}, RTP: ₹${checkRtp})`, "INFO");
-                }
-            }
-        } else if (type === "RE_LOW") {
-            let isNewLow = false;
-            if (!cond.max_low_price || tickPrice < cond.max_low_price) {
-                cond.max_low_price = tickPrice;
-                isNewLow = true;
-            }
-            leg.max_low_price = cond.max_low_price;
-            if (isNewLow) {
-                addStrategyLog(strategyId, `[RE-ENTRY CONDITIONS] [RE-LOW] New low reached for ${leg.instrument?.symbol || "leg"}: ₹${cond.max_low_price}`, "INFO");
-            }
-
-            const low = cond.max_low_price;
-            const mode = cond.relow_mode || "RELOW_PLUS_PTS";
-            const val = parseFloat(cond.relow_value || 0);
-            let rtp = low;
-            if (mode === "RELOW_PLUS_PCT") rtp = low + (low * val / 100);
-            else if (mode === "RELOW_PLUS_PTS") rtp = low + val;
-            else if (mode === "RELOW_MINUS_PCT") rtp = low - (low * val / 100);
-            else if (mode === "RELOW_MINUS_PTS") rtp = low - val;
-            rtp = roundToTick(rtp);
-            cond.rtp = rtp;
-
-            let checkRtp = rtp;
-            if (cond.relow_rtp_on_close) {
-                checkRtp = cond.committed_rtp !== undefined ? cond.committed_rtp : rtp;
-                if (currentSeconds === 59 && cond.committed_rtp !== rtp) {
-                    cond.committed_rtp = rtp;
-                    addStrategyLog(strategyId, `[RE-LOW] Candle Close for ${leg.instrument?.symbol || "leg"} — Committing RTP: ₹${rtp} (Low: ₹${low})`, "INFO");
+                    addStrategyLog(strategyId, `[RE-ENTRY CONDITIONS] ${type} condition met for ${leg.instrument?.symbol || "leg"} at ₹${tickPrice} (${extremumLabel}: ₹${extremum}, RTP: ₹${checkRtp})`, "INFO");
                 }
             }
 
-            if (cond.mntm_enabled) {
-                const mntmMode = cond.mntm_mode || "PLUS_PCT";
-                const mntmVal = parseFloat(cond.mntm_value || 0);
-                let mtp = checkRtp;
-                if (mntmMode.includes("PLUS_PCT") || mntmMode === "PERCENTAGE") mtp = checkRtp + (checkRtp * mntmVal / 100);
-                else if (mntmMode.includes("PLUS_PTS") || mntmMode === "POINTS") mtp = checkRtp + mntmVal;
-                else if (mntmMode.includes("MINUS_PCT")) mtp = checkRtp - (checkRtp * mntmVal / 100);
-                else if (mntmMode.includes("MINUS_PTS")) mtp = checkRtp - mntmVal;
-                cond.mtp = roundToTick(mtp);
-            }
-
-            const isRtpTriggered = isSlCandle
-                ? (tickPrice >= checkRtp)
-                : (candleOpen > checkRtp ? (tickPrice <= checkRtp) : (tickPrice >= checkRtp));
-
-            if (isRtpTriggered) {
-                cond.rtp_met = true;
-                cond.rtp_met_tick = tickPrice;
-                if (cond.mntm_enabled && cond.mtp != null) {
-                    addStrategyLog(strategyId, `[RE-ENTRY CONDITIONS] RE_LOW RTP met for ${leg.instrument?.symbol || "leg"} at ₹${tickPrice} (Low: ₹${low}, RTP: ₹${checkRtp}). Monitoring internally for MTP: ₹${cond.mtp}...`, "INFO");
-                    const targetMtp = cond.mtp;
-                    let mtpHit = false;
-                    if (targetMtp > checkRtp) {
-                        if (tickPrice >= targetMtp) mtpHit = true;
-                    } else if (targetMtp < checkRtp) {
-                        if (tickPrice <= targetMtp) mtpHit = true;
-                    } else {
-                        mtpHit = true;
-                    }
-                    if (mtpHit) {
-                        cond.met = true;
-                        cond.metTick = tickPrice;
-                        addStrategyLog(strategyId, `[RE-ENTRY CONDITIONS] RE_LOW MTP met on same tick for ${leg.instrument?.symbol || "leg"} at ₹${tickPrice} (MTP: ₹${targetMtp}). Condition satisfied!`, "INFO");
-                    }
-                } else {
-                    cond.met = true;
-                    cond.metTick = tickPrice;
-                    addStrategyLog(strategyId, `[RE-ENTRY CONDITIONS] RE_LOW condition met for ${leg.instrument?.symbol || "leg"} at ₹${tickPrice} (Low: ₹${low}, RTP: ₹${checkRtp})`, "INFO");
-                }
-            }
+            commitAtClose(!cond.rtp_met);
         }
     }
 
@@ -781,6 +858,9 @@ module.exports = {
     initReentryConditionsLeg,
     evaluateReentryConditionsGroup,
     processReentryConditionsTick,
-    handleReentryConditionsTrigger
+    handleReentryConditionsTrigger,
+    calcExtremumRtp,
+    calcConditionMtp,
+    updateExtremumTracker
 };
 
