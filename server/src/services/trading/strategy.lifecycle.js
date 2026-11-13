@@ -542,9 +542,162 @@ function pauseStrategy(strategyId, reason) {
     marketSocketService.sendAlertToUser(strategy.user_id, `Strategy PAUSED — ${reason}`, "error", strategyId);
 }
 
+/**
+ * Final check before marking strategy as EXITED:
+ * Checks whether any pending orders remain for this strategy on the broker or in memory.
+ * If none are left, logs "No extra pending orders found, marking EXITED".
+ * If any are left, logs "Extra pending order found.", cancels them, and properly exits.
+ */
+async function checkAndCleanPendingOrdersBeforeExit(strategyId, strategy) {
+    if (!strategy) return;
+    if (strategy._exitCheckDone) return;
+    strategy._exitCheckDone = true;
+
+    const config = strategy.config || {};
+    const isVirtual = config?.is_virtual === true || strategy?.is_virtual === true;
+    const isPaperTrading = config?.is_paper_trading === true || isVirtual;
+
+    // Collect all known exit order IDs so we never attempt to cancel completed exit orders
+    const exitOrderIds = new Set();
+    if (strategy.exitOrderId) {
+        if (Array.isArray(strategy.exitOrderId)) {
+            strategy.exitOrderId.forEach(id => id && exitOrderIds.add(String(id)));
+        } else {
+            exitOrderIds.add(String(strategy.exitOrderId));
+        }
+    }
+
+    const legs = Array.isArray(strategy.legs) ? strategy.legs : [];
+    for (const leg of legs) {
+        if (leg.exitOrderId) {
+            if (Array.isArray(leg.exitOrderId)) {
+                leg.exitOrderId.forEach(id => id && exitOrderIds.add(String(id)));
+            } else {
+                exitOrderIds.add(String(leg.exitOrderId));
+            }
+        }
+    }
+
+    // Collect all order IDs known to have been placed by this strategy
+    const knownOrderIds = new Set();
+    if (strategy.allOrderIds) {
+        for (const id of strategy.allOrderIds) {
+            if (id) knownOrderIds.add(String(id));
+        }
+    }
+    for (const leg of legs) {
+        if (leg.slOrderId) knownOrderIds.add(String(leg.slOrderId));
+        if (leg.orderId) knownOrderIds.add(String(leg.orderId));
+    }
+
+    const extraPendingOrders = [];
+
+    // Live trading: check broker order book directly from Angel One
+    if (!isPaperTrading && config?.connectionId) {
+        try {
+            const { getAuthorizedInstance } = require("../../config/smartapi");
+            const api = await getAuthorizedInstance(config.connectionId);
+            const book = await api.getOrderBook();
+            if (book?.status && Array.isArray(book.data)) {
+                const pendingStatuses = [
+                    "open",
+                    "trigger pending",
+                    "pending",
+                    "modify pending",
+                    "modify validation pending",
+                    "after market order req received"
+                ];
+
+                for (const order of book.data) {
+                    const id = String(order.orderid || "");
+                    if (!id || exitOrderIds.has(id)) continue;
+
+                    const status = (order.orderstatus || order.status || "").toLowerCase();
+                    if (!pendingStatuses.includes(status)) continue;
+
+                    const isKnownId = knownOrderIds.has(id);
+                    const isLegSl = legs.some(l => l.slOrderId && String(l.slOrderId) === id);
+                    const isMatchingLegSl = order.variety === "STOPLOSS" && legs.some(l =>
+                        l.instrument?.token && String(l.instrument.token) === String(order.symboltoken)
+                    );
+
+                    if (isKnownId || isLegSl || isMatchingLegSl) {
+                        extraPendingOrders.push({
+                            orderid: id,
+                            variety: order.variety || "STOPLOSS",
+                            symbol: order.tradingsymbol || "leg"
+                        });
+                    }
+                }
+            }
+        } catch (bookErr) {
+            console.warn(`[Exit Check] Failed to fetch order book for strategy ${strategyId}: ${bookErr.message}`);
+        }
+    }
+
+    // In-memory fallback (if broker order book query failed or in case of local leg order tracking)
+    for (const leg of legs) {
+        if (leg.slOrderId) {
+            const slIdStr = String(leg.slOrderId);
+            if (!exitOrderIds.has(slIdStr) && !extraPendingOrders.some(o => o.orderid === slIdStr)) {
+                extraPendingOrders.push({
+                    orderid: slIdStr,
+                    variety: "STOPLOSS",
+                    symbol: leg.instrument?.symbol || "leg"
+                });
+            }
+        }
+        if (leg.orderId && !leg.entryPrice && !leg.exited) {
+            const ordIdStr = String(leg.orderId);
+            if (!exitOrderIds.has(ordIdStr) && !extraPendingOrders.some(o => o.orderid === ordIdStr)) {
+                extraPendingOrders.push({
+                    orderid: ordIdStr,
+                    variety: "NORMAL",
+                    symbol: leg.instrument?.symbol || "leg"
+                });
+            }
+        }
+    }
+
+    // De-duplicate extra pending orders by orderid
+    const uniquePending = [];
+    const seen = new Set();
+    for (const ord of extraPendingOrders) {
+        if (!seen.has(ord.orderid)) {
+            seen.add(ord.orderid);
+            uniquePending.push(ord);
+        }
+    }
+
+    if (uniquePending.length === 0) {
+        addStrategyLog(strategyId, "No extra pending orders found, marking EXITED", "INFO");
+    } else {
+        addStrategyLog(strategyId, "Extra pending order found.", "WARNING");
+        for (const ord of uniquePending) {
+            try {
+                await cancelOrder(config, ord.variety || "STOPLOSS", ord.orderid);
+                addStrategyLog(strategyId, `Cancelled extra pending order ${ord.orderid} (${ord.symbol}) [${ord.variety}].`, "INFO");
+            } catch (err) {
+                try {
+                    await cancelOrder(config, "NORMAL", ord.orderid);
+                    addStrategyLog(strategyId, `Cancelled extra pending order ${ord.orderid} (${ord.symbol}) [NORMAL].`, "INFO");
+                } catch (err2) {
+                    addStrategyLog(strategyId, `Failed to cancel extra pending order ${ord.orderid}: ${err.message}`, "ERROR");
+                }
+            }
+        }
+    }
+}
+
 function stopStrategy(strategyId, reason, extraUpdates = {}) {
     const strategy = activeStrategies.get(strategyId);
     if (!strategy) return;
+
+    if (!strategy._exitCheckDone) {
+        checkAndCleanPendingOrdersBeforeExit(strategyId, strategy).catch(e => {
+            console.error(`[stopStrategy] Pending order check failed:`, e.message);
+        });
+    }
 
     strategy.status = "EXITED";
     strategy.error = reason;
@@ -636,6 +789,7 @@ async function squareOffAndStopOnMarginError(strategyId, reason) {
             if (strategy.totalPnlRupees == null && legs.length > 0) {
                 strategy.totalPnlRupees = legs.reduce((sum, l) => sum + (Number(l.pnlRupees || l.bookedPnlRupees || 0)), 0);
             }
+            await checkAndCleanPendingOrdersBeforeExit(strategyId, strategy);
         } finally {
             stopStrategy(strategyId, cleanReason, { exit_type: "MARGIN_ERROR_SQ_OFF" });
         }
@@ -709,6 +863,8 @@ async function squareOffStrategy(strategyId, userId) {
             }
 
             const exitOrders = exitResults.map(r => r.value);
+
+            await checkAndCleanPendingOrdersBeforeExit(strategyId, strategy);
 
             strategy.status = "EXITED";
             updateStrategyInMemory(strategyId, {
@@ -1232,7 +1388,8 @@ module.exports = {
     squareOffStrategy,
     squareOffLeg,
     resumeStrategy,
-    switchVirtualMode
+    switchVirtualMode,
+    checkAndCleanPendingOrdersBeforeExit
 };
 
 

@@ -248,10 +248,15 @@ async function placeOrder(config, instrument, connectionId) {
         // --- CASE A: PAPER TRADING (Local Fallback) ---
         if (isPaperTrading) {
             console.log(`[${new Date().toISOString()}] PAPER ORDER (Local):`, orderParams);
-            return {
+            const paperRes = {
                 orderid: `PAPER_${Date.now()}_${Math.floor(Math.random() * 10000)}`,
                 uniqueorderid: `UPAPER_${Date.now()}_${Math.floor(Math.random() * 10000)}`
             };
+            if (activeStrat) {
+                if (!activeStrat.allOrderIds) activeStrat.allOrderIds = new Set();
+                activeStrat.allOrderIds.add(String(paperRes.orderid));
+            }
+            return paperRes;
         }
 
         // CHECK 1: DOES THIS USER HAVE A WORKER NODE ASSIGNED?
@@ -276,6 +281,10 @@ async function placeOrder(config, instrument, connectionId) {
                     { symbol: instrument.symbol, side: orderParams.transactiontype }
                 );
                 console.log(`[${new Date().toISOString()}] Worker Order placed successfully:`, response.orderid);
+                if (activeStrat && response?.orderid) {
+                    if (!activeStrat.allOrderIds) activeStrat.allOrderIds = new Set();
+                    activeStrat.allOrderIds.add(String(response.orderid));
+                }
                 return response;
             }
         }
@@ -291,6 +300,10 @@ async function placeOrder(config, instrument, connectionId) {
 
         if (response?.status && response?.data) {
             console.log(`[${new Date().toISOString()}] Local Order placed successfully:`, response.data.orderid);
+            if (activeStrat && response.data?.orderid) {
+                if (!activeStrat.allOrderIds) activeStrat.allOrderIds = new Set();
+                activeStrat.allOrderIds.add(String(response.data.orderid));
+            }
             return response.data; // contains orderid and uniqueorderid
         }
         const errMsg = response?.message || "Order placement failed";

@@ -28,7 +28,7 @@ const { placeOrder, chaseOrderFill, placeStopLossExitOrder, cancelOrder, modifyO
 const { placeExitOrder } = require("./strategy.execution");
 const { checkOrderFillOnce } = require("./strategy.chase");
 const marketSocketService = require("../marketSocket.service");
-const { handleLegStopOut, pauseStrategy, squareOffAndStopOnMarginError } = require("./strategy.lifecycle");
+const { handleLegStopOut, pauseStrategy, squareOffAndStopOnMarginError, checkAndCleanPendingOrdersBeforeExit } = require("./strategy.lifecycle");
 const { computeStrategyTradedValues, checkOverallPnlLimits, evaluateLegLimits } = require("./strategy.pnl");
 
 /**
@@ -1017,9 +1017,12 @@ async function monitorStrategyLoop(strategyId, strategy) {
                 return "TERMINATE";
             }
             const exitOrders = exitResults.map(r => r.value);
-            strategy.status = "EXITED";
             strategy.exitOrderId = exitOrders;
             strategy.exitType = limitCheck.exitType;
+
+            await checkAndCleanPendingOrdersBeforeExit(strategyId, strategy);
+
+            strategy.status = "EXITED";
             updateStrategyInMemory(strategyId, {
                 status: "EXITED", exit_order_id: strategy.exitOrderId, exit_type: limitCheck.exitType,
                 final_pnl_percent: avgPnl, totalPnlRupees: totalPnlRupees, totalOriginalValue: strategy.totalOriginalValue, initialOriginalValue: strategy.initialOriginalValue, legs: strategy.legs
@@ -1484,6 +1487,8 @@ async function monitorStrategyLoop(strategyId, strategy) {
 
             const exitOrders = exitResults.map(r => r.value);
 
+            await checkAndCleanPendingOrdersBeforeExit(strategyId, strategy);
+
             strategy.status = "EXITED";
             updateStrategyInMemory(strategyId, {
                 status: "EXITED", exit_order_id: exitOrders, exit_type: "EXIT_TIME", final_pnl_percent: strategy.pnlPercent,
@@ -1497,6 +1502,8 @@ async function monitorStrategyLoop(strategyId, strategy) {
 
     // All Legs Completed Check
     if (strategy.legs.every(l => l.exited)) {
+        await checkAndCleanPendingOrdersBeforeExit(strategyId, strategy);
+
         strategy.status = "EXITED";
         updateStrategyInMemory(strategyId, {
             status: "EXITED", exit_type: "LEGS_COMPLETED", final_pnl_percent: strategy.pnlPercent,
