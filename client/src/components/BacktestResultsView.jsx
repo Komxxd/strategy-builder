@@ -172,6 +172,7 @@ export const BacktestResultsView = ({ results, strategy }) => {
  if (typeof dayData ==='object') {
  let dayPnL = 0;
  let dayTradeValue = 0;
+ let dayInitialTradeValue = 0;
  let isTraded = false;
  const activeStrategyKeys = new Set();
 
@@ -183,6 +184,7 @@ export const BacktestResultsView = ({ results, strategy }) => {
  const multi = getEffectiveMultiplier(sId, sData.dte);
  dayPnL += ((sData.pnl || 0) * multi);
  dayTradeValue += ((sData.trade_value || 0) * multi);
+ dayInitialTradeValue += ((sData.initial_trade_value || sData.trade_value || 0) * multi);
  isTraded = true;
  activeStrategyKeys.add(sId);
  }
@@ -196,6 +198,7 @@ export const BacktestResultsView = ({ results, strategy }) => {
  const multi = getEffectiveMultiplier(sId, dayData.dte);
  dayPnL += ((dayData.pnl || 0) * multi);
  dayTradeValue += ((dayData.trade_value || 0) * multi);
+ dayInitialTradeValue += ((dayData.initial_trade_value || dayData.trade_value || 0) * multi);
  isTraded = true;
  activeStrategyKeys.add(sId);
  }
@@ -280,6 +283,7 @@ export const BacktestResultsView = ({ results, strategy }) => {
  filtered[date] = {
  pnl: dayPnL,
  trade_value: dayTradeValue,
+ initial_trade_value: dayInitialTradeValue,
  pnl_percent: dayTradeValue > 0 ? (dayPnL / dayTradeValue) * 100 : 0,
  activeStrategies: Array.from(activeStrategyKeys),
  strategyDtes: stratDteMap
@@ -1484,21 +1488,36 @@ export const BacktestResultsView = ({ results, strategy }) => {
  Market Data & Actions: {activeTab}
  </h4>
  {(() => {
- const activeSummary = typeof filteredDailySummary[activeTab] ==='object' ? filteredDailySummary[activeTab] : { pnl: 0, trade_value: 0, pnl_percent: 0 };
+ const activeSummary = typeof filteredDailySummary[activeTab] ==='object' ? filteredDailySummary[activeTab] : { pnl: 0, trade_value: 0, initial_trade_value: 0, pnl_percent: 0 };
  const config = strategy?.config || {};
  const sId = strategy?.id ||'single';
  const multiplier = getEffectiveMultiplier(sId, activeSummary?.dte);
+ const isInitialSl = config.overall_sl_on_initial === true;
+ const isInitialTgt = config.overall_target_on_initial === true;
+ const hasInitialOption = isInitialSl || isInitialTgt;
 
  let overallSlStr = null;
  if (config.overall_sl_enabled && parseFloat(config.overall_sl_value) > 0) {
  const val = parseFloat(config.overall_sl_value);
- overallSlStr = config.overall_sl_type ==='AMOUNT' ?`₹${(val * multiplier).toLocaleString()}` :`${val}%`;
+ if (config.overall_sl_type === 'AMOUNT') {
+ overallSlStr = `₹${(val * multiplier).toLocaleString()}`;
+ } else {
+ const baseVal = isInitialSl ? (activeSummary.initial_trade_value || activeSummary.trade_value || 0) : (activeSummary.trade_value || 0);
+ const rupees = Math.round(baseVal * (val / 100));
+ overallSlStr = `${val}%${isInitialSl ? ' (Initial)' : ''} (₹${rupees.toLocaleString()})`;
+ }
  }
 
  let overallTgtStr = null;
  if (config.overall_target_enabled && parseFloat(config.overall_target_value) > 0) {
  const val = parseFloat(config.overall_target_value);
- overallTgtStr = config.overall_target_type ==='AMOUNT' ?`₹${(val * multiplier).toLocaleString()}` :`${val}%`;
+ if (config.overall_target_type === 'AMOUNT') {
+ overallTgtStr = `₹${(val * multiplier).toLocaleString()}`;
+ } else {
+ const baseVal = isInitialTgt ? (activeSummary.initial_trade_value || activeSummary.trade_value || 0) : (activeSummary.trade_value || 0);
+ const rupees = Math.round(baseVal * (val / 100));
+ overallTgtStr = `${val}%${isInitialTgt ? ' (Initial)' : ''} (₹${rupees.toLocaleString()})`;
+ }
  }
 
  let earlyProfitStr = null;
@@ -1511,6 +1530,11 @@ export const BacktestResultsView = ({ results, strategy }) => {
  return (
  <div className="flex items-center gap-3 text-[10px] text-slate-500">
  <span>Trade Value: <strong className="text-slate-700">₹{Math.round(activeSummary.trade_value || 0).toLocaleString()}</strong></span>
+ {hasInitialOption && (
+ <span className="text-indigo-700 bg-indigo-50 border border-indigo-200 px-1.5 py-0.5 rounded">
+ Initial Trade Value: <strong>₹{Math.round(activeSummary.initial_trade_value || 0).toLocaleString()}</strong>
+ </span>
+ )}
  {overallSlStr && <span>• Target SL: <strong className="text-rose-600">{overallSlStr}</strong></span>}
  {overallTgtStr && <span>• Target Profit: <strong className="text-emerald-600">{overallTgtStr}</strong></span>}
  {earlyProfitStr && <span>• Early Exit: <strong className="text-blue-600">{earlyProfitStr}</strong></span>}

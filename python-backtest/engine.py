@@ -1822,7 +1822,7 @@ class BacktestEngine:
                     if last_trade_time > max_exit_time:
                         max_exit_time = last_trade_time
                 
-                for tr in trades:
+                for idx, tr in enumerate(trades):
                     actual_qty = int(tr.get('lots', leg.get('lots', 1))) * lotsize
                     tr['qty'] = actual_qty
                     tr['tradeValue'] = tr['entryPrice'] * actual_qty
@@ -1831,6 +1831,7 @@ class BacktestEngine:
                     exit_diff = (tr['entryPrice'] - tr['exitPrice']) if tr_side == 'SELL' else (tr['exitPrice'] - tr['entryPrice'])
                     tr['tradePnL'] = exit_diff * actual_qty
                     tr['leg_id'] = leg.get('id')
+                    tr['is_initial'] = (idx == 0)
                     
                     opt_type = tr.get('option_type', leg.get('option_type', 'CE'))
                     tr['symbol'] = f"{tr.get('strike', final_strike)}_{opt_type}"
@@ -1878,14 +1879,8 @@ class BacktestEngine:
                 if drop_cols:
                     overall_df = overall_df.drop(drop_cols)
                 
-            # Calculate total invested value for percentage calculations
-            total_invested = 0
-            for leg_key, l_df in leg_pnl_dfs:
-                # Find the initial trade for this leg from daily_trades
-                for tr in daily_trades:
-                    if tr['symbol'] == leg_key:
-                        total_invested += tr['entryPrice'] * tr['qty']
-                        break
+            # Calculate initial traded value (sum of first trade of each starting leg)
+            initial_trade_value = sum(tr['tradeValue'] for tr in daily_trades if tr.get('is_initial'))
                         
             multiplier = float(self.config.get('quantity_multiplier', 1))
             
@@ -1893,35 +1888,62 @@ class BacktestEngine:
             overall_sl_enabled = self.config.get('overall_sl_enabled', False)
             overall_sl_value = float(self.config.get('overall_sl_value') or 0)
             overall_sl_type = self.config.get('overall_sl_type', 'PERCENTAGE')
+            overall_sl_on_initial = self.config.get('overall_sl_on_initial', False)
             legacy_sl = float(self.config.get('overall_sl') or 0)
             if legacy_sl > 0 and not overall_sl_enabled:
                 overall_sl_enabled = True
                 overall_sl_value = legacy_sl
                 overall_sl_type = 'AMOUNT'
                 
-            sl_amt = 0
-            if overall_sl_enabled and overall_sl_value > 0:
-                sl_amt = (overall_sl_value / 100.0) * total_invested if overall_sl_type == 'PERCENTAGE' else (overall_sl_value * multiplier)
+            sl_amt_series = None
+            if overall_sl_enabled and overall_sl_value > 0 and len(overall_df) > 0:
+                if overall_sl_type == 'PERCENTAGE':
+                    if overall_sl_on_initial:
+                        sl_fixed = (overall_sl_value / 100.0) * initial_trade_value
+                        sl_amt_series = pl.Series([sl_fixed] * len(overall_df), dtype=pl.Float64)
+                    else:
+                        overall_df_times = overall_df['time'].to_list()
+                        sl_amt_series = pl.Series([
+                            (overall_sl_value / 100.0) * sum(tr['tradeValue'] for tr in daily_trades if tr['entryTime'] <= t)
+                            for t in overall_df_times
+                        ], dtype=pl.Float64)
+                else:
+                    sl_amt_series = pl.Series([overall_sl_value * multiplier] * len(overall_df), dtype=pl.Float64)
                 
             # Parse overall Target config
             overall_tgt_enabled = self.config.get('overall_target_enabled', False)
             overall_tgt_value = float(self.config.get('overall_target_value') or 0)
             overall_tgt_type = self.config.get('overall_target_type', 'PERCENTAGE')
+            overall_target_on_initial = self.config.get('overall_target_on_initial', False)
             legacy_tgt = float(self.config.get('overall_target') or 0)
             if legacy_tgt > 0 and not overall_tgt_enabled:
                 overall_tgt_enabled = True
                 overall_tgt_value = legacy_tgt
                 overall_tgt_type = 'AMOUNT'
                 
-            tgt_amt = 0
-            if overall_tgt_enabled and overall_tgt_value > 0:
-                tgt_amt = (overall_tgt_value / 100.0) * total_invested if overall_tgt_type == 'PERCENTAGE' else (overall_tgt_value * multiplier)
+            tgt_amt_series = None
+            if overall_tgt_enabled and overall_tgt_value > 0 and len(overall_df) > 0:
+                if overall_tgt_type == 'PERCENTAGE':
+                    if overall_target_on_initial:
+                        tgt_fixed = (overall_tgt_value / 100.0) * initial_trade_value
+                        tgt_amt_series = pl.Series([tgt_fixed] * len(overall_df), dtype=pl.Float64)
+                    else:
+                        overall_df_times = overall_df['time'].to_list()
+                        tgt_amt_series = pl.Series([
+                            (overall_tgt_value / 100.0) * sum(tr['tradeValue'] for tr in daily_trades if tr['entryTime'] <= t)
+                            for t in overall_df_times
+                        ], dtype=pl.Float64)
+                else:
+                    tgt_amt_series = pl.Series([overall_tgt_value * multiplier] * len(overall_df), dtype=pl.Float64)
             
             overall_exit_time = self.exit_time
             overall_exit_reason = None
             overall_hit_on = None
             
-            if (sl_amt > 0 or tgt_amt > 0) and len(overall_df) > 0:
+            has_sl = sl_amt_series is not None and (sl_amt_series > 0).any()
+            has_tgt = tgt_amt_series is not None and (tgt_amt_series > 0).any()
+
+            if (has_sl or has_tgt) and len(overall_df) > 0:
                 hit_mask_open = pl.Series([False] * len(overall_df), dtype=pl.Boolean)
                 hit_mask_close = pl.Series([False] * len(overall_df), dtype=pl.Boolean)
                 
@@ -1938,15 +1960,18 @@ class BacktestEngine:
                 entry_times = set(tr['entryTime'] for tr in daily_trades)
                 is_entry_candle = pl.Series([t in entry_times for t in overall_df['time']])
                 
-                if sl_amt > 0:
+                if has_sl:
+                    sl_cond_open = (safe_open_pnl <= -sl_amt_series) & (sl_amt_series > 0)
+                    sl_cond_close = (safe_close_pnl <= -sl_amt_series) & (sl_amt_series > 0)
                     if not overall_sl_on_close:
-                        hit_mask_open = hit_mask_open | ((safe_open_pnl <= -sl_amt) & (~is_entry_candle))
-                    hit_mask_close = hit_mask_close | (safe_close_pnl <= -sl_amt)
-                if tgt_amt > 0:
+                        hit_mask_open = hit_mask_open | (sl_cond_open & (~is_entry_candle))
+                    hit_mask_close = hit_mask_close | sl_cond_close
+                if has_tgt:
+                    tgt_cond_open = (safe_open_pnl >= tgt_amt_series) & (tgt_amt_series > 0)
+                    tgt_cond_close = (safe_close_pnl >= tgt_amt_series) & (tgt_amt_series > 0)
                     if not overall_tgt_on_close:
-                        hit_mask_open = hit_mask_open | ((safe_open_pnl >= tgt_amt) & (~is_entry_candle))
-                    hit_mask_close = hit_mask_close | (safe_close_pnl >= tgt_amt)
-
+                        hit_mask_open = hit_mask_open | (tgt_cond_open & (~is_entry_candle))
+                    hit_mask_close = hit_mask_close | tgt_cond_close
                     
                 hit_idx_open = hit_mask_open.arg_true()[0] if hit_mask_open.any() else None
                 hit_idx_close = hit_mask_close.arg_true()[0] if hit_mask_close.any() else None
@@ -1969,7 +1994,8 @@ class BacktestEngine:
                 if hit_idx is not None:
                     overall_exit_time = overall_df['time'][hit_idx]
                     overall_pnl_val = overall_df['open_pnl'][hit_idx] if overall_hit_on == 'open' else overall_df['pnl'][hit_idx]
-                    overall_exit_reason = 'OVER_SL' if (sl_amt > 0 and overall_pnl_val <= -sl_amt) else 'OVER_TGT'
+                    curr_sl_amt = sl_amt_series[hit_idx] if has_sl else 0
+                    overall_exit_reason = 'OVER_SL' if (curr_sl_amt > 0 and overall_pnl_val <= -curr_sl_amt) else 'OVER_TGT'
                     
             if all_legs_exhausted and max_exit_time != "00:00:00":
                 if overall_exit_time > max_exit_time:
@@ -2116,16 +2142,19 @@ class BacktestEngine:
                     'qty': tr['qty'],
                     'pnl': tr['tradePnL'],
                     'trade_value': tr['tradeValue'],
+                    'is_initial': tr.get('is_initial', False),
                     'pnl_percent': (tr['tradePnL'] / tr['tradeValue'] * 100) if tr['tradeValue'] > 0 else 0
                 })
             
             self.results['trades'].extend(final_daily_trades)
             daily_pnl = sum(t['tradePnL'] for t in truncated_trades)
             daily_trade_value = sum(t.get('tradeValue', 0) for t in truncated_trades)
+            daily_initial_trade_value = sum(t.get('tradeValue', 0) for t in truncated_trades if t.get('is_initial'))
             
             self.results['dailySummary'][date_str] = {
                 'pnl': daily_pnl,
                 'trade_value': daily_trade_value,
+                'initial_trade_value': daily_initial_trade_value,
                 'pnl_percent': (daily_pnl / daily_trade_value * 100) if daily_trade_value > 0 else 0,
                 'dte': dte,
                 'expiry': expiry

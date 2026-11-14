@@ -110,10 +110,11 @@ const worker = new Worker('backtest-jobs', async (job) => {
                 if (res.dailySummary) {
                     for (const [date, summary] of Object.entries(res.dailySummary)) {
                         if (!combined.dailySummary[date]) {
-                            combined.dailySummary[date] = { pnl: 0, trade_value: 0, pnl_percent: 0, dtes: new Set(), expiries: new Set(), strategies: {} };
+                            combined.dailySummary[date] = { pnl: 0, trade_value: 0, initial_trade_value: 0, pnl_percent: 0, dtes: new Set(), expiries: new Set(), strategies: {} };
                         }
                         combined.dailySummary[date].pnl += summary.pnl || 0;
                         combined.dailySummary[date].trade_value += summary.trade_value || 0;
+                        combined.dailySummary[date].initial_trade_value += summary.initial_trade_value || summary.trade_value || 0;
                         if (summary.dte !== undefined) combined.dailySummary[date].dtes.add(summary.dte);
                         if (summary.expiry) combined.dailySummary[date].expiries.add(summary.expiry);
                         combined.dailySummary[date].strategies[res.strategyId] = summary;
