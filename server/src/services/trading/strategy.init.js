@@ -94,13 +94,13 @@ async function handleInitialEntry(strategyId, strategy) {
         });
 
         if (!ltpRes.status || !ltpRes.data?.fetched?.[0]) {
-             strategy.entryAttempted = false; // Allow retry next tick
-             return;
+            strategy.entryAttempted = false; // Allow retry next tick
+            return;
         }
 
         const spotPrice = ltpRes.data.fetched[0].ltp;
         addStrategyLog(strategyId, `Entry condition met. Spot Price for ${config.index}: ₹${spotPrice}. Identifying strikes...`, "INFO");
-        
+
         const legs = config.legs || [];
         const resolvedLegs = [];
         for (const leg of legs) {
@@ -144,7 +144,7 @@ async function handleInitialEntry(strategyId, strategy) {
             marketSocketService.subscribeTokens(exch, tokensByExch[exch], config.connectionId);
         });
 
-        strategy.legs = []; 
+        strategy.legs = [];
 
         const placementPromise = Promise.allSettled(resolvedLegs.map(async (item, idx) => {
             let finalPrice = (config.price || "0").toString();
@@ -210,7 +210,7 @@ async function handleInitialEntry(strategyId, strategy) {
                     });
                     try {
                         orderData = await placeOrder({ ...config, variety, ordertype, side: item.leg.side, lots: item.leg.lots, price, triggerprice }, item.instrument, config.connectionId);
-                        legState = "WAITING_FOR_FILL"; 
+                        legState = "WAITING_FOR_FILL";
                     } catch (err) {
                         if (err.message === "LPP_TRIGGER_REJECTION") {
                             addStrategyLog(strategyId, `[LIVE] Mntm order rejected by LPP for ${item.instrument.symbol}. Falling back to INTERNAL MONITORING for Target: ₹${roundedMntmTarget}.`, "WARNING");
@@ -225,7 +225,8 @@ async function handleInitialEntry(strategyId, strategy) {
                         } else {
                             throw err;
                         }
-                    }                }
+                    }
+                }
             } else {
                 if (config.ordertype === 'LIMIT') {
                     const offsetAmt = getLimitOffsetAmt(instLtp, config);
@@ -336,25 +337,25 @@ async function handleInitialEntry(strategyId, strategy) {
         await Promise.allSettled(placedLegs.map(async (leg) => {
             if (isVirtualStrategy) return;
             if (strategy.marginErrorTriggered || strategy.status === "EXITED" || strategy.status === "CLOSING") return;
-            
+
             if (leg.uniqueOrderId) {
                 addStrategyLog(strategyId, `[Success] Angel one API returned a full response for ${leg.instrument.symbol}.`, "INFO");
             } else {
                 addStrategyLog(strategyId, `[ERROR] Angel One API returned a partial response (missing Unique Order ID) for ${leg.instrument.symbol}. Retrying entry...`, "ERROR");
-                
+
                 try {
                     const { placeOrder } = require("./strategy.execution");
                     const { getLimitOffsetAmt, roundToTick } = require("./strategy.offset");
-                    
+
                     let finalPrice = config.price || "0";
                     if (config.ordertype === 'LIMIT') {
                         const offsetAmt = getLimitOffsetAmt(leg.initialLtp, config);
                         if (leg.leg.side === "BUY") finalPrice = roundToTick(leg.initialLtp + offsetAmt).toString();
                         else finalPrice = roundToTick(leg.initialLtp - offsetAmt).toString();
                     }
-                    
+
                     const orderData = await placeOrder({ ...config, variety: config.variety === "STOPLOSS" ? "NORMAL" : (config.variety || "NORMAL"), side: leg.leg.side, lots: leg.leg.lots, price: finalPrice }, leg.instrument, config.connectionId);
-                    
+
                     if (orderData.uniqueorderid) {
                         leg.orderId = orderData.orderid;
                         leg.uniqueOrderId = orderData.uniqueorderid;
@@ -596,6 +597,6 @@ async function handleInitialEntry(strategyId, strategy) {
 }
 
 module.exports = {
-   handleInitialEntry,
-   resolveEntryCandleOpenPrice
+    handleInitialEntry,
+    resolveEntryCandleOpenPrice
 };

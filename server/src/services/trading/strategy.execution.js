@@ -221,7 +221,13 @@ async function placeOrder(config, instrument, connectionId) {
     // Validate lot limit before placing order
     validateLotLimit(config);
 
+    if (activeStrat && (activeStrat.exitAttempted || activeStrat.status === "EXITED") && config.variety === "STOPLOSS") {
+        console.warn(`[placeOrder] Strategy ${strategyId} is exiting or already EXITED. Refusing to place pending SL order for ${instrument?.symbol}.`);
+        return { orderid: null, aborted: true };
+    }
+
     // We build the parameters exactly as the Broker (Angel One) expects them.
+    const rawTag = strategyId ? String(strategyId).replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 20) : "";
     const orderParams = {
         variety: config.variety || "NORMAL",
         tradingsymbol: instrument.symbol,
@@ -238,6 +244,10 @@ async function placeOrder(config, instrument, connectionId) {
         quantity: (Math.floor(config.lots * parseInt(instrument.lotsize) * (parseFloat(config.quantity_multiplier) || 1))).toString(),
         scripconsent: "yes"
     };
+
+    if (rawTag) {
+        orderParams.ordertag = rawTag;
+    }
 
 
 

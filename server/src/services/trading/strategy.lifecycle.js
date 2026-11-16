@@ -590,6 +590,46 @@ async function checkAndCleanPendingOrdersBeforeExit(strategyId, strategy) {
         if (leg.orderId) knownOrderIds.add(String(leg.orderId));
     }
 
+    // HARD ISOLATION GUARD: Collect all order IDs that belong to ANY OTHER active strategy.
+    // We must NEVER touch, modify, or cancel orders belonging to other running strategies!
+    const otherActiveOrderIds = new Set();
+    const otherActiveTags = new Set();
+    const { activeStrategies } = require("./strategy.state");
+    if (activeStrategies && activeStrategies.size > 0) {
+        for (const [otherId, otherStrat] of activeStrategies.entries()) {
+            if (otherId === strategyId || !otherStrat) continue;
+            const otherTag = String(otherId).replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 20);
+            if (otherTag) otherActiveTags.add(otherTag);
+
+            if (otherStrat.allOrderIds) {
+                for (const id of otherStrat.allOrderIds) {
+                    if (id) otherActiveOrderIds.add(String(id));
+                }
+            }
+            if (Array.isArray(otherStrat.legs)) {
+                for (const otherLeg of otherStrat.legs) {
+                    if (otherLeg.slOrderId) otherActiveOrderIds.add(String(otherLeg.slOrderId));
+                    if (otherLeg.orderId) otherActiveOrderIds.add(String(otherLeg.orderId));
+                    if (otherLeg.exitOrderId) {
+                        if (Array.isArray(otherLeg.exitOrderId)) {
+                            otherLeg.exitOrderId.forEach(id => id && otherActiveOrderIds.add(String(id)));
+                        } else {
+                            otherActiveOrderIds.add(String(otherLeg.exitOrderId));
+                        }
+                    }
+                }
+            }
+            if (otherStrat.exitOrderId) {
+                if (Array.isArray(otherStrat.exitOrderId)) {
+                    otherStrat.exitOrderId.forEach(id => id && otherActiveOrderIds.add(String(id)));
+                } else {
+                    otherActiveOrderIds.add(String(otherStrat.exitOrderId));
+                }
+            }
+        }
+    }
+
+    const expectedTag = strategyId ? String(strategyId).replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 20) : "";
     const extraPendingOrders = [];
 
     // Live trading: check broker order book directly from Angel One
@@ -610,18 +650,29 @@ async function checkAndCleanPendingOrdersBeforeExit(strategyId, strategy) {
 
                 for (const order of book.data) {
                     const id = String(order.orderid || "");
-                    if (!id || exitOrderIds.has(id)) continue;
+                    if (!id) continue;
+                    // Never touch exit orders of this strategy
+                    if (exitOrderIds.has(id)) continue;
+                    // HARD GUARD: Never touch orders belonging to any other active strategy
+                    if (otherActiveOrderIds.has(id)) continue;
 
                     const status = (order.orderstatus || order.status || "").toLowerCase();
                     if (!pendingStatuses.includes(status)) continue;
 
-                    const isKnownId = knownOrderIds.has(id);
-                    const isLegSl = legs.some(l => l.slOrderId && String(l.slOrderId) === id);
-                    const isMatchingLegSl = order.variety === "STOPLOSS" && legs.some(l =>
-                        l.instrument?.token && String(l.instrument.token) === String(order.symboltoken)
-                    );
+                    const orderTag = String(order.ordertag || "").trim();
+                    // If order has an explicit ordertag from another running strategy, skip it
+                    if (orderTag && otherActiveTags.has(orderTag)) continue;
+                    if (orderTag && expectedTag && orderTag !== expectedTag) continue;
 
-                    if (isKnownId || isLegSl || isMatchingLegSl) {
+                    const isKnownId = knownOrderIds.has(id);
+                    const isTagMatch = Boolean(expectedTag && orderTag && orderTag === expectedTag);
+                    const isLegSl = legs.some(l => l.slOrderId && String(l.slOrderId) === id);
+
+                    // An order is only considered this strategy's pending order if:
+                    // 1) It has our strategy's ordertag, OR
+                    // 2) Its ID is in this strategy's known order IDs or leg SL IDs.
+                    // (We DO NOT match purely on symboltoken to prevent cancelling other strategies with the same strike!)
+                    if (isKnownId || isTagMatch || isLegSl) {
                         extraPendingOrders.push({
                             orderid: id,
                             variety: order.variety || "STOPLOSS",
@@ -639,7 +690,7 @@ async function checkAndCleanPendingOrdersBeforeExit(strategyId, strategy) {
     for (const leg of legs) {
         if (leg.slOrderId) {
             const slIdStr = String(leg.slOrderId);
-            if (!exitOrderIds.has(slIdStr) && !extraPendingOrders.some(o => o.orderid === slIdStr)) {
+            if (!exitOrderIds.has(slIdStr) && !otherActiveOrderIds.has(slIdStr) && !extraPendingOrders.some(o => o.orderid === slIdStr)) {
                 extraPendingOrders.push({
                     orderid: slIdStr,
                     variety: "STOPLOSS",
@@ -649,7 +700,7 @@ async function checkAndCleanPendingOrdersBeforeExit(strategyId, strategy) {
         }
         if (leg.orderId && !leg.entryPrice && !leg.exited) {
             const ordIdStr = String(leg.orderId);
-            if (!exitOrderIds.has(ordIdStr) && !extraPendingOrders.some(o => o.orderid === ordIdStr)) {
+            if (!exitOrderIds.has(ordIdStr) && !otherActiveOrderIds.has(ordIdStr) && !extraPendingOrders.some(o => o.orderid === ordIdStr)) {
                 extraPendingOrders.push({
                     orderid: ordIdStr,
                     variety: "NORMAL",
