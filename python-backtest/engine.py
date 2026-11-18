@@ -305,7 +305,7 @@ class BacktestEngine:
                     else:
                         rtp = cur_peak - m_val
                     committed_target = self.round_to_tick(rtp)
-                    simple_mntm_actions[times[0]] = f"[Simple Mntm High] Initial Peak: ₹{cur_peak:.2f} | Target: Waiting Close"
+                    simple_mntm_actions[times[0]] = f"[Simple Mntm High] Initial Peak: ₹{cur_peak:.2f} | Target: Waiting Close | Target updated on close: ₹{committed_target:.2f} | Peak: ₹{cur_peak:.2f}"
 
                     hit_idx = None
                     for idx in range(1, len(times)):
@@ -336,7 +336,7 @@ class BacktestEngine:
                                 rtp = cur_peak - m_val
                             committed_target = self.round_to_tick(rtp)
                             if cur_peak != old_peak:
-                                simple_mntm_actions[times[idx]] = f"[Simple Mntm High] Peak updated: ₹{cur_peak:.2f} | Target: ₹{committed_target:.2f}"
+                                simple_mntm_actions[times[idx]] = f"[Simple Mntm High] Peak updated: ₹{cur_peak:.2f} | Target updated on close: ₹{committed_target:.2f} | Peak: ₹{cur_peak:.2f}"
 
                     if hit_idx is not None:
                         leg['simple_mntm_actions'] = simple_mntm_actions
@@ -423,7 +423,7 @@ class BacktestEngine:
                     else:
                         rtp = cur_low + m_val
                     committed_target = self.round_to_tick(rtp)
-                    simple_mntm_actions[times[0]] = f"[Simple Mntm Low] Initial Low: ₹{cur_low:.2f} | Target: Waiting Close"
+                    simple_mntm_actions[times[0]] = f"[Simple Mntm Low] Initial Low: ₹{cur_low:.2f} | Target: Waiting Close | Target updated on close: ₹{committed_target:.2f} | Low: ₹{cur_low:.2f}"
 
                     hit_idx = None
                     for idx in range(1, len(times)):
@@ -454,14 +454,14 @@ class BacktestEngine:
                                 rtp = cur_low + m_val
                             committed_target = self.round_to_tick(rtp)
                             if cur_low != old_low:
-                                simple_mntm_actions[times[idx]] = f"[Simple Mntm Low] Low updated: ₹{cur_low:.2f} | Target: ₹{committed_target:.2f}"
+                                simple_mntm_actions[times[idx]] = f"[Simple Mntm Low] Low updated: ₹{cur_low:.2f} | Target updated on close: ₹{committed_target:.2f} | Low: ₹{cur_low:.2f}"
 
                     if hit_idx is not None:
                         leg['simple_mntm_actions'] = simple_mntm_actions
                         self._current_simple_mntm_actions = simple_mntm_actions
                     else:
                         end_time = times[-1]
-                        not_hit_str = f"[Simple Mntm Low] Not Hit | Last Low: ₹{cur_low:.2f} | Target: ₹{rtp_vals[-1]:.2f}"
+                        not_hit_str = f"[Simple Mntm Low] Not Hit | Last Low: ₹{cur_low:.2f} | Target: ₹{committed_target:.2f}"
                         simple_mntm_actions[end_time] = f"{simple_mntm_actions.get(end_time, '')} | {not_hit_str}".strip(' |')
                         leg['simple_mntm_actions'] = simple_mntm_actions
                         self._current_simple_mntm_actions = simple_mntm_actions

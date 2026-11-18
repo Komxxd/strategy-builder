@@ -363,7 +363,7 @@ async function monitorStrategyLoop(strategyId, strategy) {
                                 leg.re_high_trigger_price = rtp;
                                 leg.last_commit_minute = leg.last_simple_mntm_minute;
                                 leg.prev_committed_target = undefined;
-                                addStrategyLog(strategyId, `[SIMPLE MNTM HIGH] Candle Close for ${leg.instrument?.symbol} — Committing Peak: ₹${extremumToCommit}, Target: ₹${rtp}`, "INFO");
+                                addStrategyLog(strategyId, `[SIMPLE MNTM HIGH] Candle Close for ${leg.instrument?.symbol} — Target updated on close: ₹${rtp} | Peak: ₹${extremumToCommit}`, "INFO");
                             }
 
                             // Track live peak intra-minute
@@ -408,7 +408,7 @@ async function monitorStrategyLoop(strategyId, strategy) {
                                 leg.rtp = rtp;
                                 leg.re_high_trigger_price = rtp;
                                 leg.last_commit_minute = currentMinute;
-                                addStrategyLog(strategyId, `[SIMPLE MNTM HIGH] Candle Close for ${leg.instrument?.symbol} — Committing Peak: ₹${extremumToCommit}, Target: ₹${rtp}`, "INFO");
+                                addStrategyLog(strategyId, `[SIMPLE MNTM HIGH] Candle Close for ${leg.instrument?.symbol} — Target updated on close: ₹${rtp} | Peak: ₹${extremumToCommit}`, "INFO");
                             }
                         } else {
                             let isNewPeak = false;
@@ -462,7 +462,7 @@ async function monitorStrategyLoop(strategyId, strategy) {
                                 leg.re_low_trigger_price = rtp;
                                 leg.last_commit_minute = leg.last_simple_mntm_minute;
                                 leg.prev_committed_target = undefined;
-                                addStrategyLog(strategyId, `[SIMPLE MNTM LOW] Candle Close for ${leg.instrument?.symbol} — Committing Low: ₹${extremumToCommit}, Target: ₹${rtp}`, "INFO");
+                                addStrategyLog(strategyId, `[SIMPLE MNTM LOW] Candle Close for ${leg.instrument?.symbol} — Target updated on close: ₹${rtp} | Low: ₹${extremumToCommit}`, "INFO");
                             }
 
                             // Track live low intra-minute
@@ -507,7 +507,7 @@ async function monitorStrategyLoop(strategyId, strategy) {
                                 leg.rtp = rtp;
                                 leg.re_low_trigger_price = rtp;
                                 leg.last_commit_minute = currentMinute;
-                                addStrategyLog(strategyId, `[SIMPLE MNTM LOW] Candle Close for ${leg.instrument?.symbol} — Committing Low: ₹${extremumToCommit}, Target: ₹${rtp}`, "INFO");
+                                addStrategyLog(strategyId, `[SIMPLE MNTM LOW] Candle Close for ${leg.instrument?.symbol} — Target updated on close: ₹${rtp} | Low: ₹${extremumToCommit}`, "INFO");
                             }
                         } else {
                             let isNewLow = false;

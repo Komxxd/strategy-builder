@@ -4303,12 +4303,12 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  <>
  <span className="px-2 py-0.5 ml-2 bg-emerald-100 text-emerald-700 font-medium rounded text-[10px] font-mono whitespace-nowrap uppercase">Waiting (Peak Basis)</span>
  <span className="text-muted-foreground text-[10px] font-mono ml-1">|</span>
- <span className="text-indigo-600 font-bold text-[10px] font-mono ml-1 uppercase">Peak:₹{((l.leg?.simple_mntm_target_on_close && l.committed_peak_price != null ? l.committed_peak_price : l.max_peak_price) || 0).toFixed(2)}</span>
+ <span className="text-indigo-600 font-bold text-[10px] font-mono ml-1 uppercase">Peak:₹{((l.leg?.simple_mntm_target_on_close && l.committed_peak_price != null ? l.committed_peak_price : (l.live_peak_price || l.max_peak_price)) || 0).toFixed(2)}</span>
  <span className="text-muted-foreground text-[10px] font-mono ml-1">|</span>
  {l.leg?.simple_mntm_target_on_close && l.committed_target == null ? (
  <span className="text-orange-600 font-bold text-[10px] font-mono ml-1 uppercase animate-pulse">Target: Waiting Close</span>
  ) : (
- <span className="text-orange-600 font-bold text-[10px] font-mono ml-1 uppercase">Target:₹{(l.committed_target != null ? l.committed_target : (l.mntmTargetPrice || 0)).toFixed(2)}</span>
+ <span className="text-orange-600 font-bold text-[10px] font-mono ml-1 uppercase">{l.leg?.simple_mntm_target_on_close ? "Target on Close" : "Target"}:₹{(l.committed_target != null ? l.committed_target : (l.mntmTargetPrice || 0)).toFixed(2)}</span>
  )}
  </>
  )}
@@ -4316,12 +4316,12 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  <>
  <span className="px-2 py-0.5 ml-2 bg-pink-100 text-pink-700 font-medium rounded text-[10px] font-mono whitespace-nowrap uppercase">Waiting (Low Basis)</span>
  <span className="text-muted-foreground text-[10px] font-mono ml-1">|</span>
- <span className="text-indigo-600 font-bold text-[10px] font-mono ml-1 uppercase">Low:₹{((l.leg?.simple_mntm_target_on_close && l.committed_low_price != null ? l.committed_low_price : l.max_low_price) || 0).toFixed(2)}</span>
+ <span className="text-indigo-600 font-bold text-[10px] font-mono ml-1 uppercase">Low:₹{((l.leg?.simple_mntm_target_on_close && l.committed_low_price != null ? l.committed_low_price : (l.live_low_price || l.max_low_price)) || 0).toFixed(2)}</span>
  <span className="text-muted-foreground text-[10px] font-mono ml-1">|</span>
  {l.leg?.simple_mntm_target_on_close && l.committed_target == null ? (
  <span className="text-orange-600 font-bold text-[10px] font-mono ml-1 uppercase animate-pulse">Target: Waiting Close</span>
  ) : (
- <span className="text-orange-600 font-bold text-[10px] font-mono ml-1 uppercase">Target:₹{(l.committed_target != null ? l.committed_target : (l.mntmTargetPrice || 0)).toFixed(2)}</span>
+ <span className="text-orange-600 font-bold text-[10px] font-mono ml-1 uppercase">{l.leg?.simple_mntm_target_on_close ? "Target on Close" : "Target"}:₹{(l.committed_target != null ? l.committed_target : (l.mntmTargetPrice || 0)).toFixed(2)}</span>
  )}
  </>
  )}
