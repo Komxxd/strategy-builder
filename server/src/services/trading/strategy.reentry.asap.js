@@ -47,21 +47,34 @@ async function handleReentryAsap({ leg, config, strategyId, addStrategyLog }) {
         const instLtp = instLtpRes.data?.fetched?.[0]?.ltp || 0;
 
         if (leg.leg.simple_mntm_enabled) {
-            const roundedMntmTarget = calculateMomentumTarget(instLtp, leg.leg);
+            const mntmType = leg.leg.simple_mntm_type || "NORMAL";
+            const isHighOrLow = mntmType === "HIGH" || mntmType === "LOW";
+            const targetOnClose = isHighOrLow && !!leg.leg.simple_mntm_target_on_close;
+            const roundedMntmTarget = targetOnClose ? null : calculateMomentumTarget(instLtp, leg.leg);
             leg.mntmTargetPrice = roundedMntmTarget;
             leg.base_otp = instLtp;
             leg.state = "WAITING_FOR_SIMPLE_MNTM";
-            const mntmType = leg.leg.simple_mntm_type || "NORMAL";
+            leg.committed_target = null;
+            leg.committed_peak_price = null;
+            leg.committed_low_price = null;
+            leg.live_peak_price = (mntmType === "HIGH") ? instLtp : null;
+            leg.live_low_price = (mntmType === "LOW") ? instLtp : null;
+            leg.last_simple_mntm_minute = getISTTime().substring(0, 5);
+            leg.last_commit_minute = null;
             if (mntmType === "HIGH") {
-                leg.max_peak_price = instLtp;
+                leg.max_peak_price = targetOnClose ? null : instLtp;
                 leg.re_high_trigger_price = roundedMntmTarget;
                 leg.rtp = roundedMntmTarget;
             } else if (mntmType === "LOW") {
-                leg.max_low_price = instLtp;
+                leg.max_low_price = targetOnClose ? null : instLtp;
                 leg.re_low_trigger_price = roundedMntmTarget;
                 leg.rtp = roundedMntmTarget;
             }
-            addStrategyLog(strategyId, `[RE-ASAP] ${targetInstrument.symbol} re-entry #${leg.reentry_count} waiting for Momentum (${mntmType}) @ ₹${leg.mntmTargetPrice}`, "INFO");
+            if (targetOnClose) {
+                addStrategyLog(strategyId, `[RE-ASAP] ${targetInstrument.symbol} re-entry #${leg.reentry_count} waiting for Momentum (${mntmType} Target on Close). Snapshot: ₹${instLtp}. Waiting for candle close...`, "INFO");
+            } else {
+                addStrategyLog(strategyId, `[RE-ASAP] ${targetInstrument.symbol} re-entry #${leg.reentry_count} waiting for Momentum (${mntmType}) @ ₹${leg.mntmTargetPrice}`, "INFO");
+            }
         } else {
             if (isPaperTrading) {
                 leg.entryPrice = instLtp;

@@ -55,6 +55,7 @@ const DEFAULT_LEG = {
  simple_mntm_type:'NORMAL',
  simple_mntm_mode:'SIMPLE_PLUS_PCT',
  simple_mntm_value: 0,
+ simple_mntm_target_on_close: false,
  recost_enabled: false,
  recost_mode:'RECOST_PLUS_PCT',
  recost_value: 0,
@@ -1524,6 +1525,22 @@ const LegConfiguration = ({ leg, legIndex, onChange, onRemove, onCopy, canRemove
  }}
  />
  </div>
+
+ {(leg.simple_mntm_type === 'HIGH' || leg.simple_mntm_type === 'LOW') && (
+ <div className="flex items-center gap-1.5 w-full pt-1">
+ <input
+ type="checkbox"
+ id={`simple-mntm-target-on-close-${idPrefix}`}
+ disabled={isReadOnly}
+ className="w-3.5 h-3.5 rounded text-amber-600 focus:ring-amber-500 cursor-pointer"
+ checked={leg.simple_mntm_target_on_close || false}
+ onChange={(e) => onChange({ ...leg, simple_mntm_target_on_close: e.target.checked })}
+ />
+ <Label htmlFor={`simple-mntm-target-on-close-${idPrefix}`} className="text-[10px] cursor-pointer text-amber-700 font-medium">
+ Target on Close
+ </Label>
+ </div>
+ )}
  </div>
  )}
  </div>
@@ -2756,7 +2773,7 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  is_sl_price_on_candle_open: false,
  sl_based_on_candle_open: false,
  legs: [
-  { strike_criteria:'STRIKE_TYPE', option_type:'CE', strike:'ATM', premium: 0, side:'BUY', lots: 1, sl_type:'PERCENTAGE', stop_loss: 10, is_sl_price_on_candle_open: false, simple_mntm_enabled: false, simple_mntm_type:'NORMAL', simple_mntm_mode:'SIMPLE_PLUS_PCT', simple_mntm_value: 0, recost_enabled: false, recost_mode:'RECOST_PLUS_PCT', recost_value: 0, max_reentry: 1, no_reentry_on_sl_candle: false, reentry_sl_enabled: false, reentry_sl_type:'PERCENTAGE', reentry_sl_value: 10, reentry_tsl_enabled: false, reentry_tsl_type:'PERCENTAGE', reentry_tsl_move: 0, reentry_tsl_trail: 0, re_asap_enabled: false, re_asap_max_entries: 1, lazy_leg_enabled: false, lazy_leg: null, tsl_enabled: false, tsl_type:'PERCENTAGE', tsl_move: 0, reentry_conditions: [] }
+  { strike_criteria:'STRIKE_TYPE', option_type:'CE', strike:'ATM', premium: 0, side:'BUY', lots: 1, sl_type:'PERCENTAGE', stop_loss: 10, is_sl_price_on_candle_open: false, simple_mntm_enabled: false, simple_mntm_type:'NORMAL', simple_mntm_mode:'SIMPLE_PLUS_PCT', simple_mntm_value: 0, simple_mntm_target_on_close: false, recost_enabled: false, recost_mode:'RECOST_PLUS_PCT', recost_value: 0, max_reentry: 1, no_reentry_on_sl_candle: false, reentry_sl_enabled: false, reentry_sl_type:'PERCENTAGE', reentry_sl_value: 10, reentry_tsl_enabled: false, reentry_tsl_type:'PERCENTAGE', reentry_tsl_move: 0, reentry_tsl_trail: 0, re_asap_enabled: false, re_asap_max_entries: 1, lazy_leg_enabled: false, lazy_leg: null, tsl_enabled: false, tsl_type:'PERCENTAGE', tsl_move: 0, reentry_conditions: [] }
  ]
  });
 
@@ -4286,18 +4303,26 @@ export const StrategyBuilder = ({ isConnected, onBacktestComplete }) => {
  <>
  <span className="px-2 py-0.5 ml-2 bg-emerald-100 text-emerald-700 font-medium rounded text-[10px] font-mono whitespace-nowrap uppercase">Waiting (Peak Basis)</span>
  <span className="text-muted-foreground text-[10px] font-mono ml-1">|</span>
- <span className="text-indigo-600 font-bold text-[10px] font-mono ml-1 uppercase">Peak:₹{(l.max_peak_price || 0).toFixed(2)}</span>
+ <span className="text-indigo-600 font-bold text-[10px] font-mono ml-1 uppercase">Peak:₹{((l.leg?.simple_mntm_target_on_close && l.committed_peak_price != null ? l.committed_peak_price : l.max_peak_price) || 0).toFixed(2)}</span>
  <span className="text-muted-foreground text-[10px] font-mono ml-1">|</span>
- <span className="text-orange-600 font-bold text-[10px] font-mono ml-1 uppercase">Target:₹{(l.mntmTargetPrice || 0).toFixed(2)}</span>
+ {l.leg?.simple_mntm_target_on_close && l.committed_target == null ? (
+ <span className="text-orange-600 font-bold text-[10px] font-mono ml-1 uppercase animate-pulse">Target: Waiting Close</span>
+ ) : (
+ <span className="text-orange-600 font-bold text-[10px] font-mono ml-1 uppercase">Target:₹{(l.committed_target != null ? l.committed_target : (l.mntmTargetPrice || 0)).toFixed(2)}</span>
+ )}
  </>
  )}
  {l.state === "WAITING_FOR_SIMPLE_MNTM" && l.leg?.simple_mntm_type === "LOW" && (
  <>
  <span className="px-2 py-0.5 ml-2 bg-pink-100 text-pink-700 font-medium rounded text-[10px] font-mono whitespace-nowrap uppercase">Waiting (Low Basis)</span>
  <span className="text-muted-foreground text-[10px] font-mono ml-1">|</span>
- <span className="text-indigo-600 font-bold text-[10px] font-mono ml-1 uppercase">Low:₹{(l.max_low_price || 0).toFixed(2)}</span>
+ <span className="text-indigo-600 font-bold text-[10px] font-mono ml-1 uppercase">Low:₹{((l.leg?.simple_mntm_target_on_close && l.committed_low_price != null ? l.committed_low_price : l.max_low_price) || 0).toFixed(2)}</span>
  <span className="text-muted-foreground text-[10px] font-mono ml-1">|</span>
- <span className="text-orange-600 font-bold text-[10px] font-mono ml-1 uppercase">Target:₹{(l.mntmTargetPrice || 0).toFixed(2)}</span>
+ {l.leg?.simple_mntm_target_on_close && l.committed_target == null ? (
+ <span className="text-orange-600 font-bold text-[10px] font-mono ml-1 uppercase animate-pulse">Target: Waiting Close</span>
+ ) : (
+ <span className="text-orange-600 font-bold text-[10px] font-mono ml-1 uppercase">Target:₹{(l.committed_target != null ? l.committed_target : (l.mntmTargetPrice || 0)).toFixed(2)}</span>
+ )}
  </>
  )}
  {l.state === "WAITING_FOR_SIMPLE_MNTM" && (!l.leg?.simple_mntm_type || l.leg?.simple_mntm_type === "NORMAL") && (

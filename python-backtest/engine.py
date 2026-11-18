@@ -291,122 +291,240 @@ class BacktestEngine:
             m_val = float(config.get('simple_mntm_value') or 0)
 
             if m_type == 'HIGH':
-                cum_high = df.select(pl.col('high')).to_series().cum_max()
-                cum_high = cum_high.map_elements(lambda x: max(x, base_price), return_dtype=pl.Float64)
+                target_on_close = bool(config.get('simple_mntm_target_on_close') or leg.get('simple_mntm_target_on_close'))
+                if target_on_close:
+                    times = df['time'].to_list()
+                    opens = df['open'].to_list()
+                    highs = df['high'].to_list()
+                    lows = df['low'].to_list()
 
-                if 'PCT' in m_mode:
-                    rtp_series = cum_high * (1 - m_val / 100)
+                    # Candle 0 has NO target to check
+                    cur_peak = max(base_price, highs[0])
+                    if 'PCT' in m_mode:
+                        rtp = cur_peak * (1 - m_val / 100)
+                    else:
+                        rtp = cur_peak - m_val
+                    committed_target = self.round_to_tick(rtp)
+                    simple_mntm_actions[times[0]] = f"[Simple Mntm High] Initial Peak: ₹{cur_peak:.2f} | Target: Waiting Close"
+
+                    hit_idx = None
+                    for idx in range(1, len(times)):
+                        c_open = opens[idx]
+                        c_high = highs[idx]
+                        c_low = lows[idx]
+
+                        if c_open < committed_target:
+                            hit = (c_high >= committed_target)
+                        else:
+                            hit = (c_low <= committed_target)
+
+                        if hit:
+                            hit_idx = idx
+                            entry_time = times[idx]
+                            entry_price = committed_target
+                            df = df[idx:]
+                            hit_str = f"[Mntm Hit: ₹{entry_price:.2f}]"
+                            simple_mntm_actions[times[idx]] = f"{simple_mntm_actions.get(times[idx], '')} | {hit_str}".strip(' |')
+                            break
+                        else:
+                            old_peak = cur_peak
+                            if c_high > cur_peak:
+                                cur_peak = c_high
+                            if 'PCT' in m_mode:
+                                rtp = cur_peak * (1 - m_val / 100)
+                            else:
+                                rtp = cur_peak - m_val
+                            committed_target = self.round_to_tick(rtp)
+                            if cur_peak != old_peak:
+                                simple_mntm_actions[times[idx]] = f"[Simple Mntm High] Peak updated: ₹{cur_peak:.2f} | Target: ₹{committed_target:.2f}"
+
+                    if hit_idx is not None:
+                        leg['simple_mntm_actions'] = simple_mntm_actions
+                        self._current_simple_mntm_actions = simple_mntm_actions
+                    else:
+                        end_time = times[-1]
+                        not_hit_str = f"[Simple Mntm High] Not Hit | Last Peak: ₹{cur_peak:.2f} | Target: ₹{committed_target:.2f}"
+                        simple_mntm_actions[end_time] = f"{simple_mntm_actions.get(end_time, '')} | {not_hit_str}".strip(' |')
+                        leg['simple_mntm_actions'] = simple_mntm_actions
+                        self._current_simple_mntm_actions = simple_mntm_actions
+                        return None, df, 'MNTM_NOT_HIT'
+
                 else:
-                    rtp_series = cum_high - m_val
+                    cum_high = df.select(pl.col('high')).to_series().cum_max()
+                    cum_high = cum_high.map_elements(lambda x: max(x, base_price), return_dtype=pl.Float64)
 
-                rtp_series = rtp_series.map_elements(lambda x: self.round_to_tick(x), return_dtype=pl.Float64)
+                    if 'PCT' in m_mode:
+                        rtp_series = cum_high * (1 - m_val / 100)
+                    else:
+                        rtp_series = cum_high - m_val
 
-                # Check if calculated entry price falls within candle range:
-                # If peak is updated in candle: check close <= rtp <= high
-                # If peak is NOT updated in candle: check low <= rtp <= high
-                prev_cum_high = cum_high.shift(1).fill_null(base_price)
-                is_peak_updated = (cum_high > prev_cum_high) | (pl.Series(range(df.height)) == 0)
-                check_bottom_series = df.select(pl.when(is_peak_updated).then(pl.col('close')).otherwise(pl.col('low'))).to_series()
-                high_series = df.select(pl.col('high')).to_series()
-                rtp_hit_mask = (check_bottom_series <= rtp_series) & (rtp_series <= high_series)
+                    rtp_series = rtp_series.map_elements(lambda x: self.round_to_tick(x), return_dtype=pl.Float64)
 
-                times = df['time'].to_list()
-                high_vals = cum_high.to_list()
-                rtp_vals = rtp_series.to_list()
+                    # Check if calculated entry price falls within candle range:
+                    # If peak is updated in candle: check close <= rtp <= high
+                    # If peak is NOT updated in candle: check low <= rtp <= high
+                    prev_cum_high = cum_high.shift(1).fill_null(base_price)
+                    is_peak_updated = (cum_high > prev_cum_high) | (pl.Series(range(df.height)) == 0)
+                    check_bottom_series = df.select(pl.when(is_peak_updated).then(pl.col('close')).otherwise(pl.col('low'))).to_series()
+                    high_series = df.select(pl.col('high')).to_series()
+                    rtp_hit_mask = (check_bottom_series <= rtp_series) & (rtp_series <= high_series)
 
-                if rtp_hit_mask.any():
-                    hit_idx = rtp_hit_mask.arg_true()[0]
-                    entry_time = df['time'][hit_idx]
-                    entry_price = rtp_series[hit_idx]
-                    df = df[hit_idx:]
-                    max_idx = hit_idx
-                else:
-                    max_idx = len(times) - 1
+                    times = df['time'].to_list()
+                    high_vals = cum_high.to_list()
+                    rtp_vals = rtp_series.to_list()
 
-                last_peak = None
-                for idx in range(max_idx + 1):
-                    t_str = times[idx]
-                    peak = high_vals[idx]
-                    rtp = rtp_vals[idx]
-                    if idx == 0:
-                        simple_mntm_actions[t_str] = f"[Simple Mntm High] Initial Peak: ₹{peak:.2f} | Target: ₹{rtp:.2f}"
-                        last_peak = peak
-                    elif peak != last_peak:
-                        simple_mntm_actions[t_str] = f"[Simple Mntm High] Peak updated: ₹{peak:.2f} | Target: ₹{rtp:.2f}"
-                        last_peak = peak
+                    if rtp_hit_mask.any():
+                        hit_idx = rtp_hit_mask.arg_true()[0]
+                        entry_time = df['time'][hit_idx]
+                        entry_price = rtp_series[hit_idx]
+                        df = df[hit_idx:]
+                        max_idx = hit_idx
+                    else:
+                        max_idx = len(times) - 1
 
-                if rtp_hit_mask.any():
-                    hit_time = times[hit_idx]
-                    hit_str = f"[Mntm Hit: ₹{entry_price:.2f}]"
-                    simple_mntm_actions[hit_time] = f"{simple_mntm_actions[hit_time]} | {hit_str}" if hit_time in simple_mntm_actions else hit_str
-                    leg['simple_mntm_actions'] = simple_mntm_actions
-                    self._current_simple_mntm_actions = simple_mntm_actions
-                else:
-                    end_time = times[-1]
-                    not_hit_str = f"[Simple Mntm High] Not Hit | Last Peak: ₹{high_vals[-1]:.2f} | Target: ₹{rtp_vals[-1]:.2f}"
-                    simple_mntm_actions[end_time] = f"{simple_mntm_actions[end_time]} | {not_hit_str}" if end_time in simple_mntm_actions else not_hit_str
-                    leg['simple_mntm_actions'] = simple_mntm_actions
-                    self._current_simple_mntm_actions = simple_mntm_actions
-                    return None, df, 'MNTM_NOT_HIT'
+                    last_peak = None
+                    for idx in range(max_idx + 1):
+                        t_str = times[idx]
+                        peak = high_vals[idx]
+                        rtp = rtp_vals[idx]
+                        if idx == 0:
+                            simple_mntm_actions[t_str] = f"[Simple Mntm High] Initial Peak: ₹{peak:.2f} | Target: ₹{rtp:.2f}"
+                            last_peak = peak
+                        elif peak != last_peak:
+                            simple_mntm_actions[t_str] = f"[Simple Mntm High] Peak updated: ₹{peak:.2f} | Target: ₹{rtp:.2f}"
+                            last_peak = peak
+
+                    if rtp_hit_mask.any():
+                        hit_time = times[hit_idx]
+                        hit_str = f"[Mntm Hit: ₹{entry_price:.2f}]"
+                        simple_mntm_actions[hit_time] = f"{simple_mntm_actions[hit_time]} | {hit_str}" if hit_time in simple_mntm_actions else hit_str
+                        leg['simple_mntm_actions'] = simple_mntm_actions
+                        self._current_simple_mntm_actions = simple_mntm_actions
+                    else:
+                        end_time = times[-1]
+                        not_hit_str = f"[Simple Mntm High] Not Hit | Last Peak: ₹{high_vals[-1]:.2f} | Target: ₹{rtp_vals[-1]:.2f}"
+                        simple_mntm_actions[end_time] = f"{simple_mntm_actions[end_time]} | {not_hit_str}" if end_time in simple_mntm_actions else not_hit_str
+                        leg['simple_mntm_actions'] = simple_mntm_actions
+                        self._current_simple_mntm_actions = simple_mntm_actions
+                        return None, df, 'MNTM_NOT_HIT'
 
             elif m_type == 'LOW':
-                cum_low = df.select(pl.col('low')).to_series().cum_min()
-                cum_low = cum_low.map_elements(lambda x: min(x, base_price), return_dtype=pl.Float64)
+                target_on_close = bool(config.get('simple_mntm_target_on_close') or leg.get('simple_mntm_target_on_close'))
+                if target_on_close:
+                    times = df['time'].to_list()
+                    opens = df['open'].to_list()
+                    highs = df['high'].to_list()
+                    lows = df['low'].to_list()
 
-                if 'PCT' in m_mode:
-                    rtp_series = cum_low * (1 + m_val / 100)
+                    # Candle 0 has NO target to check
+                    cur_low = min(base_price, lows[0])
+                    if 'PCT' in m_mode:
+                        rtp = cur_low * (1 + m_val / 100)
+                    else:
+                        rtp = cur_low + m_val
+                    committed_target = self.round_to_tick(rtp)
+                    simple_mntm_actions[times[0]] = f"[Simple Mntm Low] Initial Low: ₹{cur_low:.2f} | Target: Waiting Close"
+
+                    hit_idx = None
+                    for idx in range(1, len(times)):
+                        c_open = opens[idx]
+                        c_high = highs[idx]
+                        c_low = lows[idx]
+
+                        if c_open > committed_target:
+                            hit = (c_low <= committed_target)
+                        else:
+                            hit = (c_high >= committed_target)
+
+                        if hit:
+                            hit_idx = idx
+                            entry_time = times[idx]
+                            entry_price = committed_target
+                            df = df[idx:]
+                            hit_str = f"[Mntm Hit: ₹{entry_price:.2f}]"
+                            simple_mntm_actions[times[idx]] = f"{simple_mntm_actions.get(times[idx], '')} | {hit_str}".strip(' |')
+                            break
+                        else:
+                            old_low = cur_low
+                            if c_low < cur_low:
+                                cur_low = c_low
+                            if 'PCT' in m_mode:
+                                rtp = cur_low * (1 + m_val / 100)
+                            else:
+                                rtp = cur_low + m_val
+                            committed_target = self.round_to_tick(rtp)
+                            if cur_low != old_low:
+                                simple_mntm_actions[times[idx]] = f"[Simple Mntm Low] Low updated: ₹{cur_low:.2f} | Target: ₹{committed_target:.2f}"
+
+                    if hit_idx is not None:
+                        leg['simple_mntm_actions'] = simple_mntm_actions
+                        self._current_simple_mntm_actions = simple_mntm_actions
+                    else:
+                        end_time = times[-1]
+                        not_hit_str = f"[Simple Mntm Low] Not Hit | Last Low: ₹{cur_low:.2f} | Target: ₹{rtp_vals[-1]:.2f}"
+                        simple_mntm_actions[end_time] = f"{simple_mntm_actions.get(end_time, '')} | {not_hit_str}".strip(' |')
+                        leg['simple_mntm_actions'] = simple_mntm_actions
+                        self._current_simple_mntm_actions = simple_mntm_actions
+                        return None, df, 'MNTM_NOT_HIT'
+
                 else:
-                    rtp_series = cum_low + m_val
+                    cum_low = df.select(pl.col('low')).to_series().cum_min()
+                    cum_low = cum_low.map_elements(lambda x: min(x, base_price), return_dtype=pl.Float64)
 
-                rtp_series = rtp_series.map_elements(lambda x: self.round_to_tick(x), return_dtype=pl.Float64)
+                    if 'PCT' in m_mode:
+                        rtp_series = cum_low * (1 + m_val / 100)
+                    else:
+                        rtp_series = cum_low + m_val
 
-                # Check if calculated entry price falls within candle range:
-                # If low is updated in candle: check low <= rtp <= close
-                # If low is NOT updated in candle: check low <= rtp <= high
-                prev_cum_low = cum_low.shift(1).fill_null(base_price)
-                is_low_updated = (cum_low < prev_cum_low) | (pl.Series(range(df.height)) == 0)
-                check_top_series = df.select(pl.when(is_low_updated).then(pl.col('close')).otherwise(pl.col('high'))).to_series()
-                low_series = df.select(pl.col('low')).to_series()
-                rtp_hit_mask = (low_series <= rtp_series) & (rtp_series <= check_top_series)
+                    rtp_series = rtp_series.map_elements(lambda x: self.round_to_tick(x), return_dtype=pl.Float64)
 
-                times = df['time'].to_list()
-                low_vals = cum_low.to_list()
-                rtp_vals = rtp_series.to_list()
+                    # Check if calculated entry price falls within candle range:
+                    # If low is updated in candle: check low <= rtp <= close
+                    # If low is NOT updated in candle: check low <= rtp <= high
+                    prev_cum_low = cum_low.shift(1).fill_null(base_price)
+                    is_low_updated = (cum_low < prev_cum_low) | (pl.Series(range(df.height)) == 0)
+                    check_top_series = df.select(pl.when(is_low_updated).then(pl.col('close')).otherwise(pl.col('high'))).to_series()
+                    low_series = df.select(pl.col('low')).to_series()
+                    rtp_hit_mask = (low_series <= rtp_series) & (rtp_series <= check_top_series)
 
-                if rtp_hit_mask.any():
-                    hit_idx = rtp_hit_mask.arg_true()[0]
-                    entry_time = df['time'][hit_idx]
-                    entry_price = rtp_series[hit_idx]
-                    df = df[hit_idx:]
-                    max_idx = hit_idx
-                else:
-                    max_idx = len(times) - 1
+                    times = df['time'].to_list()
+                    low_vals = cum_low.to_list()
+                    rtp_vals = rtp_series.to_list()
 
-                last_low = None
-                for idx in range(max_idx + 1):
-                    t_str = times[idx]
-                    low = low_vals[idx]
-                    rtp = rtp_vals[idx]
-                    if idx == 0:
-                        simple_mntm_actions[t_str] = f"[Simple Mntm Low] Initial Low: ₹{low:.2f} | Target: ₹{rtp:.2f}"
-                        last_low = low
-                    elif low != last_low:
-                        simple_mntm_actions[t_str] = f"[Simple Mntm Low] Low updated: ₹{low:.2f} | Target: ₹{rtp:.2f}"
-                        last_low = low
+                    if rtp_hit_mask.any():
+                        hit_idx = rtp_hit_mask.arg_true()[0]
+                        entry_time = df['time'][hit_idx]
+                        entry_price = rtp_series[hit_idx]
+                        df = df[hit_idx:]
+                        max_idx = hit_idx
+                    else:
+                        max_idx = len(times) - 1
 
-                if rtp_hit_mask.any():
-                    hit_time = times[hit_idx]
-                    hit_str = f"[Mntm Hit: ₹{entry_price:.2f}]"
-                    simple_mntm_actions[hit_time] = f"{simple_mntm_actions[hit_time]} | {hit_str}" if hit_time in simple_mntm_actions else hit_str
-                    leg['simple_mntm_actions'] = simple_mntm_actions
-                    self._current_simple_mntm_actions = simple_mntm_actions
-                else:
-                    end_time = times[-1]
-                    not_hit_str = f"[Simple Mntm Low] Not Hit | Last Low: ₹{low_vals[-1]:.2f} | Target: ₹{rtp_vals[-1]:.2f}"
-                    simple_mntm_actions[end_time] = f"{simple_mntm_actions[end_time]} | {not_hit_str}" if end_time in simple_mntm_actions else not_hit_str
-                    leg['simple_mntm_actions'] = simple_mntm_actions
-                    self._current_simple_mntm_actions = simple_mntm_actions
-                    return None, df, 'MNTM_NOT_HIT'
+                    last_low = None
+                    for idx in range(max_idx + 1):
+                        t_str = times[idx]
+                        low = low_vals[idx]
+                        rtp = rtp_vals[idx]
+                        if idx == 0:
+                            simple_mntm_actions[t_str] = f"[Simple Mntm Low] Initial Low: ₹{low:.2f} | Target: ₹{rtp:.2f}"
+                            last_low = low
+                        elif low != last_low:
+                            simple_mntm_actions[t_str] = f"[Simple Mntm Low] Low updated: ₹{low:.2f} | Target: ₹{rtp:.2f}"
+                            last_low = low
+
+                    if rtp_hit_mask.any():
+                        hit_time = times[hit_idx]
+                        hit_str = f"[Mntm Hit: ₹{entry_price:.2f}]"
+                        simple_mntm_actions[hit_time] = f"{simple_mntm_actions[hit_time]} | {hit_str}" if hit_time in simple_mntm_actions else hit_str
+                        leg['simple_mntm_actions'] = simple_mntm_actions
+                        self._current_simple_mntm_actions = simple_mntm_actions
+                    else:
+                        end_time = times[-1]
+                        not_hit_str = f"[Simple Mntm Low] Not Hit | Last Low: ₹{low_vals[-1]:.2f} | Target: ₹{rtp_vals[-1]:.2f}"
+                        simple_mntm_actions[end_time] = f"{simple_mntm_actions.get(end_time, '')} | {not_hit_str}" if end_time in simple_mntm_actions else not_hit_str
+                        leg['simple_mntm_actions'] = simple_mntm_actions
+                        self._current_simple_mntm_actions = simple_mntm_actions
+                        return None, df, 'MNTM_NOT_HIT'
 
             else:
                 mtp = base_price
@@ -760,45 +878,117 @@ class BacktestEngine:
                                     mntm_val = float(lazy_config.get('simple_mntm_value', 0))
 
                                     if m_type == 'HIGH':
-                                        cum_high = df.select(pl.col('high')).to_series().cum_max()
-                                        cum_high = cum_high.map_elements(lambda x: max(x, base_otp), return_dtype=pl.Float64)
-                                        if 'PCT' in mntm_mode:
-                                            rtp_series = cum_high * (1 - mntm_val / 100)
+                                        target_on_close = bool(lazy_config.get('simple_mntm_target_on_close'))
+                                        if target_on_close:
+                                            times = df['time'].to_list()
+                                            opens = df['open'].to_list()
+                                            highs = df['high'].to_list()
+                                            lows = df['low'].to_list()
+                                            cur_peak = max(base_otp, highs[0])
+                                            if 'PCT' in mntm_mode:
+                                                rtp = cur_peak * (1 - mntm_val / 100)
+                                            else:
+                                                rtp = cur_peak - mntm_val
+                                            committed_target = self.round_to_tick(rtp)
+                                            cross_idx = None
+                                            for idx in range(1, len(times)):
+                                                c_open = opens[idx]
+                                                c_high = highs[idx]
+                                                c_low = lows[idx]
+                                                hit = (c_high >= committed_target) if c_open < committed_target else (c_low <= committed_target)
+                                                if hit:
+                                                    cross_idx = idx
+                                                    break
+                                                else:
+                                                    if c_high > cur_peak:
+                                                        cur_peak = c_high
+                                                    if 'PCT' in mntm_mode:
+                                                        rtp = cur_peak * (1 - mntm_val / 100)
+                                                    else:
+                                                        rtp = cur_peak - mntm_val
+                                                    committed_target = self.round_to_tick(rtp)
+                                            if cross_idx is not None:
+                                                df = df[cross_idx:]
+                                                re_entry_time = df['time'][0]
+                                                pending_override_entry_price = committed_target
+                                            else:
+                                                df = df[0:0]
                                         else:
-                                            rtp_series = cum_high - mntm_val
-                                        rtp_series = rtp_series.map_elements(lambda x: self.round_to_tick(x), return_dtype=pl.Float64)
-                                        prev_cum_high = cum_high.shift(1).fill_null(base_otp)
-                                        is_peak_updated = (cum_high > prev_cum_high) | (pl.Series(range(df.height)) == 0)
-                                        check_bottom_series = df.select(pl.when(is_peak_updated).then(pl.col('close')).otherwise(pl.col('low'))).to_series()
-                                        high_series = df.select(pl.col('high')).to_series()
-                                        cross_mask = (check_bottom_series <= rtp_series) & (rtp_series <= high_series)
-                                        if cross_mask.any():
-                                            cross_idx = cross_mask.arg_true()[0]
-                                            df = df[cross_idx:]
-                                            re_entry_time = df['time'][0]
-                                            pending_override_entry_price = rtp_series[cross_idx]
-                                        else:
-                                            df = df[0:0]
+                                            cum_high = df.select(pl.col('high')).to_series().cum_max()
+                                            cum_high = cum_high.map_elements(lambda x: max(x, base_otp), return_dtype=pl.Float64)
+                                            if 'PCT' in mntm_mode:
+                                                rtp_series = cum_high * (1 - mntm_val / 100)
+                                            else:
+                                                rtp_series = cum_high - mntm_val
+                                            rtp_series = rtp_series.map_elements(lambda x: self.round_to_tick(x), return_dtype=pl.Float64)
+                                            prev_cum_high = cum_high.shift(1).fill_null(base_otp)
+                                            is_peak_updated = (cum_high > prev_cum_high) | (pl.Series(range(df.height)) == 0)
+                                            check_bottom_series = df.select(pl.when(is_peak_updated).then(pl.col('close')).otherwise(pl.col('low'))).to_series()
+                                            high_series = df.select(pl.col('high')).to_series()
+                                            cross_mask = (check_bottom_series <= rtp_series) & (rtp_series <= high_series)
+                                            if cross_mask.any():
+                                                cross_idx = cross_mask.arg_true()[0]
+                                                df = df[cross_idx:]
+                                                re_entry_time = df['time'][0]
+                                                pending_override_entry_price = rtp_series[cross_idx]
+                                            else:
+                                                df = df[0:0]
                                     elif m_type == 'LOW':
-                                        cum_low = df.select(pl.col('low')).to_series().cum_min()
-                                        cum_low = cum_low.map_elements(lambda x: min(x, base_otp), return_dtype=pl.Float64)
-                                        if 'PCT' in mntm_mode:
-                                            rtp_series = cum_low * (1 + mntm_val / 100)
+                                        target_on_close = bool(lazy_config.get('simple_mntm_target_on_close'))
+                                        if target_on_close:
+                                            times = df['time'].to_list()
+                                            opens = df['open'].to_list()
+                                            highs = df['high'].to_list()
+                                            lows = df['low'].to_list()
+                                            cur_low = min(base_otp, lows[0])
+                                            if 'PCT' in mntm_mode:
+                                                rtp = cur_low * (1 + mntm_val / 100)
+                                            else:
+                                                rtp = cur_low + mntm_val
+                                            committed_target = self.round_to_tick(rtp)
+                                            cross_idx = None
+                                            for idx in range(1, len(times)):
+                                                c_open = opens[idx]
+                                                c_high = highs[idx]
+                                                c_low = lows[idx]
+                                                hit = (c_low <= committed_target) if c_open > committed_target else (c_high >= committed_target)
+                                                if hit:
+                                                    cross_idx = idx
+                                                    break
+                                                else:
+                                                    if c_low < cur_low:
+                                                        cur_low = c_low
+                                                    if 'PCT' in mntm_mode:
+                                                        rtp = cur_low * (1 + mntm_val / 100)
+                                                    else:
+                                                        rtp = cur_low + mntm_val
+                                                    committed_target = self.round_to_tick(rtp)
+                                            if cross_idx is not None:
+                                                df = df[cross_idx:]
+                                                re_entry_time = df['time'][0]
+                                                pending_override_entry_price = committed_target
+                                            else:
+                                                df = df[0:0]
                                         else:
-                                            rtp_series = cum_low + mntm_val
-                                        rtp_series = rtp_series.map_elements(lambda x: self.round_to_tick(x), return_dtype=pl.Float64)
-                                        prev_cum_low = cum_low.shift(1).fill_null(base_otp)
-                                        is_low_updated = (cum_low < prev_cum_low) | (pl.Series(range(df.height)) == 0)
-                                        check_top_series = df.select(pl.when(is_low_updated).then(pl.col('close')).otherwise(pl.col('high'))).to_series()
-                                        low_series = df.select(pl.col('low')).to_series()
-                                        cross_mask = (low_series <= rtp_series) & (rtp_series <= check_top_series)
-                                        if cross_mask.any():
-                                            cross_idx = cross_mask.arg_true()[0]
-                                            df = df[cross_idx:]
-                                            re_entry_time = df['time'][0]
-                                            pending_override_entry_price = rtp_series[cross_idx]
-                                        else:
-                                            df = df[0:0]
+                                            cum_low = df.select(pl.col('low')).to_series().cum_min()
+                                            cum_low = cum_low.map_elements(lambda x: min(x, base_otp), return_dtype=pl.Float64)
+                                            if 'PCT' in mntm_mode:
+                                                rtp_series = cum_low * (1 + mntm_val / 100)
+                                            else:
+                                                rtp_series = cum_low + mntm_val
+                                            rtp_series = rtp_series.map_elements(lambda x: self.round_to_tick(x), return_dtype=pl.Float64)
+                                            prev_cum_low = cum_low.shift(1).fill_null(base_otp)
+                                            is_low_updated = (cum_low < prev_cum_low) | (pl.Series(range(df.height)) == 0)
+                                            check_top_series = df.select(pl.when(is_low_updated).then(pl.col('close')).otherwise(pl.col('high'))).to_series()
+                                            low_series = df.select(pl.col('low')).to_series()
+                                            cross_mask = (low_series <= rtp_series) & (rtp_series <= check_top_series)
+                                            if cross_mask.any():
+                                                cross_idx = cross_mask.arg_true()[0]
+                                                df = df[cross_idx:]
+                                                re_entry_time = df['time'][0]
+                                                pending_override_entry_price = rtp_series[cross_idx]
+                                            else:
+                                                df = df[0:0]
                                     else:
                                         mtp = base_otp
                                         if 'PLUS_PCT' in mntm_mode or mntm_mode == 'PLUS_PCT': mtp += (mtp * mntm_val / 100)

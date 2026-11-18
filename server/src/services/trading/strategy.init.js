@@ -166,10 +166,16 @@ async function handleInitialEntry(strategyId, strategy) {
 
             if (isVirtualStrategy) {
                 if (isSimpleMntm) {
-                    roundedMntmTarget = calculateMomentumTarget(instLtp, item.leg);
-                    legState = "WAITING_FOR_SIMPLE_MNTM";
                     const mntmType = item.leg.simple_mntm_type || "NORMAL";
-                    addStrategyLog(strategyId, `[VIRTUAL] Simple Mntm (${mntmType}) enabled for ${item.instrument.symbol}. Snapshot: ₹${instLtp}. Initial Target: ₹${roundedMntmTarget}...`, "INFO");
+                    const isHighOrLow = mntmType === "HIGH" || mntmType === "LOW";
+                    const targetOnClose = isHighOrLow && !!item.leg.simple_mntm_target_on_close;
+                    roundedMntmTarget = targetOnClose ? null : calculateMomentumTarget(instLtp, item.leg);
+                    legState = "WAITING_FOR_SIMPLE_MNTM";
+                    if (targetOnClose) {
+                        addStrategyLog(strategyId, `[VIRTUAL] Simple Mntm (${mntmType} Target on Close) enabled for ${item.instrument.symbol}. Snapshot: ₹${instLtp}. Waiting for candle close...`, "INFO");
+                    } else {
+                        addStrategyLog(strategyId, `[VIRTUAL] Simple Mntm (${mntmType}) enabled for ${item.instrument.symbol}. Snapshot: ₹${instLtp}. Initial Target: ₹${roundedMntmTarget}...`, "INFO");
+                    }
                     orderData = {
                         orderid: `VIRTUAL-SIMPLE-${Date.now()}_${idx}`,
                         uniqueorderid: `UVIRTUAL-SIMPLE-${Date.now()}_${idx}`,
@@ -186,14 +192,19 @@ async function handleInitialEntry(strategyId, strategy) {
                     addStrategyLog(strategyId, `[VIRTUAL] Initial entry created for ${item.instrument.symbol} at ₹${instLtp}. Virtual monitoring active.`, "INFO");
                 }
             } else if (isSimpleMntm) {
-                roundedMntmTarget = calculateMomentumTarget(instLtp, item.leg);
                 const mntmType = item.leg.simple_mntm_type || "NORMAL";
                 const isHighOrLow = mntmType === "HIGH" || mntmType === "LOW";
+                const targetOnClose = isHighOrLow && !!item.leg.simple_mntm_target_on_close;
+                roundedMntmTarget = targetOnClose ? null : calculateMomentumTarget(instLtp, item.leg);
 
                 if (config.is_paper_trading || isHighOrLow) {
                     legState = "WAITING_FOR_SIMPLE_MNTM";
                     const prefix = config.is_paper_trading ? "[PAPER]" : "[LIVE]";
-                    addStrategyLog(strategyId, `${prefix} Simple Mntm (${mntmType}) enabled for ${item.instrument.symbol}. Snapshot: ₹${instLtp}. Initial Target: ₹${roundedMntmTarget}...`, "INFO");
+                    if (targetOnClose) {
+                        addStrategyLog(strategyId, `${prefix} Simple Mntm (${mntmType} Target on Close) enabled for ${item.instrument.symbol}. Snapshot: ₹${instLtp}. Waiting for candle close...`, "INFO");
+                    } else {
+                        addStrategyLog(strategyId, `${prefix} Simple Mntm (${mntmType}) enabled for ${item.instrument.symbol}. Snapshot: ₹${instLtp}. Initial Target: ₹${roundedMntmTarget}...`, "INFO");
+                    }
                     orderData = {
                         orderid: `${config.is_paper_trading ? 'V' : 'LIVE'}-SIMPLE-${Date.now()}_${idx}`,
                         uniqueorderid: `${config.is_paper_trading ? 'VU' : 'ULIVE'}-SIMPLE-${Date.now()}_${idx}`,
@@ -238,6 +249,10 @@ async function handleInitialEntry(strategyId, strategy) {
                 legState = "ACTIVE";
             }
 
+            const isHighMntm = item.leg.simple_mntm_type === "HIGH" && isSimpleMntm;
+            const isLowMntm = item.leg.simple_mntm_type === "LOW" && isSimpleMntm;
+            const targetOnClose = (isHighMntm || isLowMntm) && !!item.leg.simple_mntm_target_on_close;
+
             const leg = {
                 ...item,
                 orderId: orderData.orderid,
@@ -259,11 +274,18 @@ async function handleInitialEntry(strategyId, strategy) {
                 reentry_count: 0,
                 is_initial_leg: true,
                 last_tick_price: null,
-                max_peak_price: (item.leg.simple_mntm_type === "HIGH" && isSimpleMntm) ? instLtp : null,
-                max_low_price: (item.leg.simple_mntm_type === "LOW" && isSimpleMntm) ? instLtp : null,
-                re_high_trigger_price: (item.leg.simple_mntm_type === "HIGH" && isSimpleMntm) ? roundedMntmTarget : null,
-                re_low_trigger_price: (item.leg.simple_mntm_type === "LOW" && isSimpleMntm) ? roundedMntmTarget : null,
-                rtp: ((item.leg.simple_mntm_type === "HIGH" || item.leg.simple_mntm_type === "LOW") && isSimpleMntm) ? roundedMntmTarget : null,
+                committed_target: null,
+                committed_peak_price: null,
+                committed_low_price: null,
+                live_peak_price: isHighMntm ? instLtp : null,
+                live_low_price: isLowMntm ? instLtp : null,
+                max_peak_price: isHighMntm ? (targetOnClose ? null : instLtp) : null,
+                max_low_price: isLowMntm ? (targetOnClose ? null : instLtp) : null,
+                re_high_trigger_price: isHighMntm ? (targetOnClose ? null : roundedMntmTarget) : null,
+                re_low_trigger_price: isLowMntm ? (targetOnClose ? null : roundedMntmTarget) : null,
+                rtp: (isHighMntm || isLowMntm) ? (targetOnClose ? null : roundedMntmTarget) : null,
+                last_simple_mntm_minute: (config.entry_time || getISTTime()).substring(0, 5),
+                last_commit_minute: null,
                 bookedPnlPoints: 0,
                 bookedPnlRupees: 0,
                 currentActivePnlPoints: 0,

@@ -333,64 +333,208 @@ async function monitorStrategyLoop(strategyId, strategy) {
                     if (isReentryBlockedThisMinute) continue;
 
                     const mntmType = leg.leg.simple_mntm_type || "NORMAL";
+                    const targetOnClose = (mntmType === "HIGH" || mntmType === "LOW") && !!leg.leg.simple_mntm_target_on_close;
+                    const currentSeconds = parseInt(currentTime.split(":")[2], 10);
                     let mntmHit = false;
                     let target = leg.mntmTargetPrice;
 
                     if (mntmType === "HIGH") {
-                        let isNewPeak = false;
-                        if (!leg.max_peak_price || tickPrice > leg.max_peak_price) {
-                            leg.max_peak_price = tickPrice;
-                            isNewPeak = true;
-                        }
-
                         const mode = leg.leg.simple_mntm_mode || 'HIGH_MINUS_PTS';
                         const val = parseFloat(leg.leg.simple_mntm_value || 0);
-                        const peak = leg.max_peak_price;
-                        let rtp = peak;
 
-                        if (mode.includes('PCT')) rtp = peak - (peak * val / 100);
-                        else rtp = peak - val;
+                        if (targetOnClose) {
+                            // Target on Close:
+                            // Fallback commit if :59 was skipped by tick timing before rolling to a new minute
+                            if (
+                                leg.last_simple_mntm_minute &&
+                                leg.last_simple_mntm_minute !== currentMinute &&
+                                leg.last_commit_minute !== leg.last_simple_mntm_minute
+                            ) {
+                                const extremumToCommit = leg.live_peak_price ?? leg.max_peak_price ?? tickPrice;
+                                leg.committed_peak_price = extremumToCommit;
+                                leg.max_peak_price = extremumToCommit;
+                                let rtp = extremumToCommit;
+                                if (mode.includes('PCT')) rtp = extremumToCommit - (extremumToCommit * val / 100);
+                                else rtp = extremumToCommit - val;
+                                rtp = roundToTick(rtp);
+                                leg.committed_target = rtp;
+                                leg.mntmTargetPrice = rtp;
+                                leg.rtp = rtp;
+                                leg.re_high_trigger_price = rtp;
+                                leg.last_commit_minute = leg.last_simple_mntm_minute;
+                                leg.prev_committed_target = undefined;
+                                addStrategyLog(strategyId, `[SIMPLE MNTM HIGH] Candle Close for ${leg.instrument?.symbol} — Committing Peak: ₹${extremumToCommit}, Target: ₹${rtp}`, "INFO");
+                            }
 
-                        rtp = roundToTick(rtp);
-                        leg.re_high_trigger_price = rtp;
-                        leg.mntmTargetPrice = rtp;
-                        leg.rtp = rtp;
-                        target = rtp;
+                            // Track live peak intra-minute
+                            if (!leg.live_peak_price || tickPrice > leg.live_peak_price) {
+                                leg.live_peak_price = tickPrice;
+                            }
+                            leg.last_simple_mntm_minute = currentMinute;
 
-                        if (isNewPeak) {
-                            addStrategyLog(strategyId, `[SIMPLE MNTM HIGH] PEAK: ₹${peak} | Target: ₹${target} for ${leg.instrument?.symbol}`, "INFO");
-                        }
+                            // Active committed target for checking in this candle
+                            // If :59 committed for the NEXT minute on an earlier tick in :59, keep checking this minute against prev_committed_target
+                            const activeTarget = (leg.last_commit_minute === currentMinute && leg.prev_committed_target !== undefined)
+                                ? leg.prev_committed_target
+                                : leg.committed_target;
 
-                        if (tickPrice <= target) {
-                            mntmHit = true;
+                            // First candle (when activeTarget == null) will NOT have a target to check!
+                            if (activeTarget != null) {
+                                const candleOpen = leg.candleOpen ?? tickPrice;
+                                if (candleOpen < activeTarget) {
+                                    mntmHit = (tickPrice >= activeTarget);
+                                } else {
+                                    mntmHit = (tickPrice <= activeTarget);
+                                }
+                                if (mntmHit) {
+                                    target = activeTarget;
+                                    leg.mntmTargetPrice = activeTarget;
+                                    leg.rtp = activeTarget;
+                                }
+                            }
+
+                            // Commit at second 59 if still waiting
+                            if (!mntmHit && currentSeconds === 59 && leg.last_commit_minute !== currentMinute) {
+                                leg.prev_committed_target = leg.committed_target;
+                                const extremumToCommit = leg.live_peak_price ?? tickPrice;
+                                leg.committed_peak_price = extremumToCommit;
+                                leg.max_peak_price = extremumToCommit;
+                                let rtp = extremumToCommit;
+                                if (mode.includes('PCT')) rtp = extremumToCommit - (extremumToCommit * val / 100);
+                                else rtp = extremumToCommit - val;
+                                rtp = roundToTick(rtp);
+                                leg.committed_target = rtp;
+                                leg.mntmTargetPrice = rtp;
+                                leg.rtp = rtp;
+                                leg.re_high_trigger_price = rtp;
+                                leg.last_commit_minute = currentMinute;
+                                addStrategyLog(strategyId, `[SIMPLE MNTM HIGH] Candle Close for ${leg.instrument?.symbol} — Committing Peak: ₹${extremumToCommit}, Target: ₹${rtp}`, "INFO");
+                            }
+                        } else {
+                            let isNewPeak = false;
+                            if (!leg.max_peak_price || tickPrice > leg.max_peak_price) {
+                                leg.max_peak_price = tickPrice;
+                                isNewPeak = true;
+                            }
+
+                            const peak = leg.max_peak_price;
+                            let rtp = peak;
+
+                            if (mode.includes('PCT')) rtp = peak - (peak * val / 100);
+                            else rtp = peak - val;
+
+                            rtp = roundToTick(rtp);
+                            leg.re_high_trigger_price = rtp;
+                            leg.mntmTargetPrice = rtp;
+                            leg.rtp = rtp;
+                            target = rtp;
+
+                            if (isNewPeak) {
+                                addStrategyLog(strategyId, `[SIMPLE MNTM HIGH] PEAK: ₹${peak} | Target: ₹${target} for ${leg.instrument?.symbol}`, "INFO");
+                            }
+
+                            if (tickPrice <= target) {
+                                mntmHit = true;
+                            }
                         }
                     } else if (mntmType === "LOW") {
-                        let isNewLow = false;
-                        if (!leg.max_low_price || tickPrice < leg.max_low_price) {
-                            leg.max_low_price = tickPrice;
-                            isNewLow = true;
-                        }
-
                         const mode = leg.leg.simple_mntm_mode || 'LOW_PLUS_PTS';
                         const val = parseFloat(leg.leg.simple_mntm_value || 0);
-                        const low = leg.max_low_price;
-                        let rtp = low;
 
-                        if (mode.includes('PCT')) rtp = low + (low * val / 100);
-                        else rtp = low + val;
+                        if (targetOnClose) {
+                            // Target on Close:
+                            // Fallback commit if :59 was skipped by tick timing before rolling to a new minute
+                            if (
+                                leg.last_simple_mntm_minute &&
+                                leg.last_simple_mntm_minute !== currentMinute &&
+                                leg.last_commit_minute !== leg.last_simple_mntm_minute
+                            ) {
+                                const extremumToCommit = leg.live_low_price ?? leg.max_low_price ?? tickPrice;
+                                leg.committed_low_price = extremumToCommit;
+                                leg.max_low_price = extremumToCommit;
+                                let rtp = extremumToCommit;
+                                if (mode.includes('PCT')) rtp = extremumToCommit + (extremumToCommit * val / 100);
+                                else rtp = extremumToCommit + val;
+                                rtp = roundToTick(rtp);
+                                leg.committed_target = rtp;
+                                leg.mntmTargetPrice = rtp;
+                                leg.rtp = rtp;
+                                leg.re_low_trigger_price = rtp;
+                                leg.last_commit_minute = leg.last_simple_mntm_minute;
+                                leg.prev_committed_target = undefined;
+                                addStrategyLog(strategyId, `[SIMPLE MNTM LOW] Candle Close for ${leg.instrument?.symbol} — Committing Low: ₹${extremumToCommit}, Target: ₹${rtp}`, "INFO");
+                            }
 
-                        rtp = roundToTick(rtp);
-                        leg.re_low_trigger_price = rtp;
-                        leg.mntmTargetPrice = rtp;
-                        leg.rtp = rtp;
-                        target = rtp;
+                            // Track live low intra-minute
+                            if (!leg.live_low_price || tickPrice < leg.live_low_price) {
+                                leg.live_low_price = tickPrice;
+                            }
+                            leg.last_simple_mntm_minute = currentMinute;
 
-                        if (isNewLow) {
-                            addStrategyLog(strategyId, `[SIMPLE MNTM LOW] LOW: ₹${low} | Target: ₹${target} for ${leg.instrument?.symbol}`, "INFO");
-                        }
+                            // Active committed target for checking in this candle
+                            // If :59 committed for the NEXT minute on an earlier tick in :59, keep checking this minute against prev_committed_target
+                            const activeTarget = (leg.last_commit_minute === currentMinute && leg.prev_committed_target !== undefined)
+                                ? leg.prev_committed_target
+                                : leg.committed_target;
 
-                        if (tickPrice >= target) {
-                            mntmHit = true;
+                            // First candle (when activeTarget == null) will NOT have a target to check!
+                            if (activeTarget != null) {
+                                const candleOpen = leg.candleOpen ?? tickPrice;
+                                if (candleOpen > activeTarget) {
+                                    mntmHit = (tickPrice <= activeTarget);
+                                } else {
+                                    mntmHit = (tickPrice >= activeTarget);
+                                }
+                                if (mntmHit) {
+                                    target = activeTarget;
+                                    leg.mntmTargetPrice = activeTarget;
+                                    leg.rtp = activeTarget;
+                                }
+                            }
+
+                            // Commit at second 59 if still waiting
+                            if (!mntmHit && currentSeconds === 59 && leg.last_commit_minute !== currentMinute) {
+                                leg.prev_committed_target = leg.committed_target;
+                                const extremumToCommit = leg.live_low_price ?? tickPrice;
+                                leg.committed_low_price = extremumToCommit;
+                                leg.max_low_price = extremumToCommit;
+                                let rtp = extremumToCommit;
+                                if (mode.includes('PCT')) rtp = extremumToCommit + (extremumToCommit * val / 100);
+                                else rtp = extremumToCommit + val;
+                                rtp = roundToTick(rtp);
+                                leg.committed_target = rtp;
+                                leg.mntmTargetPrice = rtp;
+                                leg.rtp = rtp;
+                                leg.re_low_trigger_price = rtp;
+                                leg.last_commit_minute = currentMinute;
+                                addStrategyLog(strategyId, `[SIMPLE MNTM LOW] Candle Close for ${leg.instrument?.symbol} — Committing Low: ₹${extremumToCommit}, Target: ₹${rtp}`, "INFO");
+                            }
+                        } else {
+                            let isNewLow = false;
+                            if (!leg.max_low_price || tickPrice < leg.max_low_price) {
+                                leg.max_low_price = tickPrice;
+                                isNewLow = true;
+                            }
+
+                            const low = leg.max_low_price;
+                            let rtp = low;
+
+                            if (mode.includes('PCT')) rtp = low + (low * val / 100);
+                            else rtp = low + val;
+
+                            rtp = roundToTick(rtp);
+                            leg.re_low_trigger_price = rtp;
+                            leg.mntmTargetPrice = rtp;
+                            leg.rtp = rtp;
+                            target = rtp;
+
+                            if (isNewLow) {
+                                addStrategyLog(strategyId, `[SIMPLE MNTM LOW] LOW: ₹${low} | Target: ₹${target} for ${leg.instrument?.symbol}`, "INFO");
+                            }
+
+                            if (tickPrice >= target) {
+                                mntmHit = true;
+                            }
                         }
                     } else {
                         // NORMAL mode
